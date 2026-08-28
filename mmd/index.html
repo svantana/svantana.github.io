@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>music machine designer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root{
+    --bg: #131418;
+    --panel: #1b1d23;
+    --panel-2: #202329;
+    --hairline: #2c2f37;
+    --ink: #e7e4dc;
+    --ink-dim: #8b8d95;
+    --brass: #cf9a5c;
+    --teal: #5fa8a0;
+    --err: #d9705f;
+    --ok: #7fbf8a;
+    --mono: ui-monospace, "IBM Plex Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: Inter, ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
+  }
+  *{ box-sizing: border-box; }
+  html,body{
+    margin:0; height:100%; background:var(--bg); color:var(--ink);
+    font-family: var(--sans); overflow:hidden;
+  }
+  .app{
+    display:grid;
+    grid-template-rows: 52px 1fr;
+    height:100vh;
+  }
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 0 18px;
+    border-bottom: 1px solid var(--hairline);
+    background: linear-gradient(180deg, #17181d, #131418);
+  }
+  .brand{ display:flex; align-items:baseline; gap:10px; }
+  .brand .mark{
+    width:9px; height:9px; border-radius:2px;
+    background: var(--brass);
+    box-shadow: 0 0 8px rgba(207,154,92,0.6);
+  }
+  .brand h1{
+    font-size: 13px; letter-spacing: 0.14em; font-weight:600;
+    text-transform: uppercase; margin:0; color: var(--ink);
+  }
+  .brand span{ font-size:11px; color: var(--ink-dim); font-family: var(--mono); }
+  .status{
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim);
+    display:flex; align-items:center; gap:8px;
+  }
+  .status .dot{ width:7px; height:7px; border-radius:50%; background: var(--ok); transition: background .2s; }
+  .status.error .dot{ background: var(--err); }
+
+  main{ display:grid; grid-template-columns: 400px 1fr; min-height:0; }
+
+  /* ---------- Editor panel ---------- */
+  .editor-panel{
+    display:flex; flex-direction:column; min-height:0;
+    border-right: 1px solid var(--hairline);
+    background: var(--panel);
+  }
+  .editor-toolbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 10px 14px; border-bottom: 1px solid var(--hairline);
+    background: var(--panel-2);
+  }
+  .editor-toolbar .filename{
+    font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
+  }
+  .editor-toolbar .filename b{ color: var(--ink); font-weight:600; }
+  .toolbar-btns{ display:flex; gap:6px; }
+  button.tool{
+    font-family: var(--sans); font-size: 11.5px; font-weight:600;
+    color: var(--ink-dim); background: transparent;
+    border: 1px solid var(--hairline); border-radius: 5px;
+    padding: 5px 10px; cursor:pointer; letter-spacing:0.02em;
+    transition: all .15s;
+  }
+  button.tool:hover{ color: var(--ink); border-color:#454852; background:#25282f; }
+
+  .editor-body{ flex:1; display:flex; min-height:0; position:relative; }
+  .gutter{
+    width: 42px; flex-shrink:0; overflow:hidden;
+    background: var(--panel); border-right: 1px solid var(--hairline);
+    text-align:right; padding: 14px 8px 14px 0;
+  }
+  .gutter div{
+    font-family: var(--mono); font-size: 12.5px; line-height: 20px;
+    color: #4b4e57;
+  }
+  textarea#editor{
+    flex:1; resize:none; border:none; outline:none;
+    background: var(--panel); color: var(--ink);
+    font-family: var(--mono); font-size: 12.5px; line-height: 20px;
+    padding: 14px; tab-size: 2;
+  }
+  .editor-footer{
+    padding: 8px 14px; border-top: 1px solid var(--hairline);
+    background: var(--panel-2); min-height: 34px;
+    display:flex; align-items:center;
+    font-family: var(--mono); font-size: 11.5px;
+  }
+  .editor-footer.ok{ color: var(--ok); }
+  .editor-footer.error{ color: var(--err); }
+
+  .schema-note{
+    padding: 12px 14px; border-top: 1px solid var(--hairline);
+    font-family: var(--mono); font-size: 10.8px; line-height:1.6;
+    color: var(--ink-dim); background: var(--panel);
+  }
+  .schema-note b{ color: var(--teal); font-weight:600; }
+
+  /* ---------- Viewport ---------- */
+  .viewport{ position:relative; min-height:0; }
+  .viewport canvas{ display:block; width:100%; height:100%; }
+  .viewport-hint, .viewport-meta{
+    position:absolute; font-family: var(--mono); font-size: 11px;
+    color: rgba(231,228,220,0.5); pointer-events:none; letter-spacing:0.03em;
+  }
+  .viewport-hint{ bottom: 16px; left: 18px; }
+  .viewport-meta{ bottom: 16px; right: 18px; text-align:right; }
+  .viewport-title{
+    position:absolute; top:16px; left:18px;
+    font-family: var(--mono); font-size: 11px; letter-spacing:0.08em;
+    color: rgba(231,228,220,0.45); text-transform:uppercase;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <div class="mark"></div>
+      <h1>music machine designer</h1>
+      <span>/// live JSON &rarr; 3D panel renderer</span>
+    </div>
+    <div class="status ok" id="status">
+      <div class="dot"></div>
+      <span id="statusText">synced</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="editor-panel">
+      <div class="editor-toolbar">
+        <div class="filename"><b>config.json</b> · panel definition</div>
+        <div class="toolbar-btns">
+          <button class="tool" id="btnFormat">Format</button>
+          <button class="tool" id="btnReset">Reset</button>
+        </div>
+      </div>
+      <div class="editor-body">
+        <div class="gutter" id="gutter"></div>
+        <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+      </div>
+      <div class="editor-footer ok" id="footer">No errors.</div>
+      <div class="schema-note">
+        <b>body</b>: width, height, depth, roundedness (0–0.5), color, roughness (0–1), metalness (0–1)<br/>
+        <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, color, roughness, metalness, value (0–1)<br/>
+        <b>buttons[]</b>: label, labelColor, labelSize, labelPosition ("on"/"above"/"below"), x, y, width, length, travel, color, roughness, metalness, pressed<br/>
+        &nbsp;&nbsp;labelPosition "on" (default) shows a flat icon on the cap — play/stop/rec/etc. auto-map to monochrome symbols<br/>
+        <b>lcd</b>: width, height, x, y, text, textColor, backgroundColor<br/>
+        <b>surface</b>: color<br/>
+        <b>light</b>: x, y, z, color, intensity<br/>
+        <b>fillLight</b>: color, intensity (fixed-position secondary light)<br/><br/>
+        In knobs[]/buttons[]: entry 0 should set every field it needs.
+        Later entries inherit any omitted field from the entry before them.
+        Omitted x/y continue the sequence: x[n] = 2·x[n-1] − x[n-2].
+      </div>
+    </section>
+
+    <section class="viewport">
+      <div class="viewport-title">Render // orbit view</div>
+      <div class="viewport-hint">drag to orbit &nbsp;·&nbsp; scroll to zoom</div>
+      <div class="viewport-meta" id="meta">6 knobs · 1 display</div>
+      <div id="canvasHost" style="width:100%;height:100%;"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+/* ============================= Default config ============================= */
+const DEFAULT_CONFIG = {
+  body: {
+    width: 5,
+    height: 3,
+    depth: 0.6,
+    roundedness: 0.2,
+    color: "#d79",
+    roughness: 0.55,
+    metalness: 0.18
+  },
+  knobs: [
+    { label: "CUTOFF", labelColor: "#000", labelSize: 1, x: -2.0, y: 0.85, radius: 0.16, height: 0.22, color: "#eed", roughness: 0.4, metalness: 0.25, value: 0.62 },
+    { label: "RESO",   x: -1.2, value: 0.28 },
+    { label: "ATTACK", value: 0.1 },
+    { label: "DECAY",  value: 0.55 },
+    { label: "DRIVE",  radius: 0.18, height: 0.24, value: 0.8 },
+    { label: "MIX",    radius: 0.16, height: 0.22, value: 0.5 }
+  ],
+  buttons: [
+    { label: "PLAY",  labelColor: "#b59", labelSize: 1, x: -1.2, y: -0.85, width: 0.34, length: 0.28, color: "#eed", roughness: 0.4, metalness: 0.25, pressed: false },
+    { label: "STOP",  x: -0.4 },
+    { label: "REC",   pressed: false },
+    { label: "SHIFT", pressed: false }
+  ],
+  lcd: {
+    width: 1.6,
+    height: 0.65,
+    x: 0,
+    y: -0.05,
+    text: "PATCH 04\nSAW LEAD",
+    textColor: "#f7a",
+    backgroundColor: "#012"
+  },
+  surface: {
+    color: "#4cb"
+  },
+  light: {
+    x: -3,
+    y: -3,
+    z: 4,
+    color: "#bdf",
+	  intensity: 0.6
+  },
+  fillLight: {
+    color: "#fdb",
+    intensity: 0.9
+  }
+};
+
+/* ============================= Three.js setup ============================= */
+const host = document.getElementById('canvasHost');
+const scene = new THREE.Scene();
+
+// vertical gradient background for studio feel
+(function(){
+  const c = document.createElement('canvas');
+  c.width = 8; c.height = 256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0,0,0,256);
+  g.addColorStop(0, '#1c1e24');
+  g.addColorStop(0.55, '#131418');
+  g.addColorStop(1, '#0c0d10');
+  ctx.fillStyle = g; ctx.fillRect(0,0,8,256);
+  scene.background = new THREE.CanvasTexture(c);
+})();
+
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 60);
+const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+host.appendChild(renderer.domElement);
+
+// lights
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+const key = new THREE.DirectionalLight(0xfff2e0, 1.0); // settable via config.light
+key.position.set(4, 6, 5);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.near = 0.5;
+key.shadow.camera.far = 40;
+key.shadow.bias = -0.0001;
+key.shadow.normalBias = 0.02;
+scene.add(key);
+scene.add(key.target);
+const rim = new THREE.DirectionalLight(0x8fb8ff, 0.4); // settable via config.fillLight
+rim.position.set(-5, 2, -4);
+scene.add(rim);
+const fill = new THREE.DirectionalLight(0xffffff, 0.25);
+fill.position.set(-2, -3, 4);
+scene.add(fill);
+
+// floor surface (color settable via config.surface.color)
+const floorGeo = new THREE.PlaneGeometry(60, 60);
+const floorMat = new THREE.MeshStandardMaterial({ color: '#1c1e24', roughness: 0.9, metalness: 0.05 });
+const floor = new THREE.Mesh(floorGeo, floorMat);
+floor.receiveShadow = true;
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor);
+
+const rig = new THREE.Group();
+// lay the instrument flat: the panel face (where knobs/LCD sit) now points up (+Y)
+rig.rotation.x = -Math.PI / 2;
+scene.add(rig);
+
+/* ---------- manual orbit controls ---------- */
+let azimuth = 0, elevation = Math.PI / 3, radius = 8; // straight front, 60° elevation
+let dragging = false, lastX = 0, lastY = 0;
+
+function updateCamera(){
+  const clampedEl = Math.max(-1.1, Math.min(1.1, elevation));
+  const x = radius * Math.cos(clampedEl) * Math.sin(azimuth);
+  const y = radius * Math.sin(clampedEl);
+  const z = radius * Math.cos(clampedEl) * Math.cos(azimuth);
+  camera.position.set(x, y, z);
+  camera.lookAt(0, 0, 0);
+}
+
+const dom = renderer.domElement;
+dom.style.cursor = 'grab';
+dom.addEventListener('mousedown', e => { dragging = true; lastX = e.clientX; lastY = e.clientY; dom.style.cursor = 'grabbing'; });
+window.addEventListener('mouseup', () => { dragging = false; dom.style.cursor = 'grab'; });
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  azimuth -= dx * 0.006;
+  elevation += dy * 0.006;
+  updateCamera();
+});
+dom.addEventListener('wheel', e => {
+  e.preventDefault();
+  radius = Math.max(2.5, Math.min(24, radius + e.deltaY * 0.01));
+  updateCamera();
+}, { passive: false });
+
+let touchLast = null;
+dom.addEventListener('touchstart', e => { if (e.touches.length===1) touchLast = [e.touches[0].clientX, e.touches[0].clientY]; }, {passive:true});
+dom.addEventListener('touchmove', e => {
+  if (e.touches.length===1 && touchLast){
+    const dx = e.touches[0].clientX - touchLast[0];
+    const dy = e.touches[0].clientY - touchLast[1];
+    touchLast = [e.touches[0].clientX, e.touches[0].clientY];
+    azimuth -= dx * 0.006;
+    elevation += dy * 0.006;
+    updateCamera();
+  }
+}, {passive:true});
+dom.addEventListener('touchend', () => { touchLast = null; });
+
+/* ---------- geometry helpers ---------- */
+function roundedRectShape(w, h, r){
+  r = Math.min(r, w/2, h/2);
+  const shape = new THREE.Shape();
+  const x = -w/2, y = -h/2;
+  shape.moveTo(x, y + r);
+  shape.lineTo(x, y + h - r);
+  shape.quadraticCurveTo(x, y + h, x + r, y + h);
+  shape.lineTo(x + w - r, y + h);
+  shape.quadraticCurveTo(x + w, y + h, x + w, y + h - r);
+  shape.lineTo(x + w, y + r);
+  shape.quadraticCurveTo(x + w, y, x + w - r, y);
+  shape.lineTo(x + r, y);
+  shape.quadraticCurveTo(x, y, x, y + r);
+  return shape;
+}
+
+function makeBody(width, height, depth, roundedness, color, roughness, metalness){
+  const bevel = Math.max(0.001, Math.min(roundedness, Math.min(width, height) * 0.45, depth * 0.45));
+  const cornerR = Math.max(0.001, Math.min(bevel, Math.min(width, height) * 0.4));
+  const shape2 = roundedRectShape(width, height, cornerR);
+  const extrudeSettings = {
+    steps: 1,
+    depth: Math.max(0.02, depth - bevel * 2),
+    bevelEnabled: true,
+    bevelThickness: bevel,
+    bevelSize: bevel * 0.85,
+    bevelSegments: 6,
+    curveSegments: 12
+  };
+  const geo = new THREE.ExtrudeGeometry(shape2, extrudeSettings);
+  geo.center();
+  const mat = new THREE.MeshStandardMaterial({ color, roughness, metalness });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+// common transport/control labels rendered as icons when a button label sits "on" the cap
+// \uFE0E forces monochrome "text" presentation instead of a colored emoji glyph
+const BUTTON_EMOJI = {
+  PLAY: '\u25B6\uFE0E', STOP: '\u23F9\uFE0E', PAUSE: '\u23F8\uFE0E',
+  REC: '\u23FA\uFE0E', RECORD: '\u23FA\uFE0E',
+  FF: '\u23E9\uFE0E', FASTFORWARD: '\u23E9\uFE0E', REW: '\u23EA\uFE0E', REWIND: '\u23EA\uFE0E',
+  NEXT: '\u23ED\uFE0E', PREV: '\u23EE\uFE0E', PREVIOUS: '\u23EE\uFE0E',
+  EJECT: '\u23CF\uFE0E', POWER: '\u23FB\uFE0E',
+  UP: '\u2B06\uFE0E', DOWN: '\u2B07\uFE0E', HOLD: '\u23F8\uFE0E'
+};
+
+function textTexture(text, {
+  width = 256, height = 128, bg = 'transparent', fg = '#ffffff',
+  font = '600 34px ui-monospace, monospace', align = 'center'
+} = {}){
+  const c = document.createElement('canvas');
+  c.width = width; c.height = height;
+  const ctx = c.getContext('2d');
+  if (bg !== 'transparent'){ ctx.fillStyle = bg; ctx.fillRect(0,0,width,height); }
+  ctx.font = font;
+  ctx.fillStyle = fg;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'middle';
+  const lines = String(text).split('\n');
+  const lh = height / (lines.length + 1);
+  lines.forEach((line, i) => {
+    ctx.fillText(line, align === 'center' ? width/2 : 8, lh * (i+1));
+  });
+  const tex = new THREE.CanvasTexture(c);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function makeKnob(k, depth){
+  const g = new THREE.Group();
+  const radius = num(k.radius, 0.16);
+  const kHeight = num(k.height, 0.22);
+  const color = k.color || '#cfd3d8';
+  const roughness = Math.max(0, Math.min(1, num(k.roughness, 0.4)));
+  const metalness = Math.max(0, Math.min(1, num(k.metalness, 0.25)));
+  const value = Math.max(0, Math.min(1, num(k.value, 0.5))); // knob setting, 0–1
+
+  // cap + indicator turn together to reflect the knob's value
+  const cap = new THREE.Group();
+
+  const bodyGeo = new THREE.CylinderGeometry(radius, radius * 0.92, kHeight, 28);
+  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness, metalness });
+  const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+  bodyMesh.rotation.x = Math.PI / 2;
+  bodyMesh.position.z = depth/2 + kHeight/2 * 0.7;
+  bodyMesh.castShadow = true;
+  bodyMesh.receiveShadow = true;
+  cap.add(bodyMesh);
+
+  // indicator ridge
+  const ridgeGeo = new THREE.BoxGeometry(radius * 0.14, radius * 0.55, kHeight * 0.35);
+  const ridgeMat = new THREE.MeshStandardMaterial({ color: '#15161a', metalness: 0.2, roughness: 0.6 });
+  const ridge = new THREE.Mesh(ridgeGeo, ridgeMat);
+  ridge.position.set(0, radius * 0.55, depth/2 + kHeight * 0.7);
+  ridge.castShadow = true;
+  cap.add(ridge);
+
+  const sweepDeg = 270; // full-sweep pot travel, value 0 = full ccw, 1 = full cw
+  cap.rotation.z = -THREE.MathUtils.degToRad((value - 0.5) * sweepDeg);
+  g.add(cap);
+
+  // label plate
+  if (k.label){
+    const labelSize = num(k.labelSize, 1);
+    const labelColor = k.labelColor || '#c9ccd2';
+    const tex = textTexture(String(k.label).toUpperCase(), {
+      width: 220, height: 72, fg: labelColor,
+      font: `600 ${Math.round(30 * labelSize)}px ui-monospace, monospace`
+    });
+    const labelGeo = new THREE.PlaneGeometry(radius * 3.2 * labelSize, radius * 1.05 * labelSize);
+    const labelMat = new THREE.MeshBasicMaterial({
+      map: tex, transparent: true,
+      polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
+    });
+    const labelMesh = new THREE.Mesh(labelGeo, labelMat);
+    labelMesh.position.set(0, -radius * 1.55, depth/2 + 0.006);
+    g.add(labelMesh);
+  }
+
+  g.position.set(num(k.x,0), num(k.y,0), 0);
+  return g;
+}
+
+function makeLCD(lcd, depth){
+  const g = new THREE.Group();
+  const w = Math.max(0.05, num(lcd.width, 1.4));
+  const h = Math.max(0.05, num(lcd.height, 0.6));
+  const bg = lcd.backgroundColor || '#08130b';
+  const fg = lcd.textColor || '#7CFC98';
+
+  const bezelGeo = new THREE.PlaneGeometry(w * 1.14, h * 1.28);
+  const bezelMat = new THREE.MeshStandardMaterial({ color: '#0d0d10', roughness: 0.6, metalness: 0.1 });
+  const bezel = new THREE.Mesh(bezelGeo, bezelMat);
+  bezel.position.z = depth/2 + 0.003;
+  bezel.castShadow = true;
+  bezel.receiveShadow = true;
+  g.add(bezel);
+
+  const tex = textTexture(lcd.text || '', {
+    width: 512, height: 256, bg, fg,
+    font: '600 46px ui-monospace, monospace'
+  });
+  const screenGeo = new THREE.PlaneGeometry(w, h);
+  const screenMat = new THREE.MeshBasicMaterial({ map: tex });
+  const screen = new THREE.Mesh(screenGeo, screenMat);
+  screen.position.z = depth/2 + 0.012;
+  g.add(screen);
+
+  g.position.set(num(lcd.x,0), num(lcd.y,0), 0);
+  return g;
+}
+
+function makeButton(btn, depth){
+  const g = new THREE.Group();
+  const w = Math.max(0.05, num(btn.width, 0.4));
+  const len = Math.max(0.05, num(btn.length, 0.4));
+  const travel = Math.max(0.01, num(btn.travel, 0.12));
+  const pressed = !!btn.pressed;
+  const actualTravel = pressed ? travel * 0.35 : travel;
+  const color = btn.color || '#3a3d44';
+  const roughness = Math.max(0, Math.min(1, num(btn.roughness, 0.4)));
+  const metalness = Math.max(0, Math.min(1, num(btn.metalness, 0.25)));
+
+  // recessed bezel the cap sits in
+  const bezelGeo = new THREE.BoxGeometry(w * 1.2, len * 1.2, 0.02);
+  const bezelMat = new THREE.MeshStandardMaterial({ color: '#111216', roughness: 0.75, metalness: 0.1 });
+  const bezel = new THREE.Mesh(bezelGeo, bezelMat);
+  bezel.position.z = depth/2 + 0.004;
+  bezel.receiveShadow = true;
+  g.add(bezel);
+
+  // rounded rectangular cap
+  const capRadius = Math.min(w, len) * 0.2;
+  const shape = roundedRectShape(w, len, capRadius);
+  const capGeo = new THREE.ExtrudeGeometry(shape, {
+    depth: actualTravel, bevelEnabled: true,
+    bevelThickness: capRadius * 0.35, bevelSize: capRadius * 0.3,
+    bevelSegments: 3, curveSegments: 8
+  });
+  capGeo.center();
+  const capMat = new THREE.MeshStandardMaterial({ color, roughness, metalness });
+  const cap = new THREE.Mesh(capGeo, capMat);
+  cap.position.z = depth/2 + actualTravel/2 + 0.008;
+  cap.castShadow = true;
+  cap.receiveShadow = true;
+  g.add(cap);
+
+  // label
+  if (btn.label){
+    const labelSize = num(btn.labelSize, 1);
+    const labelColor = btn.labelColor || '#c9ccd2';
+    const labelPosition = String(btn.labelPosition || 'on').toLowerCase(); // 'on' | 'above' | 'below'
+    const upperLabel = String(btn.label).toUpperCase();
+    const emoji = BUTTON_EMOJI[upperLabel];
+
+    if (labelPosition === 'on'){
+      // icon printed on the cap's top face, as a flat monochrome glyph (no emoji background)
+      const display = emoji || upperLabel;
+      const fontFamily = emoji
+        ? "'Segoe UI Symbol','Noto Sans Symbols','Arial Unicode MS',sans-serif"
+        : 'ui-monospace, monospace';
+      const fontSize = emoji ? 150 * labelSize : 64 * labelSize;
+      const tex = textTexture(display, {
+        width: 220, height: 220, fg: labelColor,
+        font: `600 ${Math.round(fontSize)}px ${fontFamily}`
+      });
+      const plateSize = Math.min(w, len) * 0.95 * labelSize;
+      const plateGeo = new THREE.PlaneGeometry(plateSize, plateSize);
+      const plateMat = new THREE.MeshBasicMaterial({
+        map: tex, transparent: true,
+        polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
+      });
+      const plate = new THREE.Mesh(plateGeo, plateMat);
+      const topZ = depth/2 + actualTravel + 0.008 + capRadius * 0.35;
+      plate.position.set(0, 0, topZ + 0.015);
+      g.add(plate);
+    } else {
+      // printed name plate above or below the button
+      const tex = textTexture(upperLabel, {
+        width: 220, height: 72, fg: labelColor,
+        font: `600 ${Math.round(30 * labelSize)}px ui-monospace, monospace`
+      });
+      const labelGeo = new THREE.PlaneGeometry(Math.max(w, 0.5) * 1.4 * labelSize, Math.max(w, 0.5) * 0.45 * labelSize);
+      const labelMat = new THREE.MeshBasicMaterial({
+        map: tex, transparent: true,
+        polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
+      });
+      const labelMesh = new THREE.Mesh(labelGeo, labelMat);
+      const sign = labelPosition === 'above' ? 1 : -1;
+      const yOff = sign * (len/2 + Math.max(w, 0.5) * 0.32);
+      labelMesh.position.set(0, yOff, depth/2 + 0.02);
+      g.add(labelMesh);
+    }
+  }
+
+  g.position.set(num(btn.x,0), num(btn.y,0), 0);
+  return g;
+}
+
+function num(v, fallback){
+  return (typeof v === 'number' && isFinite(v)) ? v : fallback;
+}
+
+/**
+ * Resolves a sparse array of panel elements (knobs, buttons, ...):
+ * - The first entry should define every field it needs; anything it omits
+ *   stays undefined (caller functions apply their own final fallbacks).
+ * - Any later entry that omits a field inherits that field's value from
+ *   the previous (already-resolved) entry.
+ * - For x/y specifically: if omitted, and two previous resolved entries
+ *   exist, the value continues the linear sequence: v[n] = 2*v[n-1] - v[n-2].
+ *   With only one previous entry, it falls back to that entry's value.
+ */
+function resolveArray(raw, extrapolateKeys = ['x', 'y']){
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  raw.forEach((item, i) => {
+    item = item || {};
+    const prev = out[i - 1];
+    const prev2 = out[i - 2];
+    const resolved = { ...item };
+    const keys = new Set([...Object.keys(item), ...(prev ? Object.keys(prev) : [])]);
+    keys.forEach(key => {
+      if (item[key] !== undefined) return; // explicit value always wins
+      if (extrapolateKeys.includes(key) && prev && typeof prev[key] === 'number'){
+        if (prev2 && typeof prev2[key] === 'number'){
+          resolved[key] = 2 * prev[key] - prev2[key];
+        } else {
+          resolved[key] = prev[key];
+        }
+      } else if (prev && prev[key] !== undefined){
+        resolved[key] = prev[key];
+      }
+    });
+    out.push(resolved);
+  });
+  return out;
+}
+
+/* ---------- build from config ---------- */
+function build(config){
+  while (rig.children.length) rig.remove(rig.children[0]);
+
+  const b = config.body || {};
+  const width = Math.max(0.3, num(b.width, 6));
+  const height = Math.max(0.3, num(b.height, 2));
+  const depth = Math.max(0.1, num(b.depth, 1.2));
+  const roundedness = Math.max(0, Math.min(0.5, num(b.roundedness, 0.15)));
+  const color = b.color || '#2a2c31';
+  const bodyRoughness = Math.max(0, Math.min(1, num(b.roughness, 0.55)));
+  const bodyMetalness = Math.max(0, Math.min(1, num(b.metalness, 0.18)));
+
+  const bodyMesh = makeBody(width, height, depth, roundedness, color, bodyRoughness, bodyMetalness);
+  rig.add(bodyMesh);
+
+  const knobs = resolveArray(config.knobs);
+  knobs.forEach(k => rig.add(makeKnob(k, depth)));
+
+  const buttons = resolveArray(config.buttons);
+  buttons.forEach(btn => rig.add(makeButton(btn, depth)));
+
+  if (config.lcd && typeof config.lcd === 'object'){
+    rig.add(makeLCD(config.lcd, depth));
+  }
+
+  const surface = config.surface || {};
+  floorMat.color.set(surface.color || '#1c1e24');
+  floor.position.y = -depth / 2 - 0.02;
+
+  const light = config.light || {};
+  key.position.set(num(light.x, 4), num(light.z, 6), num(light.y, 5));
+  key.color.set(light.color || '#fed');
+  key.intensity = num(light.intensity, 1.0);
+  const ext = Math.max(width, height) * 0.9 + 2;
+  key.shadow.camera.left = -ext;
+  key.shadow.camera.right = ext;
+  key.shadow.camera.top = ext;
+  key.shadow.camera.bottom = -ext;
+  key.shadow.camera.updateProjectionMatrix();
+
+  const fillLight = config.fillLight || {};
+  rim.color.set(fillLight.color || '#8bf');
+  rim.intensity = Math.max(0, num(fillLight.intensity, 0.4));
+
+  radius = Math.max(2.5, Math.max(width, height) * 1.35 + depth);
+  updateCamera();
+
+  const meta = document.getElementById('meta');
+  meta.textContent = `${knobs.length} knob${knobs.length===1?'':'s'} · ${buttons.length} button${buttons.length===1?'':'s'} · ${config.lcd ? '1 display' : 'no display'}`;
+}
+
+/* ---------- resize ---------- */
+function resize(){
+  const w = host.clientWidth, h = host.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(host);
+
+function animate(){
+  requestAnimationFrame(animate);
+  renderer.render(scene, camera);
+}
+resize();
+updateCamera();
+animate();
+
+/* ============================= Editor wiring ============================= */
+const editor = document.getElementById('editor');
+const gutter = document.getElementById('gutter');
+const footer = document.getElementById('footer');
+const statusEl = document.getElementById('status');
+const statusText = document.getElementById('statusText');
+
+function refreshGutter(){
+  const lines = editor.value.split('\n').length;
+  let html = '';
+  for (let i = 1; i <= lines; i++) html += `<div>${i}</div>`;
+  gutter.innerHTML = html;
+  gutter.scrollTop = editor.scrollTop;
+}
+editor.addEventListener('scroll', () => { gutter.scrollTop = editor.scrollTop; });
+
+function jsonErrorLocation(text, err){
+  const m = err.message.match(/position (\d+)/);
+  if (!m) return '';
+  const pos = +m[1];
+  const before = text.slice(0, pos);
+  const line = before.split('\n').length;
+  const col = pos - before.lastIndexOf('\n');
+  return ` — line ${line}, col ${col}`;
+}
+
+let debounceTimer = null;
+function scheduleApply(){
+  refreshGutter();
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(applyEditor, 350);
+}
+
+function applyEditor(){
+  const text = editor.value;
+  let parsed;
+  try{
+    parsed = JSON.parse(text);
+  } catch(err){
+    footer.textContent = 'Parse error' + jsonErrorLocation(text, err) + ': ' + err.message;
+    footer.className = 'editor-footer error';
+    statusEl.className = 'status error';
+    statusText.textContent = 'parse error';
+    return;
+  }
+  try{
+    build(parsed);
+    footer.textContent = 'No errors.';
+    footer.className = 'editor-footer ok';
+    statusEl.className = 'status ok';
+    statusText.textContent = 'synced';
+  } catch(err){
+    footer.textContent = 'Render error: ' + err.message;
+    footer.className = 'editor-footer error';
+    statusEl.className = 'status error';
+    statusText.textContent = 'render error';
+  }
+}
+
+editor.addEventListener('input', scheduleApply);
+
+document.getElementById('btnFormat').addEventListener('click', () => {
+  try{
+    const parsed = JSON.parse(editor.value);
+    editor.value = JSON.stringify(parsed, null, 2);
+    refreshGutter();
+    applyEditor();
+  } catch(err){
+    footer.textContent = 'Cannot format — parse error' + jsonErrorLocation(editor.value, err) + '.';
+    footer.className = 'editor-footer error';
+  }
+});
+
+document.getElementById('btnReset').addEventListener('click', () => {
+  editor.value = JSON.stringify(DEFAULT_CONFIG, null, 2);
+  refreshGutter();
+  applyEditor();
+});
+
+/* ---------- init ---------- */
+editor.value = JSON.stringify(DEFAULT_CONFIG, null, 2);
+refreshGutter();
+build(DEFAULT_CONFIG);
+</script>
+</body>
+</html>
