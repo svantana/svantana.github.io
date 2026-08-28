@@ -164,11 +164,12 @@
         <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, color, roughness, metalness, value (0–1)<br/>
         <b>buttons[]</b>: label, labelColor, labelSize, labelPosition ("on"/"above"/"below"), x, y, width, length, travel, color, roughness, metalness, pressed<br/>
         &nbsp;&nbsp;labelPosition "on" (default) shows a flat icon on the cap — play/stop/rec/etc. auto-map to monochrome symbols<br/>
+        <b>labels[]</b>: text, x, y, fontsize, font, fontweight, color<br/>
         <b>lcd</b>: width, height, x, y, text, textColor, backgroundColor<br/>
         <b>surface</b>: color<br/>
         <b>light</b>: x, y, z, color, intensity<br/>
         <b>fillLight</b>: color, intensity (fixed-position secondary light)<br/><br/>
-        In knobs[]/buttons[]: entry 0 should set every field it needs.
+        In knobs[]/buttons[]/labels[]: entry 0 should set every field it needs.
         Later entries inherit any omitted field from the entry before them.
         Omitted x/y continue the sequence: x[n] = 2·x[n-1] − x[n-2].
       </div>
@@ -208,6 +209,26 @@ const DEFAULT_CONFIG = {
     { label: "STOP",  x: -0.4 },
     { label: "REC",   pressed: false },
     { label: "SHIFT", pressed: false }
+  ],
+  labels: [
+    {
+      text: "MUSIC MACHINE",
+      x: -1.4,
+      y: 1.25,
+      font: "ui-monospace, monospace",
+      fontsize: 28,
+      fontweight: "700",
+      color: "#ffffff"
+    },
+    {
+      text: "MODEL-01",
+      x: 1.7,
+      y: 1.25,
+      font: "ui-monospace, monospace",
+      fontsize: 24,
+      fontweight: "600",
+      color: "#cf9a5c"
+    }
   ],
   lcd: {
     width: 1.6,
@@ -578,6 +599,116 @@ function makeButton(btn, depth){
   return g;
 }
 
+function makeLabel(lbl, depth){
+  const g = new THREE.Group();
+  if (!lbl || lbl.text === undefined || lbl.text === null) return g;
+
+  const textStr = String(lbl.text);
+  const lines = textStr.split('\n');
+
+  // Extract font, fontsize, fontweight, color
+  const fontFam = lbl.font || 'ui-monospace, monospace';
+  const fontWeight = lbl.fontweight ?? lbl.fontWeight ?? '600';
+  const color = lbl.color || lbl.textColor || '#ffffff';
+
+  const rawSize = lbl.fontsize ?? lbl.fontSize ?? 28;
+  let numFontSize = 28;
+  if (typeof rawSize === 'number' && isFinite(rawSize)){
+    numFontSize = rawSize;
+  } else if (typeof rawSize === 'string'){
+    const parsed = parseFloat(rawSize);
+    if (!isNaN(parsed) && isFinite(parsed)) numFontSize = parsed;
+  }
+
+  // Calculate 3D world font height directly from fontsize
+  let worldFontHeight = 0.22;
+  if (numFontSize > 5){
+    worldFontHeight = numFontSize * 0.008; // e.g. 24 -> 0.192, 28 -> 0.224, 72 -> 0.576
+  } else if (numFontSize > 1 && numFontSize <= 5){
+    worldFontHeight = numFontSize * 0.2;
+  } else if (numFontSize > 0 && numFontSize <= 1){
+    worldFontHeight = numFontSize;
+  }
+
+  // Canvas rasterization with ample padding so text is never cropped vertically or horizontally
+  const canvasFontSize = 64; // base pixel size on canvas
+  const canvasFont = `${fontWeight} ${canvasFontSize}px ${fontFam}`;
+
+  const measureCanvas = document.createElement('canvas');
+  const measureCtx = measureCanvas.getContext('2d');
+  measureCtx.font = canvasFont;
+
+  let maxLineWidth = 0;
+  lines.forEach(line => {
+    const m = measureCtx.measureText(line).width;
+    if (m > maxLineWidth) maxLineWidth = m;
+  });
+  if (maxLineWidth <= 0) maxLineWidth = canvasFontSize;
+
+  const canvasLineHeight = canvasFontSize * 1.25;
+  const padX = canvasFontSize * 0.35;
+  const padY = canvasFontSize * 0.3;
+
+  const canvasWidth = Math.ceil(maxLineWidth + padX * 2);
+  const canvasHeight = Math.ceil(lines.length * canvasLineHeight + padY * 2);
+
+  const drawCanvas = document.createElement('canvas');
+  drawCanvas.width = canvasWidth;
+  drawCanvas.height = canvasHeight;
+  const ctx = drawCanvas.getContext('2d');
+
+  ctx.font = canvasFont;
+  ctx.fillStyle = color;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  const totalContentHeight = lines.length * canvasLineHeight;
+  const startY = (canvasHeight - totalContentHeight) / 2 + canvasLineHeight / 2;
+
+  lines.forEach((line, i) => {
+    ctx.fillText(line, canvasWidth / 2, startY + i * canvasLineHeight);
+  });
+
+  const tex = new THREE.CanvasTexture(drawCanvas);
+  tex.needsUpdate = true;
+
+  // 3D Plane Geometry determined by font size & measured text dimensions
+  const worldUnitsPerCanvasPixel = worldFontHeight / canvasFontSize;
+  const w = canvasWidth * worldUnitsPerCanvasPixel;
+  const h = canvasHeight * worldUnitsPerCanvasPixel;
+
+  // Position (x, y, and optional z)
+  let posX = num(lbl.x, 0);
+  let posY = num(lbl.y, 0);
+  let posZ = num(lbl.z, 0);
+  if (lbl.position !== undefined){
+    if (Array.isArray(lbl.position)){
+      posX = num(lbl.position[0], posX);
+      posY = num(lbl.position[1], posY);
+      posZ = num(lbl.position[2], posZ);
+    } else if (typeof lbl.position === 'object' && lbl.position !== null){
+      posX = num(lbl.position.x, posX);
+      posY = num(lbl.position.y, posY);
+      posZ = num(lbl.position.z, posZ);
+    }
+  }
+
+  const labelGeo = new THREE.PlaneGeometry(w, h);
+  const labelMat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4
+  });
+  const labelMesh = new THREE.Mesh(labelGeo, labelMat);
+  labelMesh.position.set(0, 0, depth / 2 + 0.008 + posZ);
+  g.add(labelMesh);
+
+  g.position.set(posX, posY, 0);
+  return g;
+}
+
 function num(v, fallback){
   return (typeof v === 'number' && isFinite(v)) ? v : fallback;
 }
@@ -640,6 +771,9 @@ function build(config){
   const buttons = resolveArray(config.buttons);
   buttons.forEach(btn => rig.add(makeButton(btn, depth)));
 
+  const labels = resolveArray(config.labels);
+  labels.forEach(lbl => rig.add(makeLabel(lbl, depth)));
+
   if (config.lcd && typeof config.lcd === 'object'){
     rig.add(makeLCD(config.lcd, depth));
   }
@@ -667,7 +801,13 @@ function build(config){
   updateCamera();
 
   const meta = document.getElementById('meta');
-  meta.textContent = `${knobs.length} knob${knobs.length===1?'':'s'} · ${buttons.length} button${buttons.length===1?'':'s'} · ${config.lcd ? '1 display' : 'no display'}`;
+  const counts = [
+    `${knobs.length} knob${knobs.length===1?'':'s'}`,
+    `${buttons.length} button${buttons.length===1?'':'s'}`
+  ];
+  if (labels.length) counts.push(`${labels.length} label${labels.length===1?'':'s'}`);
+  counts.push(config.lcd ? '1 display' : 'no display');
+  meta.textContent = counts.join(' · ');
 }
 
 /* ---------- resize ---------- */
