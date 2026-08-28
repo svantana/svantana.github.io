@@ -56,13 +56,39 @@
   .status .dot{ width:7px; height:7px; border-radius:50%; background: var(--ok); transition: background .2s; }
   .status.error .dot{ background: var(--err); }
 
-  main{ display:grid; grid-template-columns: 400px 1fr; min-height:0; }
+  main{
+    display:grid;
+    grid-template-columns: var(--editor-w, 400px) 6px 1fr;
+    min-height:0;
+    position:relative;
+  }
 
   /* ---------- Editor panel ---------- */
   .editor-panel{
     display:flex; flex-direction:column; min-height:0;
-    border-right: 1px solid var(--hairline);
     background: var(--panel);
+    overflow:hidden;
+  }
+  .splitter{
+    width:6px;
+    background: var(--hairline);
+    cursor: col-resize;
+    position: relative;
+    user-select: none;
+    touch-action: none;
+    transition: background 0.15s;
+    z-index: 10;
+  }
+  .splitter:hover, .splitter.dragging{
+    background: var(--brass);
+    box-shadow: 0 0 8px rgba(207,154,92,0.4);
+  }
+  .splitter::after{
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0;
+    left: -4px; right: -4px;
+    cursor: col-resize;
   }
   .editor-toolbar{
     display:flex; align-items:center; justify-content:space-between;
@@ -108,12 +134,52 @@
   .editor-footer.ok{ color: var(--ok); }
   .editor-footer.error{ color: var(--err); }
 
-  .schema-note{
-    padding: 12px 14px; border-top: 1px solid var(--hairline);
+  details.schema-note{
+    border-top: 1px solid var(--hairline);
     font-family: var(--mono); font-size: 10.8px; line-height:1.6;
     color: var(--ink-dim); background: var(--panel);
   }
-  .schema-note b{ color: var(--teal); font-weight:600; }
+  details.schema-note summary{
+    padding: 9px 14px;
+    cursor: pointer;
+    user-select: none;
+    font-weight: 600;
+    color: var(--ink-dim);
+    letter-spacing: 0.04em;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    list-style: none;
+    transition: color 0.15s, background 0.15s;
+  }
+  details.schema-note summary::-webkit-details-marker { display: none; }
+  details.schema-note summary:hover{
+    color: var(--ink);
+    background: var(--panel-2);
+  }
+  details.schema-note summary .title{
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  details.schema-note summary .title b{
+    color: var(--teal);
+  }
+  details.schema-note summary .chevron{
+    font-size: 9px;
+    transition: transform 0.2s;
+    color: var(--ink-dim);
+  }
+  details[open].schema-note summary .chevron{
+    transform: rotate(90deg);
+  }
+  .schema-content{
+    padding: 8px 14px 12px 14px;
+    border-top: 1px dashed var(--hairline);
+    max-height: 240px;
+    overflow-y: auto;
+  }
+  .schema-content b{ color: var(--teal); font-weight:600; }
 
   /* ---------- Viewport ---------- */
   .viewport{ position:relative; min-height:0; }
@@ -145,7 +211,7 @@
     </div>
   </header>
 
-  <main>
+  <main id="mainLayout">
     <section class="editor-panel">
       <div class="editor-toolbar">
         <div class="filename"><b>config.json</b> · panel definition</div>
@@ -159,21 +225,31 @@
         <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
       </div>
       <div class="editor-footer ok" id="footer">No errors.</div>
-      <div class="schema-note">
-        <b>body</b>: width, height, depth, roundedness (0–0.5), color, roughness (0–1), metalness (0–1)<br/>
-        <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, color, roughness, metalness, value (0–1)<br/>
-        <b>buttons[]</b>: label, labelColor, labelSize, labelPosition ("on"/"above"/"below"), x, y, width, length, travel, color, roughness, metalness, pressed<br/>
-        &nbsp;&nbsp;labelPosition "on" (default) shows a flat icon on the cap — play/stop/rec/etc. auto-map to monochrome symbols<br/>
-        <b>labels[]</b>: text, x, y, fontsize, font, fontweight, color<br/>
-        <b>lcd</b>: width, height, x, y, text, textColor, backgroundColor<br/>
-        <b>surface</b>: color<br/>
-        <b>light</b>: x, y, z, color, intensity<br/>
-        <b>fillLight</b>: color, intensity (fixed-position secondary light)<br/><br/>
-        In knobs[]/buttons[]/labels[]: entry 0 should set every field it needs.
-        Later entries inherit any omitted field from the entry before them.
-        Omitted x/y continue the sequence: x[n] = 2·x[n-1] − x[n-2].
-      </div>
+      <details class="schema-note">
+        <summary>
+          <span class="title"><b>schema help</b> · parameter reference</span>
+          <span class="chevron">&#9654;</span>
+        </summary>
+        <div class="schema-content">
+          <b>body</b>: width, height, depth, roundedness (0–0.5), segments (rounding fidelity, default 8), color, roughness (0–1), metalness (0–1)<br/>
+          <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, color, roughness, metalness, value (0–1)<br/>
+          <b>buttons[]</b>: label, labelColor, labelSize, labelPosition ("on"/"above"/"below"), x, y, width, length, travel, color, roughness, metalness, pressed<br/>
+          &nbsp;&nbsp;labelPosition "on" (default) shows a flat icon on the cap — play/stop/rec/etc. auto-map to monochrome symbols<br/>
+          <b>sliders[]</b>: label, labelColor, labelSize, x, y, length, orientation (deg), value (0–1), color, roughness, metalness<br/>
+          <b>labels[]</b>: text, x, y, fontsize, font, fontweight, color<br/>
+          <b>lcd</b>: width, height, x, y, text, textColor, backgroundColor<br/>
+          <b>surface</b>: color, grid: { size, color, linewidth }<br/>
+          <b>light</b>: x, y, z, color, intensity, shadowRadius (blur/softness, default 8), shadowBias, shadowNormalBias, shadowMapSize<br/>
+          <b>fillLight</b>: color, intensity (fixed-position secondary light)<br/>
+          <b>ambientLight</b>: color, intensity (diffuse baseline ambient light)<br/><br/>
+          In knobs[]/buttons[]/sliders[]/labels[]: entry 0 should set every field it needs.
+          Later entries inherit any omitted field from the entry before them.
+          Omitted x/y continue the sequence: x[n] = 2·x[n-1] − x[n-2].
+        </div>
+      </details>
     </section>
+
+    <div class="splitter" id="splitter" title="Drag to resize editor"></div>
 
     <section class="viewport">
       <div class="viewport-title">Render // orbit view</div>
@@ -190,14 +266,15 @@ const DEFAULT_CONFIG = {
   body: {
     width: 5,
     height: 3,
-    depth: 0.6,
-    roundedness: 0.2,
+    depth: 0.5,
+    roundedness: 0.1,
+    segments: 16,
     color: "#d79",
     roughness: 0.55,
     metalness: 0.18
   },
   knobs: [
-    { label: "CUTOFF", labelColor: "#000", labelSize: 1, x: -2.0, y: 0.85, radius: 0.16, height: 0.22, color: "#eed", roughness: 0.4, metalness: 0.25, value: 0.62 },
+    { label: "CUTOFF", labelColor: "#fff", labelSize: 1, x: -2.0, y: 0.8, radius: 0.16, height: 0.2, color: "#eed", roughness: 0.4, metalness: 0.25, value: 0.62 },
     { label: "RESO",   x: -1.2, value: 0.28 },
     { label: "ATTACK", value: 0.1 },
     { label: "DECAY",  value: 0.55 },
@@ -210,24 +287,27 @@ const DEFAULT_CONFIG = {
     { label: "REC",   pressed: false },
     { label: "SHIFT", pressed: false }
   ],
+  sliders: [
+    { label: "ENV", x: -1.8, y: -0.05, length: 0.7, orientation: 0, value: 0.75, color: "#eed" },
+    { label: "MOD", x: -1.2, value: 0.35 },
+    { label: "RATE", x: 1.2, value: 0.6 },
+    { label: "LVL",  x: 1.8, value: 0.9 }
+  ],
   labels: [
     {
-      text: "MUSIC MACHINE",
-      x: -1.4,
+      text: "Bassic",
+      x: -1.7,
       y: 1.25,
-      font: "ui-monospace, monospace",
-      fontsize: 28,
+      font: "Arial",
+      fontsize: 50,
       fontweight: "700",
-      color: "#ffffff"
+      color: "#eee"
     },
     {
-      text: "MODEL-01",
-      x: 1.7,
+      text: "Forever89",
+      x: 1.8,
       y: 1.25,
-      font: "ui-monospace, monospace",
-      fontsize: 24,
-      fontweight: "600",
-      color: "#cf9a5c"
+      fontsize: 28
     }
   ],
   lcd: {
@@ -236,8 +316,8 @@ const DEFAULT_CONFIG = {
     x: 0,
     y: -0.05,
     text: "PATCH 04\nSAW LEAD",
-    textColor: "#f7a",
-    backgroundColor: "#012"
+    textColor: "#f8b",
+    backgroundColor: "#124"
   },
   surface: {
     color: "#4cb"
@@ -247,11 +327,16 @@ const DEFAULT_CONFIG = {
     y: -3,
     z: 4,
     color: "#bdf",
-	  intensity: 0.6
+    intensity: 0.5,
+    shadowRadius: 12
   },
   fillLight: {
     color: "#fdb",
     intensity: 0.9
+  },
+  ambientLight: {
+    color: "#fef",
+    intensity: 0.55
   }
 };
 
@@ -280,17 +365,27 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 host.appendChild(renderer.domElement);
 
 // lights
-scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-const key = new THREE.DirectionalLight(0xfff2e0, 1.0); // settable via config.light
-key.position.set(4, 6, 5);
-key.castShadow = true;
-key.shadow.mapSize.set(2048, 2048);
-key.shadow.camera.near = 0.5;
-key.shadow.camera.far = 40;
-key.shadow.bias = -0.0001;
-key.shadow.normalBias = 0.02;
-scene.add(key);
-scene.add(key.target);
+const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+scene.add(ambient);
+
+const NUM_SOFTBOX_LIGHTS = 5;
+const softboxLights = [];
+const softboxGroup = new THREE.Group();
+scene.add(softboxGroup);
+
+for (let i = 0; i < NUM_SOFTBOX_LIGHTS; i++){
+  const l = new THREE.DirectionalLight(0xfff2e0, 0.2);
+  l.castShadow = true;
+  l.shadow.mapSize.set(1024, 1024);
+  l.shadow.camera.near = 0.5;
+  l.shadow.camera.far = 40;
+  l.shadow.bias = -0.0001;
+  l.shadow.normalBias = 0.02;
+  softboxGroup.add(l);
+  softboxGroup.add(l.target);
+  softboxLights.push(l);
+}
+
 const rim = new THREE.DirectionalLight(0x8fb8ff, 0.4); // settable via config.fillLight
 rim.position.set(-5, 2, -4);
 scene.add(rim);
@@ -373,18 +468,22 @@ function roundedRectShape(w, h, r){
   return shape;
 }
 
-function makeBody(width, height, depth, roundedness, color, roughness, metalness){
+function makeBody(width, height, depth, roundedness, color, roughness, metalness, segments, bevelSegments, curveSegments){
   const bevel = Math.max(0.001, Math.min(roundedness, Math.min(width, height) * 0.45, depth * 0.45));
   const cornerR = Math.max(0.001, Math.min(bevel, Math.min(width, height) * 0.4));
   const shape2 = roundedRectShape(width, height, cornerR);
+  const baseSegs = num(segments, 8);
+  const bSegs = Math.max(1, Math.min(64, num(bevelSegments, baseSegs)));
+  const cSegs = Math.max(1, Math.min(64, num(curveSegments, Math.max(bSegs * 2, 8))));
+
   const extrudeSettings = {
     steps: 1,
     depth: Math.max(0.02, depth - bevel * 2),
     bevelEnabled: true,
     bevelThickness: bevel,
     bevelSize: bevel * 0.85,
-    bevelSegments: 6,
-    curveSegments: 12
+    bevelSegments: bSegs,
+    curveSegments: cSegs
   };
   const geo = new THREE.ExtrudeGeometry(shape2, extrudeSettings);
   geo.center();
@@ -444,16 +543,26 @@ function makeKnob(k, depth){
   const bodyMat = new THREE.MeshStandardMaterial({ color, roughness, metalness });
   const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
   bodyMesh.rotation.x = Math.PI / 2;
-  bodyMesh.position.z = depth/2 + kHeight/2 * 0.7;
+  bodyMesh.position.z = depth/2 + kHeight/2;
   bodyMesh.castShadow = true;
   bodyMesh.receiveShadow = true;
   cap.add(bodyMesh);
+
+  // base collar to anchor the knob seamlessly against the panel face
+  const baseGeo = new THREE.CylinderGeometry(radius * 1.04, radius * 1.06, 0.016, 28);
+  const baseMat = new THREE.MeshStandardMaterial({ color: '#16171b', metalness: 0.2, roughness: 0.6 });
+  const baseMesh = new THREE.Mesh(baseGeo, baseMat);
+  baseMesh.rotation.x = Math.PI / 2;
+  baseMesh.position.z = depth/2 + 0.008;
+  baseMesh.castShadow = true;
+  baseMesh.receiveShadow = true;
+  g.add(baseMesh);
 
   // indicator ridge
   const ridgeGeo = new THREE.BoxGeometry(radius * 0.14, radius * 0.55, kHeight * 0.35);
   const ridgeMat = new THREE.MeshStandardMaterial({ color: '#15161a', metalness: 0.2, roughness: 0.6 });
   const ridge = new THREE.Mesh(ridgeGeo, ridgeMat);
-  ridge.position.set(0, radius * 0.55, depth/2 + kHeight * 0.7);
+  ridge.position.set(0, radius * 0.55, depth/2 + kHeight * 0.85);
   ridge.castShadow = true;
   cap.add(ridge);
 
@@ -596,6 +705,182 @@ function makeButton(btn, depth){
   }
 
   g.position.set(num(btn.x,0), num(btn.y,0), 0);
+  return g;
+}
+
+function makeSliderTrackTexture(){
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 512;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, 128, 512);
+
+  // Recessed center slot with subtle shadow
+  const slotW = 10;
+  const slotX = (128 - slotW) / 2;
+  const slotY = 16;
+  const slotH = 512 - 32;
+
+  // Slot outer groove shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(slotX - 2, slotY - 2, slotW + 4, slotH + 4);
+
+  // Slot interior cavity
+  ctx.fillStyle = '#08090c';
+  ctx.fillRect(slotX, slotY, slotW, slotH);
+
+  // Minimal Roland SH-101 style graduation tick marks
+  const numTicks = 9;
+  for (let i = 0; i < numTicks; i++){
+    const y = 30 + (i / (numTicks - 1)) * (512 - 60);
+    const isMajor = (i === 0 || i === Math.floor(numTicks / 2) || i === numTicks - 1);
+    const tickLen = isMajor ? 16 : 9;
+    const tickH = isMajor ? 3 : 2;
+    ctx.fillStyle = isMajor ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.22)';
+
+    // Left tick
+    ctx.fillRect(slotX - 5 - tickLen, y - tickH / 2, tickLen, tickH);
+    // Right tick
+    ctx.fillRect(slotX + slotW + 5, y - tickH / 2, tickLen, tickH);
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+let cachedSliderTrackTex = null;
+function getSliderTrackTexture(){
+  if (!cachedSliderTrackTex){
+    cachedSliderTrackTex = makeSliderTrackTexture();
+  }
+  return cachedSliderTrackTex;
+}
+
+function makeSlider(s, depth){
+  const g = new THREE.Group();
+  const trackLen = Math.max(0.15, num(s.length, 0.75));
+  const orientationDeg = num(s.orientation, 0);
+  const value = Math.max(0, Math.min(1, num(s.value, 0.5)));
+  const capColor = s.color || '#202228';
+  const indicatorColor = s.indicatorColor || '#ffffff';
+  const roughness = Math.max(0, Math.min(1, num(s.roughness, 0.4)));
+  const metalness = Math.max(0, Math.min(1, num(s.metalness, 0.2)));
+
+  const capWidth = 0.16;
+  const capLength = 0.22;
+  const capHeight = 0.14;
+  const plateWidth = capWidth * 1.85;
+  const plateLength = trackLen + capLength * 0.55;
+
+  // Track plate with recessed slot & ticks
+  const trackTex = getSliderTrackTexture();
+  const trackGeo = new THREE.PlaneGeometry(plateWidth, plateLength);
+  const trackMat = new THREE.MeshStandardMaterial({
+    map: trackTex,
+    transparent: true,
+    depthWrite: false,
+    roughness: 0.85,
+    metalness: 0.1,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4
+  });
+  const trackMesh = new THREE.Mesh(trackGeo, trackMat);
+  trackMesh.position.z = depth / 2 + 0.004;
+  trackMesh.receiveShadow = true;
+  g.add(trackMesh);
+
+  // Slider Cap (Handle): minimalist beveled Roland SH-101 style
+  const capGroup = new THREE.Group();
+
+  // Solid straight-walled base skirt extending down into the chassis (eliminates under-cap light leak)
+  const skirtGeo = new THREE.BoxGeometry(capWidth * 0.98, capLength * 0.98, 0.035);
+  const skirtMat = new THREE.MeshStandardMaterial({
+    color: capColor,
+    roughness,
+    metalness
+  });
+  const skirtMesh = new THREE.Mesh(skirtGeo, skirtMat);
+  skirtMesh.position.set(0, 0, -capHeight / 2 + 0.004);
+  skirtMesh.castShadow = true;
+  skirtMesh.receiveShadow = true;
+  capGroup.add(skirtMesh);
+
+  // Center stem reaching deep into the slot
+  const stemGeo = new THREE.BoxGeometry(capWidth * 0.35, capLength * 0.35, 0.05);
+  const stemMat = new THREE.MeshStandardMaterial({ color: '#090a0d', roughness: 0.7, metalness: 0.3 });
+  const stemMesh = new THREE.Mesh(stemGeo, stemMat);
+  stemMesh.position.set(0, 0, -capHeight / 2 - 0.01);
+  stemMesh.castShadow = true;
+  stemMesh.receiveShadow = true;
+  capGroup.add(stemMesh);
+
+  const capShape = roundedRectShape(capWidth, capLength, 0.015);
+  const capGeo = new THREE.ExtrudeGeometry(capShape, {
+    depth: capHeight,
+    bevelEnabled: true,
+    bevelThickness: 0.012,
+    bevelSize: 0.01,
+    bevelSegments: 3
+  });
+  capGeo.center();
+  const capMat = new THREE.MeshStandardMaterial({
+    color: capColor,
+    roughness,
+    metalness
+  });
+  const capMesh = new THREE.Mesh(capGeo, capMat);
+  capMesh.castShadow = true;
+  capMesh.receiveShadow = true;
+  capGroup.add(capMesh);
+
+  // Center indicator line across the cap
+  const indGeo = new THREE.BoxGeometry(capWidth * 0.88, 0.02, 0.006);
+  const indMat = new THREE.MeshStandardMaterial({
+    color: indicatorColor,
+    roughness: 0.2,
+    metalness: 0.1
+  });
+  const indMesh = new THREE.Mesh(indGeo, indMat);
+  indMesh.position.set(0, 0, capHeight / 2 + 0.007);
+  capGroup.add(indMesh);
+
+  // Position cap along track seated flush against the chassis
+  const capTravel = trackLen - capLength * 0.3;
+  const capY = (value - 0.5) * capTravel;
+  capGroup.position.set(0, capY, depth / 2 + capHeight / 2 - 0.002);
+  g.add(capGroup);
+
+  // Label plate (optional)
+  if (s.label){
+    const labelSize = num(s.labelSize, 1);
+    const labelColor = s.labelColor || '#c9ccd2';
+    const labelPosition = String(s.labelPosition || 'below').toLowerCase();
+    const tex = textTexture(String(s.label).toUpperCase(), {
+      width: 220,
+      height: 72,
+      fg: labelColor,
+      font: `600 ${Math.round(28 * labelSize)}px ui-monospace, monospace`
+    });
+    const labelGeo = new THREE.PlaneGeometry(plateWidth * 1.4 * labelSize, 0.18 * labelSize);
+    const labelMat = new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4
+    });
+    const labelMesh = new THREE.Mesh(labelGeo, labelMat);
+    const sign = labelPosition === 'above' ? 1 : -1;
+    const yOff = sign * (plateLength / 2 + 0.11 * labelSize);
+    labelMesh.position.set(0, yOff, depth / 2 + 0.006);
+    g.add(labelMesh);
+  }
+
+  // Rotation according to orientation in degrees (0 = vertical, 90 = horizontal)
+  g.rotation.z = -THREE.MathUtils.degToRad(orientationDeg);
+  g.position.set(num(s.x, 0), num(s.y, 0), 0);
   return g;
 }
 
@@ -758,11 +1043,14 @@ function build(config){
   const height = Math.max(0.3, num(b.height, 2));
   const depth = Math.max(0.1, num(b.depth, 1.2));
   const roundedness = Math.max(0, Math.min(0.5, num(b.roundedness, 0.15)));
+  const segments = num(b.segments ?? b.roundingSegments ?? b.bevelSegments, 8);
+  const bevelSegments = b.bevelSegments !== undefined ? num(b.bevelSegments, segments) : undefined;
+  const curveSegments = b.curveSegments !== undefined ? num(b.curveSegments, segments * 2) : undefined;
   const color = b.color || '#2a2c31';
   const bodyRoughness = Math.max(0, Math.min(1, num(b.roughness, 0.55)));
   const bodyMetalness = Math.max(0, Math.min(1, num(b.metalness, 0.18)));
 
-  const bodyMesh = makeBody(width, height, depth, roundedness, color, bodyRoughness, bodyMetalness);
+  const bodyMesh = makeBody(width, height, depth, roundedness, color, bodyRoughness, bodyMetalness, segments, bevelSegments, curveSegments);
   rig.add(bodyMesh);
 
   const knobs = resolveArray(config.knobs);
@@ -770,6 +1058,9 @@ function build(config){
 
   const buttons = resolveArray(config.buttons);
   buttons.forEach(btn => rig.add(makeButton(btn, depth)));
+
+  const sliders = resolveArray(config.sliders);
+  sliders.forEach(s => rig.add(makeSlider(s, depth)));
 
   const labels = resolveArray(config.labels);
   labels.forEach(lbl => rig.add(makeLabel(lbl, depth)));
@@ -783,19 +1074,70 @@ function build(config){
   floor.position.y = -depth / 2 - 0.02;
 
   const light = config.light || {};
-  key.position.set(num(light.x, 4), num(light.z, 6), num(light.y, 5));
-  key.color.set(light.color || '#fed');
-  key.intensity = num(light.intensity, 1.0);
-  const ext = Math.max(width, height) * 0.9 + 2;
-  key.shadow.camera.left = -ext;
-  key.shadow.camera.right = ext;
-  key.shadow.camera.top = ext;
-  key.shadow.camera.bottom = -ext;
-  key.shadow.camera.updateProjectionMatrix();
+  const lx = num(light.x, -3);
+  const ly = num(light.y, -3);
+  const lz = num(light.z, 4);
+  const lightColor = light.color || '#bdf';
+  const totalIntensity = num(light.intensity, 0.6);
+  const shadowRadius = Math.max(0, num(light.shadowRadius ?? light.shadowSoftness ?? light.radius, 8));
+  const shadowBias = num(light.shadowBias, -0.00006);
+  const shadowNormalBias = num(light.shadowNormalBias, 0.0015);
+  const mapSize = num(light.shadowMapSize ?? light.mapSize, 1024);
+
+  // Softbox spread: larger shadowRadius -> wider physical aperture -> softer penumbra & diffuse shadows
+  const spread = shadowRadius * 0.07;
+
+  const dir = new THREE.Vector3(lx, lz, ly).normalize();
+  const up = Math.abs(dir.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+  const right = new THREE.Vector3().crossVectors(dir, up).normalize();
+  const orthoUp = new THREE.Vector3().crossVectors(right, dir).normalize();
+
+  const offsets = [
+    { x: 0, y: 0, weight: 0.44 },
+    { x: spread, y: 0, weight: 0.14 },
+    { x: -spread, y: 0, weight: 0.14 },
+    { x: 0, y: spread, weight: 0.14 },
+    { x: 0, y: -spread, weight: 0.14 }
+  ];
+
+  const ext = Math.max(width, height) * 0.9 + 2.5;
+
+  softboxLights.forEach((sl, i) => {
+    const off = offsets[i];
+    const pos = new THREE.Vector3(lx, lz, ly)
+      .addScaledVector(right, off.x)
+      .addScaledVector(orthoUp, off.y);
+
+    sl.position.copy(pos);
+    sl.target.position.set(0, 0, 0);
+    sl.color.set(lightColor);
+    sl.intensity = totalIntensity * off.weight;
+
+    sl.shadow.bias = shadowBias;
+    sl.shadow.normalBias = shadowNormalBias;
+
+    if (sl.shadow.mapSize.x !== mapSize || sl.shadow.mapSize.y !== mapSize){
+      sl.shadow.mapSize.set(mapSize, mapSize);
+      if (sl.shadow.map) {
+        sl.shadow.map.dispose();
+        sl.shadow.map = null;
+      }
+    }
+
+    sl.shadow.camera.left = -ext;
+    sl.shadow.camera.right = ext;
+    sl.shadow.camera.top = ext;
+    sl.shadow.camera.bottom = -ext;
+    sl.shadow.camera.updateProjectionMatrix();
+  });
 
   const fillLight = config.fillLight || {};
   rim.color.set(fillLight.color || '#8bf');
   rim.intensity = Math.max(0, num(fillLight.intensity, 0.4));
+
+  const ambConfig = config.ambientLight || {};
+  ambient.color.set(ambConfig.color || light.ambientColor || '#ffffff');
+  ambient.intensity = Math.max(0, num(ambConfig.intensity ?? light.ambient ?? light.ambientIntensity, 0.55));
 
   radius = Math.max(2.5, Math.max(width, height) * 1.35 + depth);
   updateCamera();
@@ -805,6 +1147,7 @@ function build(config){
     `${knobs.length} knob${knobs.length===1?'':'s'}`,
     `${buttons.length} button${buttons.length===1?'':'s'}`
   ];
+  if (sliders.length) counts.push(`${sliders.length} slider${sliders.length===1?'':'s'}`);
   if (labels.length) counts.push(`${labels.length} label${labels.length===1?'':'s'}`);
   counts.push(config.lcd ? '1 display' : 'no display');
   meta.textContent = counts.join(' · ');
@@ -905,6 +1248,54 @@ document.getElementById('btnReset').addEventListener('click', () => {
   refreshGutter();
   applyEditor();
 });
+
+/* ---------- Draggable splitter ---------- */
+const mainLayout = document.getElementById('mainLayout');
+const splitter = document.getElementById('splitter');
+let isResizing = false;
+
+const savedWidth = localStorage.getItem('mmd_editor_w');
+if (savedWidth) {
+  const w = parseInt(savedWidth, 10);
+  if (w >= 240 && w <= window.innerWidth - 200) {
+    mainLayout.style.setProperty('--editor-w', `${w}px`);
+  }
+}
+
+function startResize(e) {
+  isResizing = true;
+  splitter.classList.add('dragging');
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+  if (e.cancelable) e.preventDefault();
+}
+
+function handleResize(e) {
+  if (!isResizing) return;
+  const clientX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : undefined);
+  if (clientX === undefined) return;
+  const minW = 240;
+  const maxW = Math.max(minW, window.innerWidth - 280);
+  const clampedW = Math.max(minW, Math.min(maxW, clientX));
+  mainLayout.style.setProperty('--editor-w', `${clampedW}px`);
+  localStorage.setItem('mmd_editor_w', clampedW);
+}
+
+function stopResize() {
+  if (!isResizing) return;
+  isResizing = false;
+  splitter.classList.remove('dragging');
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+}
+
+splitter.addEventListener('mousedown', startResize);
+window.addEventListener('mousemove', handleResize);
+window.addEventListener('mouseup', stopResize);
+
+splitter.addEventListener('touchstart', startResize, { passive: false });
+window.addEventListener('touchmove', handleResize, { passive: false });
+window.addEventListener('touchend', stopResize);
 
 /* ---------- init ---------- */
 editor.value = JSON.stringify(DEFAULT_CONFIG, null, 2);
