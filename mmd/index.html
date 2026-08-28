@@ -233,9 +233,9 @@
         <div class="schema-content">
           <b>body</b>: width, height, depth, roundedness (0–0.5), segments (rounding fidelity, default 8), color, roughness (0–1), metalness (0–1)<br/>
           <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, color, roughness, metalness, value (0–1)<br/>
-          <b>buttons[]</b>: label, labelColor, labelSize, labelPosition ("on"/"above"/"below"), x, y, width, length, travel, color, roughness, metalness, pressed<br/>
+          <b>buttons[]</b>: label, labelColor, labelSize, labelPosition ("on"/"above"/"below"), x, y, width, length, height, travel, color, roughness, metalness, pressed<br/>
           &nbsp;&nbsp;labelPosition "on" (default) shows a flat icon on the cap — play/stop/rec/etc. auto-map to monochrome symbols<br/>
-          <b>sliders[]</b>: label, labelColor, labelSize, x, y, length, orientation (deg), value (0–1), color, roughness, metalness<br/>
+          <b>sliders[]</b>: label, labelColor, labelSize, x, y, length, orientation (deg), value (0–1), color, roughness, metalness, capWidth, capLength, capHeight<br/>
           <b>labels[]</b>: text, x, y, fontsize, font, fontweight, color<br/>
           <b>lcd</b>: width, height, x, y, text, textColor, backgroundColor<br/>
           <b>surface</b>: color, grid: { size, color, linewidth }<br/>
@@ -274,21 +274,21 @@ const DEFAULT_CONFIG = {
     metalness: 0.18
   },
   knobs: [
-    { label: "CUTOFF", labelColor: "#fff", labelSize: 1, x: -2.0, y: 0.8, radius: 0.16, height: 0.2, color: "#eed", roughness: 0.4, metalness: 0.25, value: 0.62 },
+    { label: "CUTOFF", labelColor: "#fff", labelSize: 1, x: -2.0, y: 0.8, radius: 0.16, height: 0.18, color: "#eed", roughness: 0.4, metalness: 0.25, value: 0.62 },
     { label: "RESO",   x: -1.2, value: 0.28 },
     { label: "ATTACK", value: 0.1 },
     { label: "DECAY",  value: 0.55 },
-    { label: "DRIVE",  radius: 0.18, height: 0.24, value: 0.8 },
-    { label: "MIX",    radius: 0.16, height: 0.22, value: 0.5 }
+    { label: "DRIVE",  value: 0.8 },
+    { label: "MIX",    value: 0.5 }
   ],
   buttons: [
-    { label: "PLAY",  labelColor: "#b59", labelSize: 1, x: -1.2, y: -0.85, width: 0.34, length: 0.28, color: "#eed", roughness: 0.4, metalness: 0.25, pressed: false },
+    { label: "PLAY",  labelColor: "#b59", labelSize: 1, x: -1.2, y: -0.85, width: 0.34, length: 0.28, height: 0.12, color: "#eed", roughness: 0.4, metalness: 0.25, pressed: false },
     { label: "STOP",  x: -0.4 },
     { label: "REC",   pressed: false },
     { label: "SHIFT", pressed: false }
   ],
   sliders: [
-    { label: "ENV", x: -1.8, y: -0.05, length: 0.7, orientation: 0, value: 0.75, color: "#eed" },
+    { label: "ENV", x: -1.8, y: -0.05, length: 0.7, orientation: 0, value: 0.75, color: "#eed", capWidth: 0.16, capLength: 0.22, capHeight: 0.14 },
     { label: "MOD", x: -1.2, value: 0.35 },
     { label: "RATE", x: 1.2, value: 0.6 },
     { label: "LVL",  x: 1.8, value: 0.9 }
@@ -320,7 +320,8 @@ const DEFAULT_CONFIG = {
     backgroundColor: "#124"
   },
   surface: {
-    color: "#4cb"
+    color: "#4cb",
+    grid: { size: 10, color: "#ffffff", linewidth: 1.5 }
   },
   light: {
     x: -3,
@@ -400,6 +401,8 @@ const floor = new THREE.Mesh(floorGeo, floorMat);
 floor.receiveShadow = true;
 floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
+
+let gridHelper = null;
 
 const rig = new THREE.Group();
 // lay the instrument flat: the panel face (where knobs/LCD sit) now points up (+Y)
@@ -627,7 +630,8 @@ function makeButton(btn, depth){
   const len = Math.max(0.05, num(btn.length, 0.4));
   const travel = Math.max(0.01, num(btn.travel, 0.12));
   const pressed = !!btn.pressed;
-  const actualTravel = pressed ? travel * 0.35 : travel;
+  const btnHeight = Math.max(0.01, num(btn.height, travel));
+  const actualHeight = pressed ? Math.max(0.01, btnHeight * 0.35) : btnHeight;
   const color = btn.color || '#3a3d44';
   const roughness = Math.max(0, Math.min(1, num(btn.roughness, 0.4)));
   const metalness = Math.max(0, Math.min(1, num(btn.metalness, 0.25)));
@@ -644,14 +648,14 @@ function makeButton(btn, depth){
   const capRadius = Math.min(w, len) * 0.2;
   const shape = roundedRectShape(w, len, capRadius);
   const capGeo = new THREE.ExtrudeGeometry(shape, {
-    depth: actualTravel, bevelEnabled: true,
+    depth: actualHeight, bevelEnabled: true,
     bevelThickness: capRadius * 0.35, bevelSize: capRadius * 0.3,
     bevelSegments: 3, curveSegments: 8
   });
   capGeo.center();
   const capMat = new THREE.MeshStandardMaterial({ color, roughness, metalness });
   const cap = new THREE.Mesh(capGeo, capMat);
-  cap.position.z = depth/2 + actualTravel/2 + 0.008;
+  cap.position.z = depth/2 + actualHeight/2 + 0.008;
   cap.castShadow = true;
   cap.receiveShadow = true;
   g.add(cap);
@@ -682,7 +686,7 @@ function makeButton(btn, depth){
         polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
       });
       const plate = new THREE.Mesh(plateGeo, plateMat);
-      const topZ = depth/2 + actualTravel + 0.008 + capRadius * 0.35;
+      const topZ = depth/2 + actualHeight + 0.008 + capRadius * 0.35;
       plate.position.set(0, 0, topZ + 0.015);
       g.add(plate);
     } else {
@@ -767,9 +771,9 @@ function makeSlider(s, depth){
   const roughness = Math.max(0, Math.min(1, num(s.roughness, 0.4)));
   const metalness = Math.max(0, Math.min(1, num(s.metalness, 0.2)));
 
-  const capWidth = 0.16;
-  const capLength = 0.22;
-  const capHeight = 0.14;
+  const capWidth = Math.max(0.05, num(s.capWidth, 0.16));
+  const capLength = Math.max(0.05, num(s.capLength, 0.22));
+  const capHeight = Math.max(0.01, num(s.capHeight, 0.14));
   const plateWidth = capWidth * 1.85;
   const plateLength = trackLen + capLength * 0.55;
 
@@ -994,6 +998,49 @@ function makeLabel(lbl, depth){
   return g;
 }
 
+function makeGridPlane(size, color, lineWidth, baseColor){
+  size = Math.max(0.1, size);
+  const divisions = Math.max(2, Math.round(size));
+  const res = 1024;
+  const canvas = document.createElement('canvas');
+  canvas.width = res;
+  canvas.height = res;
+  const ctx = canvas.getContext('2d');
+
+  const lw = Math.max(1, lineWidth * (size / 10));
+  ctx.fillStyle = baseColor || '#1c1e24';
+  ctx.fillRect(0, 0, res, res);
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lw;
+
+  for (let i = 0; i <= divisions; i++){
+    const p = (i / divisions) * res;
+    ctx.beginPath();
+    ctx.moveTo(p, 0);
+    ctx.lineTo(p, res);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, p);
+    ctx.lineTo(res, p);
+    ctx.stroke();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  const geo = new THREE.PlaneGeometry(size, size);
+  const mat = new THREE.MeshStandardMaterial({
+    map: tex,
+    roughness: 0.9,
+    metalness: 0.05,
+    side: THREE.DoubleSide
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
 function num(v, fallback){
   return (typeof v === 'number' && isFinite(v)) ? v : fallback;
 }
@@ -1070,8 +1117,23 @@ function build(config){
   }
 
   const surface = config.surface || {};
-  floorMat.color.set(surface.color || '#1c1e24');
+  const surfaceColor = surface.color || '#1c1e24';
+  floorMat.color.set(surfaceColor);
   floor.position.y = -depth / 2 - 0.02;
+
+  if (gridHelper){
+    scene.remove(gridHelper);
+    gridHelper = null;
+  }
+  const gridCfg = surface.grid;
+  if (gridCfg && typeof gridCfg === 'object'){
+    const gSize = Math.max(0.1, num(gridCfg.size, 10));
+    const gColor = gridCfg.color || '#ffffff';
+    const gLinewidth = Math.max(0.5, num(gridCfg.linewidth, 1.5));
+    gridHelper = makeGridPlane(gSize, gColor, gLinewidth, surfaceColor);
+    gridHelper.position.set(0, -depth / 2 - 0.019, 0);
+    scene.add(gridHelper);
+  }
 
   const light = config.light || {};
   const lx = num(light.x, -3);
