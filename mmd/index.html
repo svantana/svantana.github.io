@@ -352,7 +352,7 @@ const DEFAULT_CONFIG = {
     shadowMapSize: 512,
     softboxShadowCount: 2,
     detailShadows: true,
-    continuous: true,
+    continuous: false,
     showFps: true
   }
 };
@@ -919,7 +919,7 @@ function makeSlider(s, depth){
       fg: labelColor,
       font: `600 ${Math.round(30 * labelSize)}px ui-monospace, monospace`
     });
-    const labelGeo = new THREE.PlaneGeometry(plateWidth * 1.4 * labelSize, 0.18 * labelSize);
+    const labelGeo = new THREE.PlaneGeometry(capWidth * 3.2 * labelSize, capWidth * 1.05 * labelSize);
     const labelMat = new THREE.MeshBasicMaterial({
       map: tex,
       transparent: true,
