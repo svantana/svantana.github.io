@@ -184,12 +184,13 @@
   /* ---------- Viewport ---------- */
   .viewport{ position:relative; min-height:0; }
   .viewport canvas{ display:block; width:100%; height:100%; }
-  .viewport-hint, .viewport-meta{
+  .viewport-hint, .viewport-meta, .viewport-fps{
     position:absolute; font-family: var(--mono); font-size: 11px;
     color: rgba(231,228,220,0.5); pointer-events:none; letter-spacing:0.03em;
   }
   .viewport-hint{ bottom: 16px; left: 18px; }
   .viewport-meta{ bottom: 16px; right: 18px; text-align:right; }
+  .viewport-fps{ top: 16px; right: 18px; }
   .viewport-title{
     position:absolute; top:16px; left:18px;
     font-family: var(--mono); font-size: 11px; letter-spacing:0.08em;
@@ -232,7 +233,7 @@
         </summary>
         <div class="schema-content">
           <b>body</b>: width, height, depth, roundedness (0–0.5), segments (rounding fidelity, default 8), color, roughness (0–1), metalness (0–1)<br/>
-          <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, color, roughness, metalness, value (0–1)<br/>
+          <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, color, roughness, metalness, value (0–1), roundedness (0–1), segments<br/>
           <b>buttons[]</b>: label, labelColor, labelSize, labelPosition ("on"/"above"/"below"), x, y, width, length, height, travel, color, roughness, metalness, pressed<br/>
           &nbsp;&nbsp;labelPosition "on" (default) shows a flat icon on the cap — play/stop/rec/etc. auto-map to monochrome symbols<br/>
           <b>sliders[]</b>: label, labelColor, labelSize, x, y, length, orientation (deg), value (0–1), color, roughness, metalness, capWidth, capLength, capHeight<br/>
@@ -242,6 +243,7 @@
           <b>light</b>: x, y, z, color, intensity, shadowRadius (blur/softness, default 8), shadowBias, shadowNormalBias, shadowMapSize<br/>
           <b>fillLight</b>: color, intensity (fixed-position secondary light)<br/>
           <b>ambientLight</b>: color, intensity (diffuse baseline ambient light)<br/><br/>
+          <b>render</b>: pixelRatio (0.5–2), shadows, shadowMapSize, softboxShadowCount, detailShadows, continuous, showFps<br/><br/>
           In knobs[]/buttons[]/sliders[]/labels[]: entry 0 should set every field it needs.
           Later entries inherit any omitted field from the entry before them.
           Omitted x/y continue the sequence: x[n] = 2·x[n-1] − x[n-2].
@@ -253,6 +255,7 @@
 
     <section class="viewport">
       <div class="viewport-title">Render // orbit view</div>
+      <div class="viewport-fps" id="fps" aria-live="off">-- fps</div>
       <div class="viewport-hint">drag to orbit &nbsp;·&nbsp; scroll to zoom</div>
       <div class="viewport-meta" id="meta">6 knobs · 1 display</div>
       <div id="canvasHost" style="width:100%;height:100%;"></div>
@@ -274,7 +277,7 @@ const DEFAULT_CONFIG = {
     metalness: 0.18
   },
   knobs: [
-    { label: "CUTOFF", labelColor: "#fff", labelSize: 1, x: -2.0, y: 0.8, radius: 0.16, height: 0.18, color: "#eed", roughness: 0.4, metalness: 0.25, value: 0.62 },
+    { label: "CUTOFF", labelColor: "#fff", labelSize: 1, x: -2.0, y: 0.8, radius: 0.16, height: 0.2, color: "#e9a", roughness: 0.5, metalness: 0.2, value: 0.62, roundedness: 0.2 },
     { label: "RESO",   x: -1.2, value: 0.28 },
     { label: "ATTACK", value: 0.1 },
     { label: "DECAY",  value: 0.55 },
@@ -288,7 +291,7 @@ const DEFAULT_CONFIG = {
     { label: "SHIFT", pressed: false }
   ],
   sliders: [
-    { label: "ENV", x: -1.8, y: -0.05, length: 0.7, orientation: 0, value: 0.75, color: "#eed", capWidth: 0.16, capLength: 0.22, capHeight: 0.14 },
+    { label: "ENV", x: -1.8, y: -0.05, length: 0.7, orientation: 0, value: 0.75, color: "#e9a", capWidth: 0.14, capLength: 0.2, capHeight: 0.12 },
     { label: "MOD", x: -1.2, value: 0.35 },
     { label: "RATE", x: 1.2, value: 0.6 },
     { label: "LVL",  x: 1.8, value: 0.9 }
@@ -320,7 +323,7 @@ const DEFAULT_CONFIG = {
     backgroundColor: "#124"
   },
   surface: {
-    color: "#4cb",
+    color: "#3cb",
     grid: { size: 10, color: "#ffffff", linewidth: 1.5 }
   },
   light: {
@@ -328,16 +331,25 @@ const DEFAULT_CONFIG = {
     y: -3,
     z: 4,
     color: "#bdf",
-    intensity: 0.5,
+    intensity: 0.8,
     shadowRadius: 12
   },
   fillLight: {
     color: "#fdb",
-    intensity: 0.9
+    intensity: 0.6
   },
   ambientLight: {
     color: "#fef",
-    intensity: 0.55
+    intensity: 0.5
+  },
+  render: {
+    pixelRatio: 1.5,
+    shadows: true,
+    shadowMapSize: 512,
+    softboxShadowCount: 2,
+    detailShadows: true,
+    continuous: true,
+    showFps: true
   }
 };
 
@@ -360,7 +372,7 @@ const scene = new THREE.Scene();
 
 const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 60);
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 host.appendChild(renderer.domElement);
@@ -376,8 +388,8 @@ scene.add(softboxGroup);
 
 for (let i = 0; i < NUM_SOFTBOX_LIGHTS; i++){
   const l = new THREE.DirectionalLight(0xfff2e0, 0.2);
-  l.castShadow = true;
-  l.shadow.mapSize.set(1024, 1024);
+  l.castShadow = i === 0;
+  l.shadow.mapSize.set(512, 512);
   l.shadow.camera.near = 0.5;
   l.shadow.camera.far = 40;
   l.shadow.bias = -0.0001;
@@ -420,6 +432,7 @@ function updateCamera(){
   const z = radius * Math.cos(clampedEl) * Math.cos(azimuth);
   camera.position.set(x, y, z);
   camera.lookAt(0, 0, 0);
+  scheduleRender();
 }
 
 const dom = renderer.domElement;
@@ -538,21 +551,56 @@ function makeKnob(k, depth){
   const roughness = Math.max(0, Math.min(1, num(k.roughness, 0.4)));
   const metalness = Math.max(0, Math.min(1, num(k.metalness, 0.25)));
   const value = Math.max(0, Math.min(1, num(k.value, 0.5))); // knob setting, 0–1
+  const segments = Math.max(3, num(k.segments, 28));
+  const roundedness = Math.max(0, Math.min(1, num(k.roundedness, 0)));
 
   // cap + indicator turn together to reflect the knob's value
   const cap = new THREE.Group();
 
-  const bodyGeo = new THREE.CylinderGeometry(radius, radius * 0.92, kHeight, 28);
   const bodyMat = new THREE.MeshStandardMaterial({ color, roughness, metalness });
-  const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
-  bodyMesh.rotation.x = Math.PI / 2;
-  bodyMesh.position.z = depth/2 + kHeight/2;
-  bodyMesh.castShadow = true;
-  bodyMesh.receiveShadow = true;
-  cap.add(bodyMesh);
+
+  if (roundedness > 0){
+    const bevel = Math.min(roundedness * Math.min(radius, kHeight * 0.5), radius, kHeight * 0.5);
+    const halfHeight = kHeight * 0.5;
+    const sideRadius = Math.max(0.001, radius - bevel);
+    const bevelSegments = Math.max(3, Math.ceil(segments / 8));
+    const profile = [
+      new THREE.Vector2(0, -halfHeight),
+      new THREE.Vector2(sideRadius, -halfHeight)
+    ];
+
+    // Build the cap as a surface of revolution. Unlike an extruded circle,
+    // this keeps the wall's radial normals continuous and reflections even.
+    for (let i = 1; i <= bevelSegments; i++){
+      const angle = -Math.PI / 2 + (i / bevelSegments) * (Math.PI / 2);
+      profile.push(new THREE.Vector2(sideRadius + bevel * Math.cos(angle), -halfHeight + bevel + bevel * Math.sin(angle)));
+    }
+    profile.push(new THREE.Vector2(radius, halfHeight - bevel));
+    for (let i = 1; i <= bevelSegments; i++){
+      const angle = (i / bevelSegments) * (Math.PI / 2);
+      profile.push(new THREE.Vector2(sideRadius + bevel * Math.cos(angle), halfHeight - bevel + bevel * Math.sin(angle)));
+    }
+    profile.push(new THREE.Vector2(sideRadius, halfHeight), new THREE.Vector2(0, halfHeight));
+
+    const knobGeo = new THREE.LatheGeometry(profile, segments);
+    const knobMesh = new THREE.Mesh(knobGeo, bodyMat);
+    knobMesh.rotation.x = Math.PI / 2;
+    knobMesh.position.z = depth/2 + halfHeight;
+    knobMesh.castShadow = true;
+    knobMesh.receiveShadow = true;
+    cap.add(knobMesh);
+  } else {
+    const bodyGeo = new THREE.CylinderGeometry(radius, radius * 0.92, kHeight, segments);
+    const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+    bodyMesh.rotation.x = Math.PI / 2;
+    bodyMesh.position.z = depth/2 + kHeight/2;
+    bodyMesh.castShadow = true;
+    bodyMesh.receiveShadow = true;
+    cap.add(bodyMesh);
+  }
 
   // base collar to anchor the knob seamlessly against the panel face
-  const baseGeo = new THREE.CylinderGeometry(radius * 1.04, radius * 1.06, 0.016, 28);
+  const baseGeo = new THREE.CylinderGeometry(radius * 1.04, radius * 1.06, 0.016, segments);
   const baseMat = new THREE.MeshStandardMaterial({ color: '#16171b', metalness: 0.2, roughness: 0.6 });
   const baseMesh = new THREE.Mesh(baseGeo, baseMat);
   baseMesh.rotation.x = Math.PI / 2;
@@ -1085,6 +1133,17 @@ function resolveArray(raw, extrapolateKeys = ['x', 'y']){
 function build(config){
   while (rig.children.length) rig.remove(rig.children[0]);
 
+  const render = config.render || {};
+  const pixelRatio = Math.max(0.5, Math.min(2, num(render.pixelRatio, 1.5)));
+  const shadowsEnabled = render.shadows !== false;
+  const shadowLightCount = Math.max(0, Math.min(NUM_SOFTBOX_LIGHTS, Math.floor(num(render.softboxShadowCount, 1))));
+  const detailShadows = render.detailShadows === true;
+  const continuousRendering = render.continuous === true;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatio));
+  renderer.shadowMap.enabled = shadowsEnabled;
+  fps.style.display = render.showFps === false ? 'none' : '';
+  setRenderMode(continuousRendering);
+
   const b = config.body || {};
   const width = Math.max(0.3, num(b.width, 6));
   const height = Math.max(0.3, num(b.height, 2));
@@ -1116,9 +1175,16 @@ function build(config){
     rig.add(makeLCD(config.lcd, depth));
   }
 
+  // The chassis casts the important broad shadow. Small controls can opt in
+  // when their individual shadows are worth the additional shadow-map work.
+  rig.traverse(object => {
+    if (object.isMesh) object.castShadow = detailShadows || object === bodyMesh;
+  });
+
   const surface = config.surface || {};
   const surfaceColor = surface.color || '#1c1e24';
   floorMat.color.set(surfaceColor);
+  floor.receiveShadow = shadowsEnabled;
   floor.position.y = -depth / 2 - 0.02;
 
   if (gridHelper){
@@ -1144,7 +1210,7 @@ function build(config){
   const shadowRadius = Math.max(0, num(light.shadowRadius ?? light.shadowSoftness ?? light.radius, 8));
   const shadowBias = num(light.shadowBias, -0.00006);
   const shadowNormalBias = num(light.shadowNormalBias, 0.0015);
-  const mapSize = num(light.shadowMapSize ?? light.mapSize, 1024);
+  const mapSize = Math.max(128, Math.floor(num(render.shadowMapSize ?? light.shadowMapSize ?? light.mapSize, 512)));
 
   // Softbox spread: larger shadowRadius -> wider physical aperture -> softer penumbra & diffuse shadows
   const spread = shadowRadius * 0.07;
@@ -1174,6 +1240,7 @@ function build(config){
     sl.target.position.set(0, 0, 0);
     sl.color.set(lightColor);
     sl.intensity = totalIntensity * off.weight;
+    sl.castShadow = shadowsEnabled && i < shadowLightCount;
 
     sl.shadow.bias = shadowBias;
     sl.shadow.normalBias = shadowNormalBias;
@@ -1221,16 +1288,64 @@ function resize(){
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  scheduleRender();
 }
 new ResizeObserver(resize).observe(host);
 
-function animate(){
-  requestAnimationFrame(animate);
+const fps = document.getElementById('fps');
+let lastFpsUpdate = performance.now();
+let framesSinceFpsUpdate = 0;
+let renderContinuously = false;
+let animationActive = false;
+let renderQueued = false;
+
+function renderFrame(now){
   renderer.render(scene, camera);
+  if (!renderContinuously) return;
+  framesSinceFpsUpdate++;
+  const elapsed = now - lastFpsUpdate;
+  if (elapsed >= 250){
+    fps.textContent = `${Math.round(framesSinceFpsUpdate * 1000 / elapsed)} fps`;
+    lastFpsUpdate = now;
+    framesSinceFpsUpdate = 0;
+  }
 }
+
+function renderOnce(now){
+  renderQueued = false;
+  renderFrame(now);
+}
+
+function scheduleRender(){
+  if (renderContinuously || renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(renderOnce);
+}
+
+function animate(now){
+  if (!renderContinuously){
+    animationActive = false;
+    return;
+  }
+  requestAnimationFrame(animate);
+  renderFrame(now);
+}
+
+function setRenderMode(continuous){
+  renderContinuously = continuous;
+  fps.textContent = continuous ? '-- fps' : 'on-demand';
+  if (continuous && !animationActive){
+    animationActive = true;
+    lastFpsUpdate = performance.now();
+    framesSinceFpsUpdate = 0;
+    requestAnimationFrame(animate);
+  } else if (!continuous) {
+    scheduleRender();
+  }
+}
+
 resize();
 updateCamera();
-animate();
 
 /* ============================= Editor wiring ============================= */
 const editor = document.getElementById('editor');
