@@ -237,7 +237,7 @@
           <b>buttons[]</b>: label, labelColor, labelSize, labelPosition ("on"/"above"/"below"), x, y, width, length, height, travel, color, roughness, metalness, pressed<br/>
           &nbsp;&nbsp;labelPosition "on" (default) shows a flat icon on the cap — play/stop/rec/etc. auto-map to monochrome symbols<br/>
           <b>sliders[]</b>: label, labelColor, labelSize, x, y, length, orientation (deg), value (0–1), color, roughness, metalness, capWidth, capLength, capHeight<br/>
-          <b>labels[]</b>: text, x, y, fontsize, font, fontweight, color<br/>
+          <b>labels[]</b>: text, x, y, fontsize, font, fontweight, color, roughness, metalness, align ("left"/"center"/"right")<br/>
           <b>lcd</b>: width, height, x, y, text, textColor, backgroundColor<br/>
           <b>surface</b>: color, grid: { size, color, linewidth }<br/>
           <b>light</b>: x, y, z, color, intensity, shadowRadius (blur/softness, default 8), shadowBias, shadowNormalBias, shadowMapSize<br/>
@@ -285,32 +285,36 @@ const DEFAULT_CONFIG = {
     { label: "MIX",    value: 0.5 }
   ],
   buttons: [
-    { label: "PLAY",  labelColor: "#b59", labelSize: 1, x: -1.2, y: -0.85, width: 0.34, length: 0.28, height: 0.12, color: "#eed", roughness: 0.4, metalness: 0.25, pressed: false },
+    { label: "PLAY",  labelColor: "#b59", labelSize: 1, x: -1.2, y: -0.85, width: 0.34, length: 0.28, height: 0.1, color: "#ecd", roughness: 0.4, metalness: 0.25, pressed: false },
     { label: "STOP",  x: -0.4 },
     { label: "REC",   pressed: false },
     { label: "SHIFT", pressed: false }
   ],
   sliders: [
-    { label: "ENV", x: -1.8, y: -0.05, length: 0.7, orientation: 0, value: 0.75, color: "#e9a", capWidth: 0.14, capLength: 0.2, capHeight: 0.12 },
+    { label: "ENV", labelColor: "#fff", labelSize: 1, x: -1.8, y: -0.05, length: 0.7, orientation: 0, value: 0.75, color: "#e9a", capWidth: 0.14, capLength: 0.2, capHeight: 0.12 },
     { label: "MOD", x: -1.2, value: 0.35 },
     { label: "RATE", x: 1.2, value: 0.6 },
     { label: "LVL",  x: 1.8, value: 0.9 }
   ],
   labels: [
     {
-      text: "Bassic",
-      x: -1.7,
+      text: "BarbieSynth",
+      x: -2.5,
       y: 1.25,
       font: "Arial",
-      fontsize: 50,
+      fontsize: 45,
       fontweight: "700",
-      color: "#eee"
+      color: "#eee",
+      roughness: 0.4,
+      metalness: 0.25,
+      align: "left"
     },
     {
-      text: "Forever89",
-      x: 1.8,
+       text: "Forever89",
+      x: 2.5,
       y: 1.25,
-      fontsize: 28
+      fontsize: 28,
+      align: "right"
     }
   ],
   lcd: {
@@ -318,9 +322,9 @@ const DEFAULT_CONFIG = {
     height: 0.65,
     x: 0,
     y: -0.05,
-    text: "PATCH 04\nSAW LEAD",
-    textColor: "#f8b",
-    backgroundColor: "#124"
+    text: "you are\nbeautiful",
+    textColor: "#f9a",
+    backgroundColor: "#146"
   },
   surface: {
     color: "#3cb",
@@ -913,7 +917,7 @@ function makeSlider(s, depth){
       width: 220,
       height: 72,
       fg: labelColor,
-      font: `600 ${Math.round(28 * labelSize)}px ui-monospace, monospace`
+      font: `600 ${Math.round(30 * labelSize)}px ui-monospace, monospace`
     });
     const labelGeo = new THREE.PlaneGeometry(plateWidth * 1.4 * labelSize, 0.18 * labelSize);
     const labelMat = new THREE.MeshBasicMaterial({
@@ -943,10 +947,12 @@ function makeLabel(lbl, depth){
   const textStr = String(lbl.text);
   const lines = textStr.split('\n');
 
-  // Extract font, fontsize, fontweight, color
+  // Extract font, fontsize, fontweight, color, material properties
   const fontFam = lbl.font || 'ui-monospace, monospace';
   const fontWeight = lbl.fontweight ?? lbl.fontWeight ?? '600';
   const color = lbl.color || lbl.textColor || '#ffffff';
+  const roughness = Math.max(0, Math.min(1, num(lbl.roughness, 0.4)));
+  const metalness = Math.max(0, Math.min(1, num(lbl.metalness, 0.25)));
 
   const rawSize = lbl.fontsize ?? lbl.fontSize ?? 28;
   let numFontSize = 28;
@@ -1030,16 +1036,22 @@ function makeLabel(lbl, depth){
     }
   }
 
+  // Horizontal alignment: "left"/"right" anchor the edge at x, "center" (default) anchors the middle
+  const align = String(lbl.align || 'center').toLowerCase();
+  const alignX = align === 'left' ? w / 2 : align === 'right' ? -w / 2 : 0;
+
   const labelGeo = new THREE.PlaneGeometry(w, h);
-  const labelMat = new THREE.MeshBasicMaterial({
+  const labelMat = new THREE.MeshStandardMaterial({
     map: tex,
     transparent: true,
+    roughness,
+    metalness,
     polygonOffset: true,
     polygonOffsetFactor: -4,
     polygonOffsetUnits: -4
   });
   const labelMesh = new THREE.Mesh(labelGeo, labelMat);
-  labelMesh.position.set(0, 0, depth / 2 + 0.008 + posZ);
+  labelMesh.position.set(alignX, 0, depth / 2 + 0.008 + posZ);
   g.add(labelMesh);
 
   g.position.set(posX, posY, 0);
