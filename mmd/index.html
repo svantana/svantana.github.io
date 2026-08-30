@@ -233,7 +233,7 @@
         </summary>
         <div class="schema-content">
           <b>body</b>: width, height, depth, roundedness (0–0.5), segments (rounding fidelity, default 8), color, roughness (0–1), metalness (0–1)<br/>
-          <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, color, roughness, metalness, value (0–1), roundedness (0–1), segments<br/>
+           <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, color, roughness, metalness, value (0–1), roundedness (0–1), segments, markColor, markLength (∝ radius), markWidth (∝ radius)<br/>
            <b>buttons[]</b>: label, labelColor, labelSize, labelPosition ("on"/"above"/"below"), x, y, width, length, height, travel, color, roughness, metalness, roundedness (0–1), pressed<br/>
           &nbsp;&nbsp;labelPosition "on" (default) shows a flat icon on the cap — play/stop/rec/etc. auto-map to monochrome symbols<br/>
           <b>sliders[]</b>: label, labelColor, labelSize, x, y, length, orientation (deg), value (0–1), color, roughness, metalness, capWidth, capLength, capHeight<br/>
@@ -277,7 +277,11 @@ const DEFAULT_CONFIG = {
     metalness: 0.18
   },
   knobs: [
-    { label: "BOUNCE", labelColor: "#fff", labelSize: 1, x: -2.0, y: 0.8, radius: 0.16, height: 0.2, color: "#e9a", roughness: 0.5, metalness: 0.2, value: 0.62, roundedness: 0.2 },
+    { label: "BOUNCE", x: -2.0, y: 0.8, radius: 0.16, height: 0.2, 
+        color: "#e9a", roughness: 0.5, metalness: 0.2, value: 0.62, roundedness: 0.2,
+        markColor: "#fff", markLength: 0.7, markWidth: 0.2,
+        labelColor: "#fff", labelSize: 1
+    },
     { label: "SHAKE",   x: -1.2, value: 0.28 },
     { label: "HAPPY", value: 0.1 },
     { label: "SAD",  value: 0.55 },
@@ -301,20 +305,13 @@ const DEFAULT_CONFIG = {
       text: "BarbieSynth",
       x: -2.5,
       y: 1.25,
-      font: "Arial",
-      fontsize: 45,
-      fontweight: "700",
-      color: "#eee",
+      font: "Brush Script MT",
+      fontsize: 55,
+      fontweight: "500",
+      color: "#cff",
       roughness: 0.4,
       metalness: 0.25,
       align: "left"
-    },
-    {
-       text: "Forever89",
-      x: 2.5,
-      y: 1.25,
-      fontsize: 28,
-      align: "right"
     }
   ],
   lcd: {
@@ -613,11 +610,14 @@ function makeKnob(k, depth){
   baseMesh.receiveShadow = true;
   g.add(baseMesh);
 
-  // indicator ridge
-  const ridgeGeo = new THREE.BoxGeometry(radius * 0.14, radius * 0.55, kHeight * 0.35);
-  const ridgeMat = new THREE.MeshStandardMaterial({ color: '#15161a', metalness: 0.2, roughness: 0.6 });
+  // indicator ridge — markLength/markWidth are proportional to the knob radius
+  const markColor = k.markColor || '#15161a';
+  const markLength = Math.max(0.01, num(k.markLength, 0.55));
+  const markWidth = Math.max(0.01, num(k.markWidth, 0.14));
+  const ridgeGeo = new THREE.BoxGeometry(radius * markWidth, radius * markLength, kHeight * 0.35);
+  const ridgeMat = new THREE.MeshStandardMaterial({ color: markColor, metalness: 0.2, roughness: 0.6 });
   const ridge = new THREE.Mesh(ridgeGeo, ridgeMat);
-  ridge.position.set(0, radius * 0.55, depth/2 + kHeight * 0.85);
+  ridge.position.set(0, radius * markLength, depth/2 + kHeight * 0.85);
   ridge.castShadow = true;
   cap.add(ridge);
 
