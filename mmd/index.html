@@ -184,12 +184,10 @@
   /* ---------- Viewport ---------- */
   .viewport{ position:relative; min-height:0; }
   .viewport canvas{ display:block; width:100%; height:100%; }
-  .viewport-hint, .viewport-meta, .viewport-fps{
+  .viewport-fps{
     position:absolute; font-family: var(--mono); font-size: 11px;
     color: rgba(231,228,220,0.5); pointer-events:none; letter-spacing:0.03em;
   }
-  .viewport-hint{ bottom: 16px; left: 18px; }
-  .viewport-meta{ bottom: 16px; right: 18px; text-align:right; }
   .viewport-fps{ top: 16px; right: 18px; }
   .viewport-title{
     position:absolute; top:16px; left:18px;
@@ -238,7 +236,7 @@
           &nbsp;&nbsp;labelPosition "on" (default) shows a flat icon on the cap — play/stop/rec/etc. auto-map to monochrome symbols<br/>
            <b>sliders[]</b>: label, labelColor, labelSize, x, y, length, orientation (deg), value (0–1), color, roughness, metalness, capWidth, capLength, capHeight, capRoundedness (0–1)<br/>
           <b>labels[]</b>: text, x, y, fontsize, font, fontweight, color, roughness, metalness, align ("left"/"center"/"right")<br/>
-          <b>lcd</b>: width, height, x, y, text, textColor, backgroundColor<br/>
+           <b>lcd</b>: width, height, x, y, text, textColor, backgroundColor, roughness (0–1), metalness (0–1)<br/>
           <b>surface</b>: color, grid: { size, color, linewidth }<br/>
           <b>light</b>: x, y, z, color, intensity, shadowRadius (blur/softness, default 8), shadowBias, shadowNormalBias, shadowMapSize<br/>
           <b>fillLight</b>: color, intensity (fixed-position secondary light)<br/>
@@ -256,8 +254,6 @@
     <section class="viewport">
       <div class="viewport-title"></div>
       <div class="viewport-fps" id="fps" aria-live="off">-- fps</div>
-      <div class="viewport-hint"></div>
-      <div class="viewport-meta" id="meta"></div>
       <div id="canvasHost" style="width:100%;height:100%;"></div>
     </section>
   </main>
@@ -266,52 +262,40 @@
 <script>
 /* ============================= Default config ============================= */
 const DEFAULT_CONFIG = {
-  body: {
-    width: 5,
-    height: 3,
-    depth: 0.5,
-    roundedness: 0.2,
-    segments: 32,
+  body: { 
+    width: 4.2, height: 3, depth: 0.5,
+    roundedness: 0.2, segments: 32,
     color: "#d79",
-    roughness: 0.55,
-    metalness: 0.18
+    roughness: 0.55, metalness: 0.18
   },
   knobs: [
-    { label: "BOUNCE", x: -2.0, y: 0.8, radius: 0.16, height: 0.2, 
+    { label: "BOUNCE", x: -1.6, y: 0.8, radius: 0.16, height: 0.2, 
         color: "#e9a", roughness: 0.5, metalness: 0.2, value: 0.62, roundedness: 0.2,
         markColor: "#fff", markLength: 0.7, markWidth: 0.2,
         labelColor: "#fff", labelSize: 1
     },
-    { label: "SHAKE",   x: -1.2, value: 0.28 },
+    { label: "SHAKE",   x: -0.8, value: 0.28 },
     { label: "HAPPY", value: 0.1 },
     { label: "SAD",  value: 0.55 },
-    { label: "FUN",  value: 0.8 },
-    { label: "BORING",    value: 0.5 }
+    { label: "FUN",  value: 0.8 }
   ],
   buttons: [
-    { label: "PLAY",  labelColor: "#b59", labelSize: 1, x: -1.2, y: -0.85, width: 0.34, length: 0.28, height: 0.1, color: "#ecd", roughness: 0.4, metalness: 0.25, pressed: false },
+    { label: "PLAY",  labelColor: "#b59", labelSize: 1, x: -1.2, y: -0.95, width: 0.34, length: 0.28, height: 0.1, color: "#ecd", roughness: 0.4, metalness: 0.25, pressed: false },
     { label: "STOP",  x: -0.4 },
     { label: "REC",   pressed: false },
     { label: "SHIFT", pressed: false }
   ],
   sliders: [
-    { label: "EXCITE", labelColor: "#fff", labelSize: 1, x: -1.8, y: -0.05, length: 0.7, orientation: 0, value: 0.75, color: "#e9a", capWidth: 0.14, capLength: 0.2, capHeight: 0.12, capRoundedness: 0.8 },
-    { label: "ENHANCE", x: -1.3, value: 0.35 },
-    { label: "ENGAGE", x: 1.3, value: 0.6 },
-    { label: "ENTRANCE",  x: 1.8, value: 0.9 }
+    { label: "EXCITE", labelColor: "#fff", labelSize: 1, x: -1.7, y: -0.05, length: 0.7, orientation: 0, value: 0.75, color: "#e9a", capWidth: 0.14, capLength: 0.2, capHeight: 0.12, capRoundedness: 0.8 },
+    { label: "ENHANCE", x: -1.2, value: 0.35 },
+    { label: "ENGAGE", x: 1.2, value: 0.6 },
+    { label: "ENTRANCE",  x: 1.7, value: 0.9 }
   ],
   labels: [
     {
-      text: "BarbieSynth",
-      x: -2.5,
-      y: 1.25,
-      font: "Brush Script MT",
-      fontsize: 55,
-      fontweight: "500",
-      color: "#cff",
-      roughness: 0.4,
-      metalness: 0.25,
-      align: "left"
+      text: "BarbieSynth", font: "Brush Script MT", fontsize: 55, fontweight: "500", align: "left",
+      x: -2.1, y: 1.25,
+      color: "#cff", roughness: 0.4, metalness: 0.25
     }
   ],
   lcd: {
@@ -319,9 +303,11 @@ const DEFAULT_CONFIG = {
     height: 0.65,
     x: 0,
     y: -0.05,
-    text: "you are\nbeautiful",
-    textColor: "#f9a",
-    backgroundColor: "#146"
+     text: "you are\nbeautiful",
+    textColor: "#fab",
+    backgroundColor: "#146",
+    roughness: 0.1,
+    metalness: 0.0
   },
   surface: {
     color: "#3cb",
@@ -653,9 +639,11 @@ function makeLCD(lcd, depth){
   const h = Math.max(0.05, num(lcd.height, 0.6));
   const bg = lcd.backgroundColor || '#08130b';
   const fg = lcd.textColor || '#7CFC98';
+  const roughness = Math.max(0, Math.min(1, num(lcd.roughness, 0.6)));
+  const metalness = Math.max(0, Math.min(1, num(lcd.metalness, 0.1)));
 
   const bezelGeo = new THREE.PlaneGeometry(w * 1.14, h * 1.28);
-  const bezelMat = new THREE.MeshStandardMaterial({ color: '#0d0d10', roughness: 0.6, metalness: 0.1 });
+  const bezelMat = new THREE.MeshStandardMaterial({ color: '#0d0d10', roughness, metalness });
   const bezel = new THREE.Mesh(bezelGeo, bezelMat);
   bezel.position.z = depth/2 + 0.003;
   bezel.castShadow = true;
@@ -667,7 +655,7 @@ function makeLCD(lcd, depth){
     font: '600 46px ui-monospace, monospace'
   });
   const screenGeo = new THREE.PlaneGeometry(w, h);
-  const screenMat = new THREE.MeshBasicMaterial({ map: tex });
+  const screenMat = new THREE.MeshStandardMaterial({ color: '#ffffff', map: tex, roughness, metalness });
   const screen = new THREE.Mesh(screenGeo, screenMat);
   screen.position.z = depth/2 + 0.012;
   g.add(screen);
@@ -1269,16 +1257,6 @@ function build(config){
 
   radius = Math.max(2.5, Math.max(width, height) * 1.35 + depth);
   updateCamera();
-
-  const meta = document.getElementById('meta');
-  const counts = [
-    `${knobs.length} knob${knobs.length===1?'':'s'}`,
-    `${buttons.length} button${buttons.length===1?'':'s'}`
-  ];
-  if (sliders.length) counts.push(`${sliders.length} slider${sliders.length===1?'':'s'}`);
-  if (labels.length) counts.push(`${labels.length} label${labels.length===1?'':'s'}`);
-  counts.push(config.lcd ? '1 display' : 'no display');
-  meta.textContent = counts.join(' · ');
 }
 
 /* ---------- resize ---------- */
