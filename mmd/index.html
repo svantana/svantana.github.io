@@ -279,7 +279,7 @@ const DEFAULT_CONFIG = {
     { label: "SHAKE",   x: -0.8, value: 0.28 },
     { label: "HAPPY", value: 0.1 },
     { label: "SAD",  value: 0.55 },
-    { label: "FUN",  value: 0.5, radius: 0.25, 
+    { label: "BIG",  y:1.0, value: 0.5, radius: 0.3, 
       "topRounding": 0.2,
       "skirtFactor": 0.6,
       "skirtRounding": 0.98,
@@ -690,7 +690,7 @@ function makeKnob(k, depth){
       width: 220, height: 72, fg: labelColor,
       font: `600 ${Math.round(30 * labelSize)}px ui-monospace, monospace`
     });
-    const labelGeo = new THREE.PlaneGeometry(radius * 3.2 * labelSize, radius * 1.05 * labelSize);
+    const labelGeo = new THREE.PlaneGeometry(.5 * labelSize, 0.15 * labelSize);
     const labelMat = new THREE.MeshBasicMaterial({
       map: tex, transparent: true,
       polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
