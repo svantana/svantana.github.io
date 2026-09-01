@@ -7,6 +7,7 @@
 <meta property="og:title" content="Music Machine Designer">
 <meta name="description" content="Define a music machine in JSON and view it in glorious 3D" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
 <style>
   :root{
     --bg: #131418;
@@ -231,7 +232,7 @@
         </summary>
         <div class="schema-content">
           <b>body</b>: width, height, depth, roundedness (0–0.5), segments (rounding fidelity, default 8), color, roughness (0–1), metalness (0–1)<br/>
-           <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, color, roughness, metalness, value (0–1), roundedness (0–1), segments, markColor, markLength (∝ radius), markWidth (∝ radius)<br/>
+           <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, color, roughness, metalness, value (0–1), topRounding (0–1), segments, skirtFactor (0–1), skirtRounding (0–1), markColor, markLength (∝ radius), markWidth (∝ radius)<br/>
            <b>buttons[]</b>: label, labelColor, labelSize, labelPosition ("on"/"above"/"below"), x, y, width, length, height, travel, color, roughness, metalness, roundedness (0–1), pressed<br/>
           &nbsp;&nbsp;labelPosition "on" (default) shows a flat icon on the cap — play/stop/rec/etc. auto-map to monochrome symbols<br/>
            <b>sliders[]</b>: label, labelColor, labelSize, x, y, length, orientation (deg), value (0–1), color, roughness, metalness, capWidth, capLength, capHeight, capRoundedness (0–1)<br/>
@@ -239,8 +240,9 @@
            <b>lcd</b>: width, height, x, y, text, textColor, backgroundColor, roughness (0–1), metalness (0–1)<br/>
           <b>surface</b>: color, grid: { size, color, linewidth }<br/>
           <b>light</b>: x, y, z, color, intensity, shadowRadius (blur/softness, default 8), shadowBias, shadowNormalBias, shadowMapSize<br/>
-          <b>fillLight</b>: color, intensity (fixed-position secondary light)<br/>
-          <b>ambientLight</b>: color, intensity (diffuse baseline ambient light)<br/><br/>
+           <b>fillLight</b>: color, intensity (fixed-position secondary light)<br/>
+           <b>fillLight2</b>: color, intensity (second fixed-position fill light)<br/>
+           <b>ambientLight</b>: color, intensity (diffuse baseline ambient light)<br/><br/>
           <b>render</b>: pixelRatio (0.5–2), shadows, shadowMapSize, softboxShadowCount, detailShadows, continuous, showFps<br/><br/>
           In knobs[]/buttons[]/sliders[]/labels[]: entry 0 should set every field it needs.
           Later entries inherit any omitted field from the entry before them.
@@ -269,15 +271,21 @@ const DEFAULT_CONFIG = {
     roughness: 0.55, metalness: 0.18
   },
   knobs: [
-    { label: "BOUNCE", x: -1.6, y: 0.8, radius: 0.16, height: 0.2, 
-        color: "#e9a", roughness: 0.5, metalness: 0.2, value: 0.62, roundedness: 0.2,
-        markColor: "#fff", markLength: 0.7, markWidth: 0.2,
+    { label: "BOUNCE", x: -1.6, y: 0.8, radius: 0.15, height: 0.2, 
+        color: "#e9a", roughness: 0.55, metalness: 0.12, value: 0.62, topRounding: 0.1,
+        markColor: "#645", markLength: 0.7, markWidth: 0.2,
         labelColor: "#fff", labelSize: 1
     },
     { label: "SHAKE",   x: -0.8, value: 0.28 },
     { label: "HAPPY", value: 0.1 },
     { label: "SAD",  value: 0.55 },
-    { label: "FUN",  value: 0.8 }
+    { label: "FUN",  value: 0.5, radius: 0.25, 
+      "topRounding": 0.2,
+      "skirtFactor": 0.6,
+      "skirtRounding": 0.98,
+      "markLength": 0.29,
+      "markWidth": 0.14,
+     }
   ],
   buttons: [
     { label: "PLAY",  labelColor: "#b59", labelSize: 1, x: -1.2, y: -0.95, width: 0.34, length: 0.28, height: 0.1, color: "#ecd", roughness: 0.4, metalness: 0.25, pressed: false },
@@ -324,6 +332,10 @@ const DEFAULT_CONFIG = {
   fillLight: {
     color: "#ffd",
     intensity: 0.3
+  },
+  fillLight2: {
+    color: "#ffffff",
+    intensity: 0.25
   },
   ambientLight: {
     color: "#fdf",
@@ -409,14 +421,14 @@ rig.rotation.x = -Math.PI / 2;
 scene.add(rig);
 
 /* ---------- manual orbit controls ---------- */
-let azimuth = 0, elevation = Math.PI / 3, radius = 8; // straight front, 60° elevation
+let azimuth = 0, elevation = 1.0 / 3, radius = 8; // straight front, 60° elevation
+let cameraInitialized = false;
 let dragging = false, lastX = 0, lastY = 0;
 
 function updateCamera(){
-  const clampedEl = Math.max(-1.1, Math.min(1.1, elevation));
-  const x = radius * Math.cos(clampedEl) * Math.sin(azimuth);
-  const y = radius * Math.sin(clampedEl);
-  const z = radius * Math.cos(clampedEl) * Math.cos(azimuth);
+  const x = radius * Math.cos(Math.PI * elevation) * Math.sin(Math.PI * azimuth);
+  const y = radius * Math.sin(Math.PI * elevation);
+  const z = radius * Math.cos(Math.PI * elevation) * Math.cos(Math.PI * azimuth);
   camera.position.set(x, y, z);
   camera.lookAt(0, 0, 0);
   scheduleRender();
@@ -430,8 +442,8 @@ window.addEventListener('mousemove', e => {
   if (!dragging) return;
   const dx = e.clientX - lastX, dy = e.clientY - lastY;
   lastX = e.clientX; lastY = e.clientY;
-  azimuth -= dx * 0.006;
-  elevation += dy * 0.006;
+  azimuth -= dx * 0.002;
+  elevation = Math.max(-0.4999, Math.min(0.4999, elevation + dy * 0.002));
   updateCamera();
 });
 dom.addEventListener('wheel', e => {
@@ -488,7 +500,13 @@ function makeBody(width, height, depth, roundedness, color, roughness, metalness
     bevelSegments: bSegs,
     curveSegments: cSegs
   };
-  const geo = new THREE.ExtrudeGeometry(shape2, extrudeSettings);
+  let geo = new THREE.ExtrudeGeometry(shape2, extrudeSettings);
+  // Add interior support vertices to every flat-face triangle so those vertices
+  // get purely perpendicular normals from computeVertexNormals. The returned
+  // geometry has only a position attribute, so mergeVertices welds by position
+  // only — no UV or pre-baked normal conflicts.
+  geo = THREE.BufferGeometryUtils.mergeVertices(geo, 1e-4);
+  geo.computeVertexNormals();
   geo.center();
   const mat = new THREE.MeshStandardMaterial({ color, roughness, metalness });
   const mesh = new THREE.Mesh(geo, mat);
@@ -496,6 +514,7 @@ function makeBody(width, height, depth, roundedness, color, roughness, metalness
   mesh.receiveShadow = true;
   return mesh;
 }
+
 
 // common transport/control labels rendered as icons when a button label sits "on" the cap
 // \uFE0E forces monochrome "text" presentation instead of a colored emoji glyph
@@ -531,85 +550,137 @@ function textTexture(text, {
 }
 
 function makeKnob(k, depth){
-  const g = new THREE.Group();
+  const knobGroup = new THREE.Group();
   const radius = num(k.radius, 0.16);
   const kHeight = num(k.height, 0.22);
   const color = k.color || '#cfd3d8';
   const roughness = Math.max(0, Math.min(1, num(k.roughness, 0.4)));
   const metalness = Math.max(0, Math.min(1, num(k.metalness, 0.25)));
   const value = Math.max(0, Math.min(1, num(k.value, 0.5))); // knob setting, 0–1
-  const segments = Math.max(3, num(k.segments, 28));
-  const roundedness = Math.max(0, Math.min(1, num(k.roundedness, 0)));
+  const segments = Math.max(3, Math.min(64, num(k.segments, 32)));
+  const topRounding = Math.max(0, Math.min(1, num(k.topRounding, 0)));
+  const skirtFactor = Math.max(0, Math.min(1, num(k.skirtFactor, 0)));
+  const skirtRounding = Math.max(0, Math.min(1, num(k.skirtRounding, 0)));
 
   // cap + indicator turn together to reflect the knob's value
   const cap = new THREE.Group();
 
   const bodyMat = new THREE.MeshStandardMaterial({ color, roughness, metalness });
 
-  if (roundedness > 0){
-    const bevel = Math.min(roundedness * Math.min(radius, kHeight * 0.5), radius, kHeight * 0.5);
-    const halfHeight = kHeight * 0.5;
-    const sideRadius = Math.max(0.001, radius - bevel);
-    const bevelSegments = Math.max(3, Math.ceil(segments / 8));
-    const profile = [
-      new THREE.Vector2(0, -halfHeight),
-      new THREE.Vector2(sideRadius, -halfHeight)
-    ];
+  // Build the knob body as a surface of revolution. Unlike an extruded
+  // circle, this keeps the wall's radial normals continuous and reflections even.
+  const halfHeight = kHeight * 0.5;
+  const topBevel = Math.min(topRounding * Math.min(radius, halfHeight), radius, halfHeight);
+  const bevelSegments = Math.max(4, Math.ceil(segments / 2));
+  const topRadius = radius * (1 - skirtFactor);
 
-    // Build the cap as a surface of revolution. Unlike an extruded circle,
-    // this keeps the wall's radial normals continuous and reflections even.
-    for (let i = 1; i <= bevelSegments; i++){
-      const angle = -Math.PI / 2 + (i / bevelSegments) * (Math.PI / 2);
-      profile.push(new THREE.Vector2(sideRadius + bevel * Math.cos(angle), -halfHeight + bevel + bevel * Math.sin(angle)));
-    }
-    profile.push(new THREE.Vector2(radius, halfHeight - bevel));
-    for (let i = 1; i <= bevelSegments; i++){
-      const angle = (i / bevelSegments) * (Math.PI / 2);
-      profile.push(new THREE.Vector2(sideRadius + bevel * Math.cos(angle), halfHeight - bevel + bevel * Math.sin(angle)));
-    }
-    profile.push(new THREE.Vector2(sideRadius, halfHeight), new THREE.Vector2(0, halfHeight));
+  // The profile is a cross-section in the (x = radius, y = height) half-plane,
+  // revolved around the y axis. It is built from the bottom up:
+  //   1. axis → outer base, then a short vertical segment down to the body face
+  //   2. if a skirt is present: horizontal skirt at the base, with a fillet
+  //      of radius `skirtRounding * (radius - topRadius)` rounding the inner
+  //      corner where the skirt meets the vertical cylinder.
+  //   3. vertical cylinder wall up to the top
+  //   4. top edge (optionally rounded by `topRounding`) → axis
+  const baseY = -halfHeight - kHeight * 0.4;
+  const bottomY = -halfHeight;
+  const skirtFillR = skirtRounding * (radius - topRadius);
 
-    const knobGeo = new THREE.LatheGeometry(profile, segments);
-    const knobMesh = new THREE.Mesh(knobGeo, bodyMat);
-    knobMesh.rotation.x = Math.PI / 2;
-    knobMesh.position.z = depth/2 + halfHeight;
-    knobMesh.castShadow = true;
-    knobMesh.receiveShadow = true;
-    cap.add(knobMesh);
+  const profile = [
+    new THREE.Vector2(0, baseY),
+    new THREE.Vector2(radius, baseY),
+    new THREE.Vector2(radius, bottomY)
+  ];
+
+  if (skirtFactor > 0){
+    // Small bevel at the outer edge of the skirt, rounding the corner between
+    // the vertical connector and the horizontal skirt top. This softens the
+    // 90° edge so the lighting transitions smoothly.
+    {
+      const outerBevelR = kHeight * 0.02;
+      // Bevel arc: center at (radius - outerBevelR, bottomY + outerBevelR),
+      // from (radius, bottomY + outerBevelR) to (radius - outerBevelR, bottomY).
+      const bCx = radius - outerBevelR;
+      const bCy = bottomY;
+      for (let i = 1; i <= bevelSegments; i++){
+        const t = i / bevelSegments;
+        const angle = t * (Math.PI / 2);
+        profile.push(new THREE.Vector2(
+          bCx + outerBevelR * Math.cos(angle),
+          bCy + outerBevelR * Math.sin(angle)
+        ));
+      }
+    }
+
+    // Horizontal skirt at the base extends out to (radius - outerBevelR).
+    // The fillet rounds the inner corner where the skirt meets the vertical cylinder;
+    // its radius is `skirtRounding * (radius - topRadius)`, capped so it never
+    // reaches the outer rim.
+    // Always emit the arc so the profile topology is consistent for
+    // skirtRounding=0 and skirtRounding=0.0001.
+    {
+      // Fillet arc: center at (topRadius + skirtFillR, bottomY + skirtFillR),
+      // sweeping clockwise from below-center to left-of-center.
+      // The arc starts at t=0 (the skirt end) so the skirt remains fully
+      // horizontal right up to the skirtRounding.
+      const filletCx = topRadius + skirtFillR;
+      const filletCy = bottomY + skirtFillR;
+      for (let i = 0; i <= bevelSegments; i++){
+        const t = i / bevelSegments;
+        const angle = -Math.PI / 2 - t * (Math.PI / 2);
+        profile.push(new THREE.Vector2(
+          filletCx + skirtFillR * Math.cos(angle),
+          filletCy + skirtFillR * Math.sin(angle)
+        ));
+      }
+    }
+
+    // vertical cylinder wall up to the start of the top bevel
+    profile.push(new THREE.Vector2(topRadius, halfHeight - topBevel));
   } else {
-    const bodyGeo = new THREE.CylinderGeometry(radius, radius * 0.92, kHeight, segments);
-    const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
-    bodyMesh.rotation.x = Math.PI / 2;
-    bodyMesh.position.z = depth/2 + kHeight/2;
-    bodyMesh.castShadow = true;
-    bodyMesh.receiveShadow = true;
-    cap.add(bodyMesh);
+    // No skirt: the side wall goes straight up at the full radius.
+    profile.push(new THREE.Vector2(radius, halfHeight - topBevel));
   }
 
-  // base collar to anchor the knob seamlessly against the panel face
-  const baseGeo = new THREE.CylinderGeometry(radius * 1.04, radius * 1.06, 0.016, segments);
-  const baseMat = new THREE.MeshStandardMaterial({ color: '#16171b', metalness: 0.2, roughness: 0.6 });
-  const baseMesh = new THREE.Mesh(baseGeo, baseMat);
-  baseMesh.rotation.x = Math.PI / 2;
-  baseMesh.position.z = depth/2 + 0.008;
-  baseMesh.castShadow = true;
-  baseMesh.receiveShadow = true;
-  g.add(baseMesh);
+  // top edge bevel (topRounding). Always emit the arc so the profile topology
+  // is consistent for topRounding=0 and topRounding=0.0001.
+  {
+    const outerR = skirtFactor > 0 ? topRadius : radius;
+    const innerR = Math.max(0, outerR - topBevel);
+    for (let i = 1; i <= bevelSegments; i++){
+      const angle = (i / bevelSegments) * (Math.PI / 2);
+      profile.push(new THREE.Vector2(innerR + topBevel * Math.cos(angle), halfHeight - topBevel + topBevel * Math.sin(angle)));
+    }
+  }
+
+  // top center (skip if profile already reaches the axis)
+  if (profile[profile.length - 1].x > 0.0001){
+    profile.push(new THREE.Vector2(0, halfHeight));
+  }
+
+  const knobGeo = new THREE.LatheGeometry(profile, segments);
+  const knobMesh = new THREE.Mesh(knobGeo, bodyMat);
+  knobMesh.rotation.x = Math.PI / 2;
+  knobMesh.position.z = depth/2 + halfHeight + kHeight * 0.1;
+  knobMesh.castShadow = true;
+  knobMesh.receiveShadow = false;
+  cap.add(knobMesh);
 
   // indicator ridge — markLength/markWidth are proportional to the knob radius
   const markColor = k.markColor || '#15161a';
   const markLength = Math.max(0.01, num(k.markLength, 0.55));
   const markWidth = Math.max(0.01, num(k.markWidth, 0.14));
-  const ridgeGeo = new THREE.BoxGeometry(radius * markWidth, radius * markLength, kHeight * 0.35);
+  const markDepth = kHeight * 1.1;
+  const ridgeGeo = new THREE.BoxGeometry(radius * markWidth, radius * markLength, markDepth);
   const ridgeMat = new THREE.MeshStandardMaterial({ color: markColor, metalness: 0.2, roughness: 0.6 });
   const ridge = new THREE.Mesh(ridgeGeo, ridgeMat);
-  ridge.position.set(0, radius * markLength, depth/2 + kHeight * 0.85);
+  ridge.position.set(0, radius * markLength, depth/2 + kHeight * 0.1 + markDepth * 0.5);
   ridge.castShadow = true;
   cap.add(ridge);
 
   const sweepDeg = 270; // full-sweep pot travel, value 0 = full ccw, 1 = full cw
   cap.rotation.z = -THREE.MathUtils.degToRad((value - 0.5) * sweepDeg);
-  g.add(cap);
+  knobGroup.add(cap);
 
   // label plate
   if (k.label){
@@ -626,11 +697,11 @@ function makeKnob(k, depth){
     });
     const labelMesh = new THREE.Mesh(labelGeo, labelMat);
     labelMesh.position.set(0, -radius * 1.55, depth/2 + 0.006);
-    g.add(labelMesh);
+    knobGroup.add(labelMesh);
   }
 
-  g.position.set(num(k.x,0), num(k.y,0), 0);
-  return g;
+  knobGroup.position.set(num(k.x,0), num(k.y,0), 0);
+  return knobGroup;
 }
 
 function makeLCD(lcd, depth){
@@ -1136,7 +1207,7 @@ function build(config){
   const height = Math.max(0.3, num(b.height, 2));
   const depth = Math.max(0.1, num(b.depth, 1.2));
   const roundedness = Math.max(0, Math.min(0.5, num(b.roundedness, 0.15)));
-  const segments = num(b.segments ?? b.roundingSegments ?? b.bevelSegments, 8);
+  const segments = num(b.segments ?? b.roundingSegments ?? b.bevelSegments, 16);
   const bevelSegments = b.bevelSegments !== undefined ? num(b.bevelSegments, segments) : undefined;
   const curveSegments = b.curveSegments !== undefined ? num(b.curveSegments, segments * 2) : undefined;
   const color = b.color || '#2a2c31';
@@ -1255,7 +1326,14 @@ function build(config){
   ambient.color.set(ambConfig.color || light.ambientColor || '#ffffff');
   ambient.intensity = Math.max(0, num(ambConfig.intensity ?? light.ambient ?? light.ambientIntensity, 0.55));
 
-  radius = Math.max(2.5, Math.max(width, height) * 1.35 + depth);
+  const fill2 = config.fillLight2 || {};
+  fill.color.set(fill2.color || '#ffffff');
+  fill.intensity = Math.max(0, num(fill2.intensity, 0.25));
+
+  if (!cameraInitialized){
+    radius = Math.max(2.5, Math.max(width, height) * 1.35 + depth);
+    cameraInitialized = true;
+  }
   updateCamera();
 }
 
