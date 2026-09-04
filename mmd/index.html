@@ -243,7 +243,7 @@
            <b>fillLight</b>: color, intensity (fixed-position secondary light)<br/>
            <b>fillLight2</b>: color, intensity (second fixed-position fill light)<br/>
            <b>ambientLight</b>: color, intensity (diffuse baseline ambient light)<br/><br/>
-          <b>render</b>: pixelRatio (0.5–2), shadows, shadowMapSize, softboxShadowCount, detailShadows, continuous, showFps<br/><br/>
+          <b>render</b>: pixelRatio (0.5–2), shadows, shadowMapSize, softboxShadowCount, detailShadows, continuous, showFps, wireframe<br/><br/>
           In knobs[]/buttons[]/sliders[]/labels[]: entry 0 should set every field it needs.
           Later entries inherit any omitted field from the entry before them.
           Omitted x/y continue the sequence: x[n] = 2·x[n-1] − x[n-2].
@@ -291,7 +291,7 @@ const DEFAULT_CONFIG = {
     { label: "PLAY",  labelColor: "#b59", labelSize: 1, x: -1.2, y: -0.95, width: 0.34, length: 0.28, height: 0.1, color: "#ecd", roughness: 0.4, metalness: 0.25, pressed: false },
     { label: "STOP",  x: -0.4 },
     { label: "REC",   pressed: false },
-    { label: "SHIFT", pressed: false }
+    { label: "FUN!", pressed: false }
   ],
   sliders: [
     { label: "EXCITE", labelColor: "#fff", labelSize: 1, x: -1.7, y: -0.05, length: 0.7, orientation: 0, value: 0.75, color: "#e9a", capWidth: 0.14, capLength: 0.2, capHeight: 0.12, capRoundedness: 0.8 },
@@ -348,7 +348,8 @@ const DEFAULT_CONFIG = {
     softboxShadowCount: 2,
     detailShadows: true,
     continuous: false,
-    showFps: true
+    showFps: true,
+    wireframe: false
   }
 };
 
@@ -582,7 +583,7 @@ function makeKnob(k, depth){
   //      corner where the skirt meets the vertical cylinder.
   //   3. vertical cylinder wall up to the top
   //   4. top edge (optionally rounded by `topRounding`) → axis
-  const baseY = -halfHeight - kHeight * 0.4;
+  const baseY = -halfHeight + 0.001;
   const bottomY = -halfHeight;
   const skirtFillR = skirtRounding * (radius - topRadius);
 
@@ -597,11 +598,11 @@ function makeKnob(k, depth){
     // the vertical connector and the horizontal skirt top. This softens the
     // 90° edge so the lighting transitions smoothly.
     {
-      const outerBevelR = kHeight * 0.02;
+      const outerBevelR = kHeight * 0.0;
       // Bevel arc: center at (radius - outerBevelR, bottomY + outerBevelR),
       // from (radius, bottomY + outerBevelR) to (radius - outerBevelR, bottomY).
       const bCx = radius - outerBevelR;
-      const bCy = bottomY;
+      const bCy = bottomY - outerBevelR;
       for (let i = 1; i <= bevelSegments; i++){
         const t = i / bevelSegments;
         const angle = t * (Math.PI / 2);
@@ -936,18 +937,7 @@ function makeSlider(s, depth){
   capMesh.castShadow = true;
   capMesh.receiveShadow = true;
   capGroup.add(capMesh);
-
-  // Center indicator line across the cap
-  const indGeo = new THREE.BoxGeometry(capWidth * 0.88, 0.02, 0.006);
-  const indMat = new THREE.MeshStandardMaterial({
-    color: indicatorColor,
-    roughness: 0.2,
-    metalness: 0.1
-  });
-  const indMesh = new THREE.Mesh(indGeo, indMat);
-  indMesh.position.set(0, 0, capHeight / 2 + 0.007);
-  capGroup.add(indMesh);
-
+  
   // Position cap along track seated flush against the chassis
   const capTravel = trackLen - capLength * 0.3;
   const capY = (value - 0.5) * capTravel;
@@ -1197,8 +1187,9 @@ function build(config){
   const shadowLightCount = Math.max(0, Math.min(NUM_SOFTBOX_LIGHTS, Math.floor(num(render.softboxShadowCount, 1))));
   const detailShadows = render.detailShadows === true;
   const continuousRendering = render.continuous === true;
+  const wireframe = render.wireframe === true;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatio));
-  renderer.shadowMap.enabled = shadowsEnabled;
+  renderer.shadowMap.enabled = shadowsEnabled && !wireframe;
   fps.style.display = render.showFps === false ? 'none' : '';
   setRenderMode(continuousRendering);
 
@@ -1231,6 +1222,18 @@ function build(config){
 
   if (config.lcd && typeof config.lcd === 'object'){
     rig.add(makeLCD(config.lcd, depth));
+  }
+
+  if (wireframe){
+    rig.traverse(object => {
+      if (object.isMesh && object.material){
+        if (Array.isArray(object.material)){
+          object.material.forEach(m => { m.wireframe = true; });
+        } else {
+          object.material.wireframe = true;
+        }
+      }
+    });
   }
 
   // The chassis casts the important broad shadow. Small controls can opt in
