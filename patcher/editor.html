@@ -70,6 +70,29 @@
     flex: 1; position: relative; background: #fff;
   }
   canvas { display: block; width: 100%; height: 100%; }
+
+  /* ---------- Number inline editor overlay ---------- */
+  #numberEditor {
+    position: absolute; z-index: 10;
+    background: #fff;
+    border: 1px solid #111;
+    box-shadow: 2px 2px 0 rgba(0,0,0,0.2);
+    padding: 2px;
+  }
+  #numberEditor input {
+    display: block; width: 100%;
+    border: none; outline: none; background: transparent;
+    font: 12px -apple-system, Arial, sans-serif;
+    text-align: center; color: #111;
+    padding: 4px 4px;
+  }
+  #numberError {
+    display: none;
+    font-size: 10px; color: #c00;
+    text-align: center; white-space: nowrap;
+    padding: 0 4px 3px 4px;
+  }
+  #numberError.show { display: block; }
 </style>
 </head>
 <body>
@@ -88,11 +111,16 @@
       <div style="margin-top:6px;">Drag a module onto the board.<br>
       Drag from an output to an input to connect.<br>
       Click a module + Delete to remove it.<br>
-      Click a cable to remove it.</div>
+      Click a cable to remove it.<br>
+      Drag a Number value vertically to adjust it; click it to type a value.</div>
     </div>
   </div>
   <div id="canvasWrap">
     <canvas id="pcb"></canvas>
+    <div id="numberEditor" hidden>
+      <input id="numberInput" type="text" inputmode="decimal" autocomplete="off" spellcheck="false">
+      <div id="numberError"></div>
+    </div>
   </div>
 </div>
 
@@ -106,8 +134,9 @@ const moduleDefs = {
   ctrlIn:    { name: "Ctrl In", audioInputs: [], controlInputs: [], audioOutputs: [], controlOutputs: [""] },
   ctrlOut:   { name: "Ctrl Out", audioInputs: [], controlInputs: [""], audioOutputs: [], controlOutputs: [] },
   midiIn:    { name: "Midi In", audioInputs: [], controlInputs: [], audioOutputs: [], controlOutputs: ["gate", "note", "velocity", "bend", "mod-wheel"]},
+  number:     { name: "Number", audioInputs: [], controlInputs: ["scale", "add"], audioOutputs: [], controlOutputs: ["out"] },
   oscillator: { name: "Oscillator", audioInputs: [],              controlInputs: ["freq", "pw"],   audioOutputs: ["out"],           controlOutputs: [] },
-  vca:        { name: "VCA",        audioInputs: ["in"],          controlInputs: ["amount"],        audioOutputs: ["out"],           controlOutputs: [] },
+  vca:        { name: "VCA",        audioInputs: ["in"],          controlInputs: ["gain", "power"],        audioOutputs: ["out"],           controlOutputs: [] },
   filter:     { name: "Filter",     audioInputs: ["in"],          controlInputs: ["cutoff", "resonance","drive"], audioOutputs: ["out"], controlOutputs: [] },
   envelope:   { name: "Env ADSR",   audioInputs: [],              controlInputs: ["gate", "attack", "decay", "sustain", "release"], audioOutputs: [], controlOutputs: ["env"] },
   lfo:        { name: "LFO",        audioInputs: [],              controlInputs: ["rate"],           audioOutputs: [],                controlOutputs: ["out"] },
@@ -131,6 +160,9 @@ const COLOR_DELETE_CABLE = '#f00'; // red highlight when hovering over a removab
 const COLOR_CREATE_CABLE = '#0f0'; // green when creating a cable
 const COLOR_CABLE_AUDIO = '#111';
 const COLOR_CABLE_CTRL = '#999';
+const COLOR_NUMBER_BG = '#ffffff';
+const COLOR_NUMBER_TEXT = '#111111';
+const NUMBER_DRAG_SCALE = 1e-3;
 
 /* =========================================================
    STATE
@@ -145,6 +177,9 @@ let mouseX = 0, mouseY = 0;
 let hoverPort = null;      // specific port under the mouse
 let hoverModule = null;    // module under the mouse, for showing all its port labels
 let hoverCable = null;     // cable under the mouse that would be removed on click
+let numberDrag = null;     // { id, startY, startVal } dragging a number module value
+let numberEditDown = null; // { id, x, y } potential click-to-edit on a Number module
+let editingNumberId = null; // module id currently being edited via the inline overlay
 
 /* =========================================================
    DOM SETUP
@@ -191,6 +226,7 @@ function resizeCanvas() {
     mod.x = clamped.x;
     mod.y = clamped.y;
   });
+  if (isNumberEditorOpen()) positionNumberEditor();
   draw();
 }
 window.addEventListener('resize', resizeCanvas);
@@ -234,10 +270,194 @@ function computeModuleWidth(def) {
 }
 const computeMinModuleWidth = computeModuleWidth;
 
+const DEFAULT_NUMBER_VALUE = 1;
+
+function formatNumberValue(v) {
+  const n = typeof v === 'number' && isFinite(v) ? v : DEFAULT_NUMBER_VALUE;
+  return n.toFixed(3);
+}
+
+function getModuleLabel(mod) {
+  const def = moduleDefs[mod.type];
+  if (!def) return '';
+  if (mod.type === 'number') return formatNumberValue(mod.value ?? DEFAULT_NUMBER_VALUE);
+  return def.name;
+}
+
+const NUMBER_LABEL_FONT = '12px -apple-system, Arial, sans-serif';
+const NUMBER_LABEL_HIT_PAD = 4;
+
+function measureNumberLabel(mod) {
+  const label = getModuleLabel(mod);
+  let tw = 0;
+  let th = 12;
+  try {
+    ctx.save();
+    ctx.font = NUMBER_LABEL_FONT;
+    const m = ctx.measureText(label);
+    tw = m.width;
+    if (m.actualBoundingBoxAscent !== undefined && m.actualBoundingBoxDescent !== undefined) {
+      th = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+    }
+    ctx.restore();
+  } catch (err) {
+    tw = label.length * 7;
+  }
+  if (!tw) tw = label.length * 7;
+  return { tw, th };
+}
+
+// Tight hitbox around the centered number text (plus a few px of padding
+// for usability). Clicks outside this box get normal module behavior.
+function getNumberLabelBounds(mod) {
+  if (!mod || mod.type !== 'number') return null;
+  const { w, h } = getModuleSize(mod);
+  const mx = mod.x * GRID;
+  const my = mod.y * GRID;
+  const cx = mx + w / 2;
+  const cy = my + h / 2;
+  const { tw, th } = measureNumberLabel(mod);
+  const pad = NUMBER_LABEL_HIT_PAD;
+  return { x: cx - tw / 2 - pad, y: cy - th / 2 - pad, w: tw + pad * 2, h: th + pad * 2, cx, cy };
+}
+
+function isPointInNumberLabel(mod, x, y) {
+  const b = getNumberLabelBounds(mod);
+  if (!b) return false;
+  return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+}
+
+function editNumberModule(mod) {
+  openNumberEditor(mod);
+}
+
+function getNumberEditorEls() {
+  return {
+    editor: document.getElementById('numberEditor'),
+    input: document.getElementById('numberInput'),
+    error: document.getElementById('numberError'),
+  };
+}
+
+function showNumberError(msg) {
+  const { error } = getNumberEditorEls();
+  error.textContent = msg;
+  error.classList.add('show');
+}
+
+function clearNumberError() {
+  const { error } = getNumberEditorEls();
+  error.textContent = '';
+  error.classList.remove('show');
+}
+
+function positionNumberEditor() {
+  const mod = modules.find(m => m.id === editingNumberId);
+  if (!mod) return;
+  const { editor } = getNumberEditorEls();
+  const b = getNumberLabelBounds(mod);
+  if (!b) return;
+  // Small overlay centered on the label; enforce a minimum width so the
+  // input stays usable for short values like "1.000".
+  const ow = Math.max(b.w, 60);
+  let left = b.cx - ow / 2;
+  left = Math.max(0, left);
+  if (typeof canvas !== 'undefined' && canvas && canvas.width) {
+    left = Math.min(left, Math.max(0, canvas.width - ow));
+  }
+  editor.style.left = left + 'px';
+  editor.style.top = b.y + 'px';
+  editor.style.width = ow + 'px';
+  editor.style.minHeight = b.h + 'px';
+}
+
+function openNumberEditor(mod) {
+  if (!mod || mod.type !== 'number') return;
+  if (editingNumberId !== null && editingNumberId !== mod.id) {
+    closeNumberEditor(); // switch modules: keep old value unless already committed
+  }
+  editingNumberId = mod.id;
+  selectedModuleId = mod.id;
+  const { editor, input } = getNumberEditorEls();
+  clearNumberError();
+  const current = (typeof mod.value === 'number' && isFinite(mod.value)) ? mod.value : DEFAULT_NUMBER_VALUE;
+  input.value = String(current);
+  positionNumberEditor();
+  editor.hidden = false;
+  draw();
+  input.focus();
+  input.select();
+}
+
+function commitNumberEditor() {
+  if (editingNumberId === null) return true;
+  const mod = modules.find(m => m.id === editingNumberId);
+  const { editor, input } = getNumberEditorEls();
+  if (!mod) {
+    closeNumberEditor();
+    return true;
+  }
+  const raw = input.value.trim().replace(',', '.');
+  if (raw === '') {
+    showNumberError('Enter a number.');
+    input.focus();
+    input.select();
+    return false;
+  }
+  const parsed = parseFloat(raw);
+  if (!isFinite(parsed)) {
+    showNumberError('Not a valid number.');
+    input.focus();
+    input.select();
+    return false;
+  }
+  mod.value = parsed;
+  const { w, h } = getModuleSize(mod);
+  const clamped = clampModulePosition(mod.x, mod.y, w, h);
+  mod.x = clamped.x;
+  mod.y = clamped.y;
+  closeNumberEditor();
+  draw();
+  return true;
+}
+
+function closeNumberEditor() {
+  const { editor, input } = getNumberEditorEls();
+  editor.hidden = true;
+  editingNumberId = null;
+  clearNumberError();
+  if (document.activeElement === input) input.blur();
+}
+
+function isNumberEditorOpen() {
+  return editingNumberId !== null;
+}
+
 function getModuleSize(target) {
-  const def = typeof target === 'string' ? moduleDefs[target] : (target && target.type ? moduleDefs[target.type] : target);
+  let def = null;
+  let labelOverride = null;
+  if (typeof target === 'string') {
+    def = moduleDefs[target];
+    if (target === 'number') labelOverride = formatNumberValue(DEFAULT_NUMBER_VALUE);
+  } else if (target && target.type) {
+    def = moduleDefs[target.type];
+    if (target.type === 'number') labelOverride = getModuleLabel(target);
+  } else {
+    def = target;
+    if (def && def.name === 'Number') labelOverride = formatNumberValue(DEFAULT_NUMBER_VALUE);
+  }
   if (!def) return { w: 0, h: MODULE_H };
-  const w = def.w || computeModuleWidth(def);
+  let w = def.w;
+  if (!w) {
+    if (labelOverride !== null) {
+      const insWidth = computePortRowWidth(def.audioInputs, def.controlInputs);
+      const outsWidth = computePortRowWidth(def.audioOutputs, def.controlOutputs);
+      const nameWidth = computeNameWidth(labelOverride);
+      w = Math.max(insWidth, outsWidth, nameWidth);
+    } else {
+      w = computeModuleWidth(def);
+    }
+  }
   const h = def.h || MODULE_H;
   return { w, h };
 }
@@ -441,10 +661,22 @@ function drawModule(mod) {
   }
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = '12px -apple-system, Arial, sans-serif';
+  ctx.font = NUMBER_LABEL_FONT;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(def.name, mx + w / 2, my + h / 2);
+  if (mod.type === 'number') {
+    const b = getNumberLabelBounds(mod);
+    if (b) {
+      ctx.fillStyle = COLOR_NUMBER_BG;
+      roundRectPath(b.x, b.y, b.w, b.h, 3);
+      ctx.fill();
+    }
+    ctx.fillStyle = COLOR_NUMBER_TEXT;
+    ctx.fillText(getModuleLabel(mod), mx + w / 2, my + h / 2);
+  } else {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(getModuleLabel(mod), mx + w / 2, my + h / 2);
+  }
 
   const pos = getPortPositions(mod);
   pos.audioIn.forEach(drawAudioPort);
@@ -599,9 +831,17 @@ function tryConnect(a, b) {
 }
 
 canvas.addEventListener('mousedown', e => {
+  if (isNumberEditorOpen()) {
+    if (!commitNumberEditor()) {
+      e.preventDefault();
+      return;
+    }
+  }
   const { x, y } = getCanvasCoords(e);
   const port = findPortAt(x, y);
   if (port) {
+    numberEditDown = null;
+    numberDrag = null;
     if (port.dir === 'out') {
       connectDrag = { start: port };
     }
@@ -610,10 +850,22 @@ canvas.addEventListener('mousedown', e => {
   const mod = findModuleAt(x, y);
   if (mod) {
     selectedModuleId = mod.id;
+    if (mod.type === 'number' && isPointInNumberLabel(mod, x, y)) {
+      // Value gesture on the number area: click opens the overlay editor,
+      // vertical drag adjusts the value (module itself does not move).
+      const startVal = (typeof mod.value === 'number' && isFinite(mod.value)) ? mod.value : DEFAULT_NUMBER_VALUE;
+      numberDrag = { id: mod.id, startY: y, startVal };
+      numberEditDown = { id: mod.id, x, y };
+      draw();
+      return;
+    }
     dragState = { id: mod.id, offsetX: x - mod.x * GRID, offsetY: y - mod.y * GRID };
+    numberEditDown = null;
     draw();
     return;
   }
+  numberEditDown = null;
+  numberDrag = null;
   const cable = findCableNear(x, y);
   if (cable) {
     connections = connections.filter(c => c.id !== cable.id);
@@ -629,6 +881,31 @@ window.addEventListener('mousemove', e => {
   const { x, y } = getCanvasCoords(e);
   mouseX = x; mouseY = y;
 
+  if (numberDrag) {
+    const mod = modules.find(m => m.id === numberDrag.id);
+    if (!mod) {
+      numberDrag = null;
+      numberEditDown = null;
+      draw();
+      return;
+    }
+    // Up-positive pixel delta (screen y grows downward, so invert it):
+    // drag up increases, drag down decreases.
+    // Nonlinear mapping: deltaValue = 1e-3 * deltaY * abs(deltaY).
+    const deltaY = numberDrag.startY - y;
+    mod.value = numberDrag.startVal + NUMBER_DRAG_SCALE * deltaY * Math.abs(deltaY);
+    const { w, h } = getModuleSize(mod);
+    const clamped = clampModulePosition(mod.x, mod.y, w, h);
+    mod.x = clamped.x;
+    mod.y = clamped.y;
+    if (numberEditDown && Math.hypot(x - numberEditDown.x, y - numberEditDown.y) > 4) {
+      numberEditDown = null; // became a value-drag, suppress click-to-edit
+    }
+    canvas.style.cursor = 'ns-resize';
+    draw();
+    return;
+  }
+
   if (dragState) {
     hoverCable = null;
     const mod = modules.find(m => m.id === dragState.id);
@@ -636,6 +913,7 @@ window.addEventListener('mousemove', e => {
     const clamped = clampModulePosition(snap(x - dragState.offsetX), snap(y - dragState.offsetY), w, h);
     mod.x = clamped.x;
     mod.y = clamped.y;
+    if (editingNumberId !== null && editingNumberId === dragState.id) positionNumberEditor();
     draw();
     return;
   }
@@ -655,7 +933,8 @@ window.addEventListener('mousemove', e => {
   hoverModule = mod;
   const cable = (!port && !mod) ? findCableNear(x, y) : null;
   hoverCable = cable;
-  canvas.style.cursor = (port && port.dir === 'out') ? 'crosshair' : (mod ? 'move' : (cable ? 'pointer' : 'default'));
+  const overNumberLabel = !!(mod && mod.type === 'number' && isPointInNumberLabel(mod, x, y));
+  canvas.style.cursor = (port && port.dir === 'out') ? 'crosshair' : (overNumberLabel ? 'ns-resize' : (mod ? 'move' : (cable ? 'pointer' : 'default')));
   draw();
 });
 
@@ -675,16 +954,43 @@ window.addEventListener('mouseup', e => {
     if (endPort) tryConnect(connectDrag.start, endPort);
     connectDrag = null;
   }
+  if (numberDrag) {
+    const mod = modules.find(m => m.id === numberDrag.id);
+    const wasClick = !!numberEditDown && Math.hypot(x - numberEditDown.x, y - numberEditDown.y) <= 4;
+    const upInLabel = !!(mod && mod.type === 'number' && isPointInNumberLabel(mod, x, y));
+    numberDrag = null;
+    numberEditDown = null;
+    dragState = null;
+    canvas.style.cursor = 'default';
+    if (mod && mod.type === 'number' && wasClick && upInLabel) {
+      editNumberModule(mod);
+    } else {
+      draw();
+    }
+    return;
+  }
+  if (numberEditDown) {
+    const mod = modules.find(m => m.id === numberEditDown.id);
+    const wasClick = Math.hypot(x - numberEditDown.x, y - numberEditDown.y) <= 4;
+    const upInLabel = !!(mod && mod.type === 'number' && isPointInNumberLabel(mod, x, y));
+    numberEditDown = null;
+    if (mod && mod.type === 'number' && wasClick && upInLabel) {
+      editNumberModule(mod);
+    }
+  }
   dragState = null;
   draw();
 });
 
 window.addEventListener('keydown', e => {
+  if (isNumberEditorOpen()) return; // let the overlay input handle its own keys
   if ((e.key === 'Delete' || e.key === 'Backspace') && selectedModuleId !== null) {
     e.preventDefault();
+    const removedId = selectedModuleId;
     modules = modules.filter(m => m.id !== selectedModuleId);
     connections = connections.filter(c =>
       c.from.moduleId !== selectedModuleId && c.to.moduleId !== selectedModuleId);
+    if (editingNumberId === removedId) closeNumberEditor();
     selectedModuleId = null;
     draw();
   }
@@ -706,6 +1012,7 @@ wrap.addEventListener('drop', e => {
     x: clamped.x,
     y: clamped.y,
   };
+  if (key === 'number') mod.value = DEFAULT_NUMBER_VALUE;
   modules.push(mod);
   selectedModuleId = mod.id;
   draw();
@@ -717,6 +1024,7 @@ wrap.addEventListener('drop', e => {
 (function seed() {
   function place(type, gx, gy) {
     const mod = { id: idCounter++, type, x: gx, y: gy };
+    if (type === 'number') mod.value = DEFAULT_NUMBER_VALUE;
     modules.push(mod);
     return mod;
   }
@@ -740,7 +1048,13 @@ wrap.addEventListener('drop', e => {
 function serializeGraph() {
   const data = {
     version: 1,
-    modules: modules.map(m => ({ id: m.id, type: m.type, position: [m.x, m.y] })),
+    modules: modules.map(m => {
+      const entry = { id: m.id, type: m.type, position: [m.x, m.y] };
+      if (m.type === 'number') {
+        entry.value = (typeof m.value === 'number' && isFinite(m.value)) ? m.value : DEFAULT_NUMBER_VALUE;
+      }
+      return entry;
+    }),
     connections: connections.map(c => ({
       id: c.id,
       kind: c.kind,
@@ -781,14 +1095,22 @@ function loadGraph(json) {
       const isLegacyPixel = m.w !== undefined || m.h !== undefined;
       const gx = Math.round(isLegacyPixel ? rawX / GRID : rawX);
       const gy = Math.round(isLegacyPixel ? rawY / GRID : rawY);
-      const { w, h } = getModuleSize(m.type);
+      let value;
+      if (m.type === 'number') {
+        const n = typeof m.value === 'number' ? m.value : parseFloat(m.value);
+        value = Number.isFinite(n) ? n : DEFAULT_NUMBER_VALUE;
+      }
+      const tmp = value !== undefined ? { type: m.type, value } : m.type;
+      const { w, h } = getModuleSize(tmp);
       const clamped = clampModulePosition(gx, gy, w, h);
-      return {
+      const entry = {
         id: m.id,
         type: m.type,
         x: clamped.x,
         y: clamped.y,
       };
+      if (value !== undefined) entry.value = value;
+      return entry;
     });
   const moduleIds = new Set(newModules.map(m => m.id));
 
@@ -812,6 +1134,7 @@ function loadGraph(json) {
   hoverModule = null;
   dragState = null;
   connectDrag = null;
+  closeNumberEditor();
   draw();
   return true;
 }
@@ -848,6 +1171,31 @@ document.getElementById('loadInput').addEventListener('change', e => {
   if (file) loadGraphFromFile(file);
   e.target.value = ''; // allow reloading the same filename later
 });
+
+/* ---- inline Number editor overlay events ---- */
+(function wireNumberEditor() {
+  const { input } = getNumberEditorEls();
+  input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitNumberEditor();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closeNumberEditor();
+      draw();
+    }
+  });
+  input.addEventListener('input', () => clearNumberError());
+  // Commit when focus leaves the overlay (e.g. user clicks elsewhere).
+  input.addEventListener('blur', () => {
+    if (isNumberEditorOpen()) commitNumberEditor();
+  });
+  // Clicks on the overlay itself must not start canvas drags/connects.
+  const { editor } = getNumberEditorEls();
+  editor.addEventListener('mousedown', e => e.stopPropagation());
+  editor.addEventListener('mouseup', e => e.stopPropagation());
+})();
 
 draw();
 </script>
