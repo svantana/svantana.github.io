@@ -140,11 +140,9 @@ const moduleDefs = {
   filter:     { name: "Filter",     audioInputs: ["in"],          controlInputs: ["cutoff", "resonance","drive"], audioOutputs: ["out"], controlOutputs: [] },
   envelope:   { name: "Env ADSR",   audioInputs: [],              controlInputs: ["gate", "attack", "decay", "sustain", "release"], audioOutputs: [], controlOutputs: ["env"] },
   lfo:        { name: "LFO",        audioInputs: [],              controlInputs: ["rate"],           audioOutputs: [],                controlOutputs: ["out"] },
-  mixer:      { name: "Mixer",      audioInputs: ["1", "2", "3", "4"], controlInputs: [],           audioOutputs: ["out"],           controlOutputs: [] },
   noise:      { name: "Noise",      audioInputs: [],              controlInputs: [],                 audioOutputs: ["out"],           controlOutputs: [] },
-  sequencer:  { name: "Sequencer",  audioInputs: [],              controlInputs: ["clock"],          audioOutputs: [],                controlOutputs: ["pitch", "gate"] },
+  pulse:  { name: "Pulse", audioInputs: [], controlInputs: ["rate", "probability"], audioOutputs: [], controlOutputs: ["gate"]},
   delay:      { name: "Delay",      audioInputs: ["in"],          controlInputs: ["time", "fdbk"],  audioOutputs: ["out"],           controlOutputs: [] },
-  splitter:   { name: "Splitter",   audioInputs: ["in"],          controlInputs: [],                 audioOutputs: ["1", "2", "3"],   controlOutputs: [] },
 };
 
 /* =========================================================
