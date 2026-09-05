@@ -131,18 +131,19 @@
 const moduleDefs = {
   audioIn:    { name: "Audio In", audioInputs: [], controlInputs: [], audioOutputs: [""], controlOutputs: [] },
   audioOut:   { name: "Audio Out", audioInputs: [""], controlInputs: [], audioOutputs: [], controlOutputs: [] },
-  ctrlIn:    { name: "Ctrl In", audioInputs: [], controlInputs: [], audioOutputs: [], controlOutputs: [""] },
-  ctrlOut:   { name: "Ctrl Out", audioInputs: [], controlInputs: [""], audioOutputs: [], controlOutputs: [] },
-  midiIn:    { name: "Midi In", audioInputs: [], controlInputs: [], audioOutputs: [], controlOutputs: ["gate", "note", "velocity", "bend", "mod-wheel"]},
+  ctrlIn:     { name: "Ctrl In", audioInputs: [], controlInputs: [], audioOutputs: [], controlOutputs: [""] },
+  ctrlOut:    { name: "Ctrl Out", audioInputs: [], controlInputs: [""], audioOutputs: [], controlOutputs: [] },
+  midiIn:     { name: "Midi In", audioInputs: [], controlInputs: ["poly"], audioOutputs: [], controlOutputs: ["gate", "note", "velocity", "bend", "mod-wheel"]},
   number:     { name: "Number", audioInputs: [], controlInputs: ["scale", "add"], audioOutputs: [], controlOutputs: ["out"] },
-  oscillator: { name: "Oscillator", audioInputs: [],              controlInputs: ["freq", "pw"],   audioOutputs: ["out"],           controlOutputs: [] },
+  oscillator: { name: "Oscillator", audioInputs: [],              controlInputs: ["note", "width","color"],   audioOutputs: ["out"],           controlOutputs: [] },
   vca:        { name: "VCA",        audioInputs: ["in"],          controlInputs: ["gain", "power"],        audioOutputs: ["out"],           controlOutputs: [] },
+  polyMix:    { name: "PolyMix",        audioInputs: ["in"],          controlInputs: [],        audioOutputs: ["out"],           controlOutputs: [] },
   filter:     { name: "Filter",     audioInputs: ["in"],          controlInputs: ["cutoff", "resonance","drive"], audioOutputs: ["out"], controlOutputs: [] },
   envelope:   { name: "Env ADSR",   audioInputs: [],              controlInputs: ["gate", "attack", "decay", "sustain", "release"], audioOutputs: [], controlOutputs: ["env"] },
   lfo:        { name: "LFO",        audioInputs: [],              controlInputs: ["rate"],           audioOutputs: [],                controlOutputs: ["out"] },
   noise:      { name: "Noise",      audioInputs: [],              controlInputs: [],                 audioOutputs: ["out"],           controlOutputs: [] },
   pulse:  { name: "Pulse", audioInputs: [], controlInputs: ["rate", "probability"], audioOutputs: [], controlOutputs: ["gate"]},
-  delay:      { name: "Delay",      audioInputs: ["in"],          controlInputs: ["time", "fdbk"],  audioOutputs: ["out"],           controlOutputs: [] },
+  delay:      { name: "Delay",      audioInputs: ["in"],          controlInputs: ["time", "color","feedback"],  audioOutputs: ["out"],           controlOutputs: [] },
 };
 
 /* =========================================================
