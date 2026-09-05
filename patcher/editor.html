@@ -86,7 +86,7 @@
       <div><span class="dot"></span><b>audio</b> port (round)</div>
       <div><span class="sq"></span><b>control</b> port (square)</div>
       <div style="margin-top:6px;">Drag a module onto the board.<br>
-      Drag from one port to another to connect.<br>
+      Drag from an output to an input to connect.<br>
       Click a module + Delete to remove it.<br>
       Click a cable to remove it.</div>
     </div>
@@ -101,14 +101,18 @@
    MODULE DEFINITIONS
    ========================================================= */
 const moduleDefs = {
+  audioIn:    { name: "Audio In", audioInputs: [], controlInputs: [], audioOutputs: [""], controlOutputs: [] },
+  audioOut:   { name: "Audio Out", audioInputs: [""], controlInputs: [], audioOutputs: [], controlOutputs: [] },
+  ctrlIn:    { name: "Ctrl In", audioInputs: [], controlInputs: [], audioOutputs: [], controlOutputs: [""] },
+  ctrlOut:   { name: "Ctrl Out", audioInputs: [], controlInputs: [""], audioOutputs: [], controlOutputs: [] },
+  midiIn:    { name: "Midi In", audioInputs: [], controlInputs: [], audioOutputs: [], controlOutputs: ["gate", "note", "velocity", "bend", "mod-wheel"]},
   oscillator: { name: "Oscillator", audioInputs: [],              controlInputs: ["freq", "pw"],   audioOutputs: ["out"],           controlOutputs: [] },
   vca:        { name: "VCA",        audioInputs: ["in"],          controlInputs: ["amount"],        audioOutputs: ["out"],           controlOutputs: [] },
-  filter:     { name: "Filter",     audioInputs: ["in"],          controlInputs: ["cutoff", "res"], audioOutputs: ["out"],           controlOutputs: [] },
-  envelope:   { name: "Envelope",   audioInputs: [],              controlInputs: ["gate"],           audioOutputs: [],                controlOutputs: ["env"] },
+  filter:     { name: "Filter",     audioInputs: ["in"],          controlInputs: ["cutoff", "resonance","drive"], audioOutputs: ["out"], controlOutputs: [] },
+  envelope:   { name: "Env ADSR",   audioInputs: [],              controlInputs: ["gate", "attack", "decay", "sustain", "release"], audioOutputs: [], controlOutputs: ["env"] },
   lfo:        { name: "LFO",        audioInputs: [],              controlInputs: ["rate"],           audioOutputs: [],                controlOutputs: ["out"] },
   mixer:      { name: "Mixer",      audioInputs: ["1", "2", "3", "4"], controlInputs: [],           audioOutputs: ["out"],           controlOutputs: [] },
   noise:      { name: "Noise",      audioInputs: [],              controlInputs: [],                 audioOutputs: ["out"],           controlOutputs: [] },
-  output:     { name: "Output",     audioInputs: ["left", "right"], controlInputs: [],               audioOutputs: [],                controlOutputs: [] },
   sequencer:  { name: "Sequencer",  audioInputs: [],              controlInputs: ["clock"],          audioOutputs: [],                controlOutputs: ["pitch", "gate"] },
   delay:      { name: "Delay",      audioInputs: ["in"],          controlInputs: ["time", "fdbk"],  audioOutputs: ["out"],           controlOutputs: [] },
   splitter:   { name: "Splitter",   audioInputs: ["in"],          controlInputs: [],                 audioOutputs: ["1", "2", "3"],   controlOutputs: [] },
@@ -123,11 +127,15 @@ const PORT_HIT = 9;            // hit radius for ports
 const PORT_R = 5;              // audio port circle radius
 const PORT_SQ = 9;             // control port square side
 const CABLE_HIT = 6;           // px distance to grab a cable
+const COLOR_DELETE_CABLE = '#f00'; // red highlight when hovering over a removable cable
+const COLOR_CREATE_CABLE = '#0f0'; // green when creating a cable
+const COLOR_CABLE_AUDIO = '#111';
+const COLOR_CABLE_CTRL = '#999';
 
 /* =========================================================
    STATE
    ========================================================= */
-let modules = [];      // {id, type, x, y, w, h}
+let modules = [];      // {id, type, x, y} in grid units (1 unit = 1 grid line)
 let connections = [];  // {id, kind:'audio'|'control', from:{moduleId,index}, to:{moduleId,index}}
 let idCounter = 1;
 let selectedModuleId = null;
@@ -136,6 +144,7 @@ let connectDrag = null;    // drawing a new cable
 let mouseX = 0, mouseY = 0;
 let hoverPort = null;      // specific port under the mouse
 let hoverModule = null;    // module under the mouse, for showing all its port labels
+let hoverCable = null;     // cable under the mouse that would be removed on click
 
 /* =========================================================
    DOM SETUP
@@ -162,9 +171,26 @@ function buildSidebar() {
 }
 buildSidebar();
 
+function clampModulePosition(gx, gy, w, h) {
+  const cellsW = w / GRID;
+  const cellsH = h / GRID;
+  const maxGridX = Math.max(0, Math.floor(canvas.width / GRID) - cellsW);
+  const maxGridY = Math.max(0, Math.floor(canvas.height / GRID) - cellsH);
+  return {
+    x: Math.max(0, Math.min(maxGridX, gx)),
+    y: Math.max(0, Math.min(maxGridY, gy)),
+  };
+}
+
 function resizeCanvas() {
   canvas.width = wrap.clientWidth;
   canvas.height = wrap.clientHeight;
+  modules.forEach(mod => {
+    const { w, h } = getModuleSize(mod);
+    const clamped = clampModulePosition(mod.x, mod.y, w, h);
+    mod.x = clamped.x;
+    mod.y = clamped.y;
+  });
   draw();
 }
 window.addEventListener('resize', resizeCanvas);
@@ -173,32 +199,66 @@ resizeCanvas();
 /* =========================================================
    GEOMETRY HELPERS
    ========================================================= */
-function snap(v) { return Math.round(v / GRID) * GRID; }
+function snap(v) { return Math.round(v / GRID); }
 
+function computePortRowWidth(audioPorts, controlPorts) {
+  const nAudio = audioPorts ? audioPorts.length : 0;
+  const nControl = controlPorts ? controlPorts.length : 0;
+  if (nAudio === 0 && nControl === 0) return 0;
+  if (nAudio === 0) return (nControl + 1) * GRID;
+  if (nControl === 0) return (nAudio + 1) * GRID;
+  const gap = 2; // grid cells of clearance between audio and control groups
+  return (nAudio + nControl + gap) * GRID;
+}
+
+function computeNameWidth(name) {
+  let textWidth = 0;
+  if (typeof ctx !== 'undefined' && ctx && ctx.measureText) {
+    ctx.save();
+    ctx.font = '12px -apple-system, Arial, sans-serif';
+    textWidth = ctx.measureText(name).width;
+    ctx.restore();
+  } else {
+    textWidth = name.length * 7;
+  }
+  const padding = 16; // clearance so text does not touch module borders
+  return Math.ceil((textWidth + padding) / GRID) * GRID;
+}
+
+// Computes the minimum needed module width as the max width needed for ins, outs, and name label.
 function computeModuleWidth(def) {
-  // Box spans grid cells [0, W]. Audio ports land at cells 1,2,3,...
-  // from the left edge; control ports at W-1, W-2, W-3,... from the
-  // right edge. Width grows with however many ports are needed, plus a
-  // small gap between the two groups and a floor so the name still fits.
-  const nAudio = Math.max(def.audioInputs.length, def.audioOutputs.length);
-  const nControl = Math.max(def.controlInputs.length, def.controlOutputs.length);
-  const gap = 2;        // grid cells of clearance between the two groups
-  const minCells = 6;   // minimum box width, in grid cells
-  const cells = Math.max(nAudio + nControl + gap, minCells);
-  return cells * GRID;
+  const insWidth = computePortRowWidth(def.audioInputs, def.controlInputs);
+  const outsWidth = computePortRowWidth(def.audioOutputs, def.controlOutputs);
+  const nameWidth = computeNameWidth(def.name);
+  return Math.max(insWidth, outsWidth, nameWidth);
+}
+const computeMinModuleWidth = computeModuleWidth;
+
+function getModuleSize(target) {
+  const def = typeof target === 'string' ? moduleDefs[target] : (target && target.type ? moduleDefs[target.type] : target);
+  if (!def) return { w: 0, h: MODULE_H };
+  const w = def.w || computeModuleWidth(def);
+  const h = def.h || MODULE_H;
+  return { w, h };
 }
 
 function getPortPositions(mod) {
   const def = moduleDefs[mod.type];
-  const cells = mod.w / GRID;
-  const audioX = i => mod.x + i * GRID;            // i = 1, 2, 3, ... from the left edge
-  const controlX = i => mod.x + (cells - i) * GRID; // i = 1, 2, 3, ... from the right edge
+  const { w, h } = getModuleSize(mod);
+  const cells = w / GRID;
+  const mx = mod.x * GRID;
+  const my = mod.y * GRID;
+  const audioX = i => mx + i * GRID; // i = 1, 2, 3, ... from the left edge
 
   const audioIn = [], audioOut = [], controlIn = [], controlOut = [];
-  def.audioInputs.forEach((n, idx)    => audioIn.push({ x: audioX(idx + 1), y: mod.y, name: n }));
-  def.audioOutputs.forEach((n, idx)   => audioOut.push({ x: audioX(idx + 1), y: mod.y + mod.h, name: n }));
-  def.controlInputs.forEach((n, idx)  => controlIn.push({ x: controlX(idx + 1), y: mod.y, name: n }));
-  def.controlOutputs.forEach((n, idx) => controlOut.push({ x: controlX(idx + 1), y: mod.y + mod.h, name: n }));
+  def.audioInputs.forEach((n, idx)    => audioIn.push({ x: audioX(idx + 1), y: my, name: n }));
+  def.audioOutputs.forEach((n, idx)   => audioOut.push({ x: audioX(idx + 1), y: my + h, name: n }));
+
+  const cInCount = def.controlInputs.length;
+  def.controlInputs.forEach((n, idx)  => controlIn.push({ x: mx + (cells - cInCount + idx) * GRID, y: my, name: n }));
+
+  const cOutCount = def.controlOutputs.length;
+  def.controlOutputs.forEach((n, idx) => controlOut.push({ x: mx + (cells - cOutCount + idx) * GRID, y: my + h, name: n }));
 
   return { audioIn, controlIn, audioOut, controlOut };
 }
@@ -219,7 +279,10 @@ function getCanvasCoords(e) {
 function findModuleAt(x, y) {
   for (let i = modules.length - 1; i >= 0; i--) {
     const m = modules[i];
-    if (x >= m.x && x <= m.x + m.w && y >= m.y && y <= m.y + m.h) return m;
+    const { w, h } = getModuleSize(m);
+    const mx = m.x * GRID;
+    const my = m.y * GRID;
+    if (x >= mx && x <= mx + w && y >= my && y <= my + h) return m;
   }
   return null;
 }
@@ -363,14 +426,17 @@ function drawControlPort(p) {
 
 function drawModule(mod) {
   const def = moduleDefs[mod.type];
+  const { w, h } = getModuleSize(mod);
+  const mx = mod.x * GRID;
+  const my = mod.y * GRID;
   ctx.fillStyle = 'rgba(17, 17, 17, 0.82)';
-  roundRectPath(mod.x, mod.y, mod.w, mod.h, 4);
+  roundRectPath(mx, my, w, h, 4);
   ctx.fill();
 
   if (mod.id === selectedModuleId) {
     ctx.lineWidth = 2;
     ctx.strokeStyle = '#2b7de9';
-    roundRectPath(mod.x - 2, mod.y - 2, mod.w + 4, mod.h + 4, 6);
+    roundRectPath(mx - 2, my - 2, w + 4, h + 4, 6);
     ctx.stroke();
   }
 
@@ -378,7 +444,7 @@ function drawModule(mod) {
   ctx.font = '12px -apple-system, Arial, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(def.name, mod.x + mod.w / 2, mod.y + mod.h / 2);
+  ctx.fillText(def.name, mx + w / 2, my + h / 2);
 
   const pos = getPortPositions(mod);
   pos.audioIn.forEach(drawAudioPort);
@@ -391,13 +457,15 @@ function drawConnection(c) {
   const a = getPortCoord(c.from.moduleId, c.kind, 'out', c.from.index);
   const b = getPortCoord(c.to.moduleId, c.kind, 'in', c.to.index);
   if (!a || !b) return;
+  const isHovered = hoverCable && hoverCable.id === c.id;
   ctx.lineWidth = 2;
-  if (c.kind === 'audio') {
-    ctx.setLineDash([]);
-    ctx.strokeStyle = '#111111';
+  ctx.setLineDash([]);
+  if (isHovered) {
+    ctx.strokeStyle = COLOR_DELETE_CABLE;
+  } else if (c.kind === 'audio') {
+    ctx.strokeStyle = COLOR_CABLE_AUDIO;
   } else {
-    ctx.setLineDash([5, 3]);
-    ctx.strokeStyle = '#888888';
+    ctx.strokeStyle = COLOR_CABLE_CTRL;
   }
   drawOrthogonalPath(a.x, a.y, b.x, b.y, 8);
   ctx.setLineDash([]);
@@ -407,8 +475,28 @@ function isValidPair(a, b) {
   if (!a || !b) return false;
   if (a.moduleId === b.moduleId) return false;
   if (a.kind !== b.kind) return false;
-  if (a.dir === b.dir) return false;
+  if (a.dir !== 'out' || b.dir !== 'in') return false;
   return true;
+}
+
+function getCompatibleTargets(source) {
+  if (!source || source.dir !== 'out') return [];
+  const targets = [];
+  modules.forEach(mod => {
+    if (mod.id === source.moduleId) return;
+    const pos = getPortPositions(mod);
+    const inList = source.kind === 'audio' ? pos.audioIn : pos.controlIn;
+    inList.forEach((p, i) => {
+      targets.push({
+        ...p,
+        kind: source.kind,
+        dir: 'in',
+        index: i,
+        moduleId: mod.id,
+      });
+    });
+  });
+  return targets;
 }
 
 function collectModulePorts(mod) {
@@ -446,7 +534,10 @@ function drawPortLabel(port, opacity) {
 
 function draw() {
   drawGrid();
-  connections.forEach(drawConnection);
+  connections.forEach(c => {
+    if (!hoverCable || c.id !== hoverCable.id) drawConnection(c);
+  });
+  if (hoverCable) drawConnection(hoverCable);
 
   if (connectDrag) {
     const a = connectDrag.start;
@@ -469,7 +560,16 @@ function draw() {
 
   modules.forEach(drawModule);
 
-  if (hoverModule && !dragState) {
+  if (connectDrag) {
+    drawPortLabel(connectDrag.start, 1);
+    const targets = getCompatibleTargets(connectDrag.start);
+    const isAnyTargetHovered = targets.some(t => samePort(t, hoverPort));
+    targets.forEach(p => {
+      const isHovered = samePort(p, hoverPort);
+      const opacity = isHovered ? 1 : (isAnyTargetHovered ? 0.5 : 0.85);
+      drawPortLabel(p, opacity);
+    });
+  } else if (hoverModule && !dragState) {
     collectModulePorts(hoverModule).forEach(p => {
       drawPortLabel(p, samePort(p, hoverPort) ? 1 : 0.35);
     });
@@ -481,8 +581,8 @@ function draw() {
    ========================================================= */
 function tryConnect(a, b) {
   if (!isValidPair(a, b)) return;
-  const from = a.dir === 'out' ? a : b;
-  const to = a.dir === 'out' ? b : a;
+  const from = a;
+  const to = b;
   // avoid exact duplicate
   const dup = connections.some(c =>
     c.kind === from.kind &&
@@ -502,19 +602,22 @@ canvas.addEventListener('mousedown', e => {
   const { x, y } = getCanvasCoords(e);
   const port = findPortAt(x, y);
   if (port) {
-    connectDrag = { start: port };
+    if (port.dir === 'out') {
+      connectDrag = { start: port };
+    }
     return;
   }
   const mod = findModuleAt(x, y);
   if (mod) {
     selectedModuleId = mod.id;
-    dragState = { id: mod.id, offsetX: x - mod.x, offsetY: y - mod.y };
+    dragState = { id: mod.id, offsetX: x - mod.x * GRID, offsetY: y - mod.y * GRID };
     draw();
     return;
   }
   const cable = findCableNear(x, y);
   if (cable) {
     connections = connections.filter(c => c.id !== cable.id);
+    hoverCable = null;
     draw();
     return;
   }
@@ -527,15 +630,21 @@ window.addEventListener('mousemove', e => {
   mouseX = x; mouseY = y;
 
   if (dragState) {
+    hoverCable = null;
     const mod = modules.find(m => m.id === dragState.id);
-    mod.x = snap(x - dragState.offsetX);
-    mod.y = snap(y - dragState.offsetY);
+    const { w, h } = getModuleSize(mod);
+    const clamped = clampModulePosition(snap(x - dragState.offsetX), snap(y - dragState.offsetY), w, h);
+    mod.x = clamped.x;
+    mod.y = clamped.y;
     draw();
     return;
   }
   if (connectDrag) {
+    hoverCable = null;
     hoverPort = findPortAt(x, y);
     hoverModule = findModuleAt(x, y);
+    const valid = isValidPair(connectDrag.start, hoverPort);
+    canvas.style.cursor = valid ? 'crosshair' : 'default';
     draw();
     return;
   }
@@ -544,8 +653,19 @@ window.addEventListener('mousemove', e => {
   hoverPort = port;
   const mod = findModuleAt(x, y);
   hoverModule = mod;
-  canvas.style.cursor = port ? 'crosshair' : (mod ? 'move' : 'default');
+  const cable = (!port && !mod) ? findCableNear(x, y) : null;
+  hoverCable = cable;
+  canvas.style.cursor = (port && port.dir === 'out') ? 'crosshair' : (mod ? 'move' : (cable ? 'pointer' : 'default'));
   draw();
+});
+
+canvas.addEventListener('mouseleave', () => {
+  if (hoverPort || hoverModule || hoverCable) {
+    hoverPort = null;
+    hoverModule = null;
+    hoverCable = null;
+    draw();
+  }
 });
 
 window.addEventListener('mouseup', e => {
@@ -578,14 +698,13 @@ wrap.addEventListener('drop', e => {
   const def = moduleDefs[key];
   if (!def) return;
   const { x, y } = getCanvasCoords(e);
-  const w = computeModuleWidth(def);
-  const h = MODULE_H;
+  const { w, h } = getModuleSize(def);
+  const clamped = clampModulePosition(snap(x - w / 2), snap(y - h / 2), w, h);
   const mod = {
     id: idCounter++,
     type: key,
-    x: snap(x - w / 2),
-    y: snap(y - h / 2),
-    w, h,
+    x: clamped.x,
+    y: clamped.y,
   };
   modules.push(mod);
   selectedModuleId = mod.id;
@@ -597,19 +716,17 @@ wrap.addEventListener('drop', e => {
    ========================================================= */
 (function seed() {
   function place(type, gx, gy) {
-    const def = moduleDefs[type];
-    const w = computeModuleWidth(def);
-    const mod = { id: idCounter++, type, x: snap(gx), y: snap(gy), w, h: MODULE_H };
+    const mod = { id: idCounter++, type, x: gx, y: gy };
     modules.push(mod);
     return mod;
   }
-  const lfo = place('lfo', 60, 60);
-  const osc = place('oscillator', 300, 60);
-  const filt = place('filter', 300, 220);
-  const vca = place('vca', 300, 380);
-  const out = place('output', 560, 380);
+  const lfo = place('lfo', 3, 3);
+  const osc = place('oscillator', 15, 3);
+  const filt = place('filter', 15, 11);
+  const vca = place('vca', 15, 19);
+  const out = place('audioOut', 28, 19);
 
-  connections.push({ id: idCounter++, kind: 'control', from: { moduleId: lfo.id, index: 0 }, to: { moduleId: osc.id, index: 1 } });
+  connections.push({ id: idCounter++, kind: 'control', from: { moduleId: lfo.id, index: 0 }, to: { moduleId: osc.id, index: 0 } });
   connections.push({ id: idCounter++, kind: 'audio', from: { moduleId: osc.id, index: 0 }, to: { moduleId: filt.id, index: 0 } });
   connections.push({ id: idCounter++, kind: 'audio', from: { moduleId: filt.id, index: 0 }, to: { moduleId: vca.id, index: 0 } });
   connections.push({ id: idCounter++, kind: 'audio', from: { moduleId: vca.id, index: 0 }, to: { moduleId: out.id, index: 0 } });
@@ -623,7 +740,7 @@ wrap.addEventListener('drop', e => {
 function serializeGraph() {
   const data = {
     version: 1,
-    modules: modules.map(m => ({ id: m.id, type: m.type, x: m.x, y: m.y, w: m.w, h: m.h })),
+    modules: modules.map(m => ({ id: m.id, type: m.type, position: [m.x, m.y] })),
     connections: connections.map(c => ({
       id: c.id,
       kind: c.kind,
@@ -653,11 +770,26 @@ function loadGraph(json) {
 
   const newModules = data.modules
     .filter(m => moduleDefs[m.type])
-    .map(m => ({
-      id: m.id, type: m.type,
-      x: snap(m.x), y: snap(m.y),
-      w: m.w, h: m.h,
-    }));
+    .map(m => {
+      let rawX, rawY;
+      if (Array.isArray(m.position)) {
+        [rawX, rawY] = m.position;
+      } else {
+        rawX = m.x;
+        rawY = m.y;
+      }
+      const isLegacyPixel = m.w !== undefined || m.h !== undefined;
+      const gx = Math.round(isLegacyPixel ? rawX / GRID : rawX);
+      const gy = Math.round(isLegacyPixel ? rawY / GRID : rawY);
+      const { w, h } = getModuleSize(m.type);
+      const clamped = clampModulePosition(gx, gy, w, h);
+      return {
+        id: m.id,
+        type: m.type,
+        x: clamped.x,
+        y: clamped.y,
+      };
+    });
   const moduleIds = new Set(newModules.map(m => m.id));
 
   const newConnections = data.connections
