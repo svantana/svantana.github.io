@@ -1135,13 +1135,20 @@ wrap.addEventListener('drop', e => {
     modules.push(mod);
     return mod;
   }
-  const lfo = place('lfo', 3, 3);
-  const osc = place('oscillator', 15, 3);
-  const filt = place('filter', 15, 11);
-  const vca = place('vca', 15, 19);
-  const out = place('audioOut', 28, 19);
 
-  connections.push({ id: idCounter++, kind: 'control', from: { moduleId: lfo.id, index: 0 }, to: { moduleId: osc.id, index: 0 } });
+  const polyNum = place('number', 18, 2);
+  polyNum.value = 4.0;
+  const midiIn = place('midiIn', 10, 2);
+  const osc = place('oscillator', 10, 7);
+  const filt = place('filter', 15, 12);
+  const vca = place('vca', 10, 17);
+  const out = place('audioOut', 10, 22);
+  const env = place('envADSR', 2, 7);
+  
+  connections.push({ id: idCounter++, kind: 'control', from: { moduleId: polyNum.id, index: 0 }, to: { moduleId: midiIn.id, index: 0 } });
+  connections.push({ id: idCounter++, kind: 'control', from: { moduleId: midiIn.id, index: 1 }, to: { moduleId: osc.id, index: 0 } });
+  connections.push({ id: idCounter++, kind: 'control', from: { moduleId: midiIn.id, index: 0 }, to: { moduleId: env.id, index: 0 } });
+  connections.push({ id: idCounter++, kind: 'control', from: { moduleId: env.id, index: 0 }, to: { moduleId: vca.id, index: 0 } });
   connections.push({ id: idCounter++, kind: 'audio', from: { moduleId: osc.id, index: 0 }, to: { moduleId: filt.id, index: 0 } });
   connections.push({ id: idCounter++, kind: 'audio', from: { moduleId: filt.id, index: 0 }, to: { moduleId: vca.id, index: 0 } });
   connections.push({ id: idCounter++, kind: 'audio', from: { moduleId: vca.id, index: 0 }, to: { moduleId: out.id, index: 0 } });
@@ -1151,31 +1158,63 @@ wrap.addEventListener('drop', e => {
    SAVE / LOAD GRAPH AS JSON
    ========================================================= */
 
-// Serializes the current graph (modules + connections) to a JSON string.
+// Serializes the current graph (modules + connections) to a JSON string,
+// with each modules/connections element printed on a single line.
 function serializeGraph() {
-  const data = {
-    version: 1,
-    modules: modules.map(m => {
-      const entry = { id: m.id, type: m.type, position: [m.x, m.y] };
+  const lines = [];
+  lines.push('{');
+  lines.push('  "version": 1,');
+  if (modules.length) {
+    lines.push('  "modules": [');
+    modules.forEach((m, i) => {
+      let entry = `{"id": ${m.id}, "type": ${JSON.stringify(m.type)}, "position": [${m.x}, ${m.y}]`;
       if (m.type === 'number') {
-        entry.value = (typeof m.value === 'number' && isFinite(m.value)) ? m.value : DEFAULT_NUMBER_VALUE;
+        const v = (typeof m.value === 'number' && isFinite(m.value)) ? m.value : DEFAULT_NUMBER_VALUE;
+        entry += `, "value": ${v}`;
       }
-      return entry;
-    }),
-    connections: connections.map(c => ({
-      id: c.id,
-      kind: c.kind,
-      from: { moduleId: c.from.moduleId, index: c.from.index },
-      to: { moduleId: c.to.moduleId, index: c.to.index },
-    })),
-  };
-  return JSON.stringify(data, null, 2);
+      entry += '}';
+      lines.push('    ' + entry + (i < modules.length - 1 ? ',' : ''));
+    });
+    lines.push('  ],');
+  } else {
+    lines.push('  "modules": [],');
+  }
+  if (connections.length) {
+    lines.push('  "connections": [');
+    connections.forEach((c, i) => {
+      const entry = `{"kind": ${JSON.stringify(c.kind)}, "from": [${c.from.moduleId}, ${c.from.index}], "to": [${c.to.moduleId}, ${c.to.index}]}`;
+      lines.push('    ' + entry + (i < connections.length - 1 ? ',' : ''));
+    });
+    lines.push('  ]');
+  } else {
+    lines.push('  "connections": []');
+  }
+  lines.push('}');
+  return lines.join('\n');
 }
 
 // Parses a JSON string (or already-parsed object) and replaces the
 // current graph with it. Returns true on success, false on failure.
 // Silently drops modules of unknown type and connections that
 // reference a module that didn't survive that filtering.
+// Connections are saved as {kind, from: [moduleId, index], to: [moduleId, index]}
+// without ids (ids are runtime-only); the legacy {moduleId, index} endpoint
+// objects are still accepted when loading.
+function parseConnectionEndpoint(ep) {
+  let a, b;
+  if (Array.isArray(ep)) {
+    [a, b] = ep;
+  } else if (ep && typeof ep === 'object') {
+    a = ep.moduleId;
+    b = ep.index;
+  } else {
+    return null;
+  }
+  if (typeof a === 'string' && a.trim() !== '') a = Number(a);
+  if (typeof b === 'string' && b.trim() !== '') b = Number(b);
+  if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0) return null;
+  return { moduleId: a, index: b };
+}
 function loadGraph(json) {
   let data;
   try {
@@ -1221,20 +1260,25 @@ function loadGraph(json) {
     });
   const moduleIds = new Set(newModules.map(m => m.id));
 
-  const newConnections = data.connections
-    .filter(c => c.from && c.to && moduleIds.has(c.from.moduleId) && moduleIds.has(c.to.moduleId))
-    .map(c => ({
-      id: c.id,
-      kind: c.kind,
-      from: { moduleId: c.from.moduleId, index: c.from.index },
-      to: { moduleId: c.to.moduleId, index: c.to.index },
-    }));
+  // Connection ids are runtime-only (hover/delete tracking) and are not
+  // part of the save format, so fresh ones are assigned on load.
+  const maxModuleId = newModules.reduce((mx, m) => (Number.isInteger(m.id) && m.id > mx ? m.id : mx), 0);
+  let nextId = maxModuleId + 1;
+  const newConnections = [];
+  data.connections.forEach(c => {
+    if (!c || typeof c !== 'object') return;
+    if (c.kind !== 'audio' && c.kind !== 'control') return;
+    const from = parseConnectionEndpoint(c.from);
+    const to = parseConnectionEndpoint(c.to);
+    if (!from || !to) return;
+    if (!moduleIds.has(from.moduleId) || !moduleIds.has(to.moduleId)) return;
+    newConnections.push({ id: nextId++, kind: c.kind, from, to });
+  });
 
   modules = newModules;
   connections = newConnections;
 
-  const usedIds = [...modules.map(m => m.id), ...connections.map(c => c.id)];
-  idCounter = usedIds.length ? Math.max(...usedIds) + 1 : 1;
+  idCounter = nextId;
 
   selectedModuleId = null;
   selectedIds = [];
