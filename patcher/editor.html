@@ -111,6 +111,7 @@
       <div style="margin-top:6px;">Drag a module onto the board.<br>
       Drag from an output to an input to connect.<br>
       Click a module + Delete to remove it.<br>
+      Drag empty grid to select several; drag or Delete them together.<br>
       Click a cable to remove it.<br>
       Drag a Number value vertically to adjust it; click it to type a value.</div>
     </div>
@@ -133,13 +134,14 @@ const moduleDefs = {
   audioOut:   { name: "Audio Out", audioInputs: [""], controlInputs: [], audioOutputs: [], controlOutputs: [] },
   ctrlIn:     { name: "Ctrl In", audioInputs: [], controlInputs: [], audioOutputs: [], controlOutputs: [""] },
   ctrlOut:    { name: "Ctrl Out", audioInputs: [], controlInputs: [""], audioOutputs: [], controlOutputs: [] },
-  midiIn:     { name: "Midi In", audioInputs: [], controlInputs: ["poly"], audioOutputs: [], controlOutputs: ["gate", "note", "velocity", "bend", "mod-wheel"]},
-  number:     { name: "Number", audioInputs: [], controlInputs: ["scale", "add"], audioOutputs: [], controlOutputs: ["out"] },
-  oscillator: { name: "Oscillator", audioInputs: [],              controlInputs: ["note", "width","color"],   audioOutputs: ["out"],           controlOutputs: [] },
+  midiIn:     { name: "Midi In", audioInputs: [], controlInputs: ["poly"], audioOutputs: [], controlOutputs: ["gate", "note", "velocity", "pitchbend", "mod-wheel"]},
+  number:     { name: "Number", audioInputs: [], controlInputs: ["scale"], audioOutputs: [], controlOutputs: ["out"] },
+  oscillator: { name: "BlitOsc", audioInputs: [],              controlInputs: ["note", "width","color"],   audioOutputs: ["out"],           controlOutputs: [] },
   vca:        { name: "VCA",        audioInputs: ["in"],          controlInputs: ["gain", "power"],        audioOutputs: ["out"],           controlOutputs: [] },
-  polyMix:    { name: "PolyMix",        audioInputs: ["in"],          controlInputs: [],        audioOutputs: ["out"],           controlOutputs: [] },
-  filter:     { name: "Filter",     audioInputs: ["in"],          controlInputs: ["cutoff", "resonance","drive"], audioOutputs: ["out"], controlOutputs: [] },
-  envelope:   { name: "Env ADSR",   audioInputs: [],              controlInputs: ["gate", "attack", "decay", "sustain", "release"], audioOutputs: [], controlOutputs: ["env"] },
+  polyMix:    { name: "PolyMix",      audioInputs: ["in"],          controlInputs: [],        audioOutputs: ["out"],           controlOutputs: [] },
+  filter:     { name: "LP24 Ladder",  audioInputs: ["in"],          controlInputs: ["cutoff", "resonance","drive"], audioOutputs: ["out"], controlOutputs: [] },
+  envADSR:    { name: "Env ADSR",   audioInputs: [],              controlInputs: ["gate", "attack", "decay", "sustain", "release"], audioOutputs: [], controlOutputs: ["env"] },
+  envFollow:  { name: "Env Follow", audioInputs: ["in"],          controlInputs: ["attack", "release"], audioOutputs: [], controlOutputs: ["env"] },
   lfo:        { name: "LFO",        audioInputs: [],              controlInputs: ["rate"],           audioOutputs: [],                controlOutputs: ["out"] },
   noise:      { name: "Noise",      audioInputs: [],              controlInputs: [],                 audioOutputs: ["out"],           controlOutputs: [] },
   pulse:  { name: "Pulse", audioInputs: [], controlInputs: ["rate", "probability"], audioOutputs: [], controlOutputs: ["gate"]},
@@ -169,8 +171,10 @@ const NUMBER_DRAG_SCALE = 1e-3;
 let modules = [];      // {id, type, x, y} in grid units (1 unit = 1 grid line)
 let connections = [];  // {id, kind:'audio'|'control', from:{moduleId,index}, to:{moduleId,index}}
 let idCounter = 1;
-let selectedModuleId = null;
-let dragState = null;      // moving a module
+let selectedModuleId = null; // primary selection (last selected); kept in sync with selectedIds
+let selectedIds = [];        // all selected module ids
+let dragState = null;      // moving module(s): {ids, primary, startX, startY, downX, downY, moved, starts:[{id,x,y}]}
+let selectRect = null;     // rubber-band rect: {x0,y0,x1,y1, base} in canvas coords
 let connectDrag = null;    // drawing a new cable
 let mouseX = 0, mouseY = 0;
 let hoverPort = null;      // specific port under the mouse
@@ -235,6 +239,29 @@ resizeCanvas();
    GEOMETRY HELPERS
    ========================================================= */
 function snap(v) { return Math.round(v / GRID); }
+
+/* ---------- multi-selection helpers ---------- */
+function isSelected(id) { return selectedIds.includes(id); }
+
+function setSelection(ids) {
+  const valid = [...new Set(ids)].filter(id => modules.some(m => m.id === id));
+  selectedIds = valid;
+  selectedModuleId = valid.length ? valid[valid.length - 1] : null;
+}
+
+function normRect(r) {
+  return { x: Math.min(r.x0, r.x1), y: Math.min(r.y0, r.y1), w: Math.abs(r.x1 - r.x0), h: Math.abs(r.y1 - r.y0) };
+}
+
+// Modules overlapping the rubber-band rectangle (any overlap counts).
+function modulesInsideRect(r) {
+  const n = normRect(r);
+  return modules.filter(m => {
+    const { w, h } = getModuleSize(m);
+    const mx = m.x * GRID, my = m.y * GRID;
+    return mx < n.x + n.w && mx + w > n.x && my < n.y + n.h && my + h > n.y;
+  });
+}
 
 function computePortRowWidth(audioPorts, controlPorts) {
   const nAudio = audioPorts ? audioPorts.length : 0;
@@ -376,7 +403,7 @@ function openNumberEditor(mod) {
     closeNumberEditor(); // switch modules: keep old value unless already committed
   }
   editingNumberId = mod.id;
-  selectedModuleId = mod.id;
+  setSelection([mod.id]);
   const { editor, input } = getNumberEditorEls();
   clearNumberError();
   const current = (typeof mod.value === 'number' && isFinite(mod.value)) ? mod.value : DEFAULT_NUMBER_VALUE;
@@ -652,7 +679,7 @@ function drawModule(mod) {
   roundRectPath(mx, my, w, h, 4);
   ctx.fill();
 
-  if (mod.id === selectedModuleId) {
+  if (selectedIds.includes(mod.id)) {
     ctx.lineWidth = 2;
     ctx.strokeStyle = '#2b7de9';
     roundRectPath(mx - 2, my - 2, w + 4, h + 4, 6);
@@ -791,6 +818,18 @@ function draw() {
 
   modules.forEach(drawModule);
 
+  if (selectRect) {
+    const n = normRect(selectRect);
+    ctx.save();
+    ctx.fillStyle = 'rgba(43,125,233,0.08)';
+    ctx.fillRect(n.x, n.y, n.w, n.h);
+    ctx.strokeStyle = '#2b7de9';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 4]);
+    ctx.strokeRect(n.x + 0.5, n.y + 0.5, n.w, n.h);
+    ctx.restore();
+  }
+
   if (connectDrag) {
     drawPortLabel(connectDrag.start, 1);
     const targets = getCompatibleTargets(connectDrag.start);
@@ -800,7 +839,7 @@ function draw() {
       const opacity = isHovered ? 1 : (isAnyTargetHovered ? 0.5 : 0.85);
       drawPortLabel(p, opacity);
     });
-  } else if (hoverModule && !dragState) {
+  } else if (hoverModule && !dragState && !selectRect) {
     collectModulePorts(hoverModule).forEach(p => {
       drawPortLabel(p, samePort(p, hoverPort) ? 1 : 0.35);
     });
@@ -848,17 +887,40 @@ canvas.addEventListener('mousedown', e => {
   }
   const mod = findModuleAt(x, y);
   if (mod) {
-    selectedModuleId = mod.id;
     if (mod.type === 'number' && isPointInNumberLabel(mod, x, y)) {
       // Value gesture on the number area: click opens the overlay editor,
       // vertical drag adjusts the value (module itself does not move).
+      setSelection([mod.id]);
       const startVal = (typeof mod.value === 'number' && isFinite(mod.value)) ? mod.value : DEFAULT_NUMBER_VALUE;
       numberDrag = { id: mod.id, startY: y, startVal };
       numberEditDown = { id: mod.id, x, y };
       draw();
       return;
     }
-    dragState = { id: mod.id, offsetX: x - mod.x * GRID, offsetY: y - mod.y * GRID };
+    if (e.shiftKey) {
+      if (isSelected(mod.id)) setSelection(selectedIds.filter(id => id !== mod.id));
+      else setSelection([...selectedIds, mod.id]);
+    } else if (!isSelected(mod.id)) {
+      setSelection([mod.id]);
+    }
+    // Drag the whole current selection (kept intact when grabbing a member
+    // so a group can be moved together; a pure click collapses on mouseup).
+    if (selectedIds.length) {
+      selectRect = null;
+      dragState = {
+        ids: [...selectedIds],
+        primary: mod.id,
+        startX: x, startY: y,
+        downX: x, downY: y,
+        moved: false,
+        starts: selectedIds.map(id => {
+          const m = modules.find(m => m.id === id);
+          return { id, x: m.x, y: m.y };
+        }),
+      };
+    } else {
+      dragState = null;
+    }
     numberEditDown = null;
     draw();
     return;
@@ -872,7 +934,9 @@ canvas.addEventListener('mousedown', e => {
     draw();
     return;
   }
-  selectedModuleId = null;
+  // Empty grid: start a rubber-band selection rectangle.
+  selectRect = { x0: x, y0: y, x1: x, y1: y, base: e.shiftKey ? [...selectedIds] : null };
+  if (!e.shiftKey) setSelection([]);
   draw();
 });
 
@@ -907,19 +971,36 @@ window.addEventListener('mousemove', e => {
 
   if (dragState) {
     hoverCable = null;
-    const mod = modules.find(m => m.id === dragState.id);
-    const { w, h } = getModuleSize(mod);
-    const clamped = clampModulePosition(snap(x - dragState.offsetX), snap(y - dragState.offsetY), w, h);
-    mod.x = clamped.x;
-    mod.y = clamped.y;
-    if (editingNumberId !== null && editingNumberId === dragState.id) positionNumberEditor();
+    if (Math.hypot(x - dragState.downX, y - dragState.downY) > 4) dragState.moved = true;
+    const dx = x - dragState.startX, dy = y - dragState.startY;
+    dragState.starts.forEach(s => {
+      const m = modules.find(m => m.id === s.id);
+      if (!m) return;
+      const { w, h } = getModuleSize(m);
+      const clamped = clampModulePosition(snap(s.x * GRID + dx), snap(s.y * GRID + dy), w, h);
+      m.x = clamped.x;
+      m.y = clamped.y;
+    });
+    if (editingNumberId !== null && dragState.ids.includes(editingNumberId)) positionNumberEditor();
+    draw();
+    return;
+  }
+  if (selectRect) {
+    selectRect.x1 = x;
+    selectRect.y1 = y;
+    hoverCable = null;
+    const inside = modulesInsideRect(selectRect).map(m => m.id);
+    if (selectRect.base) setSelection([...new Set([...selectRect.base, ...inside])]);
+    else setSelection(inside);
+    canvas.style.cursor = 'crosshair';
     draw();
     return;
   }
   if (connectDrag) {
     hoverCable = null;
     hoverPort = findPortAt(x, y);
-    hoverModule = findModuleAt(x, y);
+    const mod = findModuleAt(x, y);
+    hoverModule = mod || (hoverPort ? modules.find(m => m.id === hoverPort.moduleId) || null : null);
     const valid = isValidPair(connectDrag.start, hoverPort);
     canvas.style.cursor = valid ? 'crosshair' : 'default';
     draw();
@@ -929,11 +1010,13 @@ window.addEventListener('mousemove', e => {
   const port = findPortAt(x, y);
   hoverPort = port;
   const mod = findModuleAt(x, y);
-  hoverModule = mod;
-  const cable = (!port && !mod) ? findCableNear(x, y) : null;
+  // Expand the module mouseover area to cover the in/out node hit zones, so
+  // hovering a port just outside the body still counts as hovering its module.
+  hoverModule = mod || (port ? modules.find(m => m.id === port.moduleId) || null : null);
+  const cable = (!port && !hoverModule) ? findCableNear(x, y) : null;
   hoverCable = cable;
-  const overNumberLabel = !!(mod && mod.type === 'number' && isPointInNumberLabel(mod, x, y));
-  canvas.style.cursor = (port && port.dir === 'out') ? 'crosshair' : (overNumberLabel ? 'ns-resize' : (mod ? 'move' : (cable ? 'pointer' : 'default')));
+  const overNumberLabel = !!(hoverModule && hoverModule.type === 'number' && isPointInNumberLabel(hoverModule, x, y));
+  canvas.style.cursor = (port && port.dir === 'out') ? 'crosshair' : (overNumberLabel ? 'ns-resize' : (hoverModule ? 'move' : (cable ? 'pointer' : 'default')));
   draw();
 });
 
@@ -977,20 +1060,45 @@ window.addEventListener('mouseup', e => {
       editNumberModule(mod);
     }
   }
+  if (selectRect) {
+    const w = Math.abs(selectRect.x1 - selectRect.x0);
+    const h = Math.abs(selectRect.y1 - selectRect.y0);
+    const base = selectRect.base;
+    selectRect = null;
+    dragState = null;
+    canvas.style.cursor = 'default';
+    if (w <= 4 && h <= 4 && !base) setSelection([]); // plain click on empty space clears
+    // Otherwise keep the live selection gathered during the drag.
+    draw();
+    return;
+  }
+  if (dragState) {
+    // Pure click (no move) on a member of a group collapses to just it.
+    if (!dragState.moved && !e.shiftKey && dragState.primary !== undefined) {
+      setSelection([dragState.primary]);
+    }
+  }
   dragState = null;
   draw();
 });
 
 window.addEventListener('keydown', e => {
   if (isNumberEditorOpen()) return; // let the overlay input handle its own keys
-  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedModuleId !== null) {
+  if (e.key === 'Escape' && selectRect) {
+    selectRect = null;
+    draw();
+    return;
+  }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length) {
     e.preventDefault();
-    const removedId = selectedModuleId;
-    modules = modules.filter(m => m.id !== selectedModuleId);
+    const removed = new Set(selectedIds);
+    modules = modules.filter(m => !removed.has(m.id));
     connections = connections.filter(c =>
-      c.from.moduleId !== selectedModuleId && c.to.moduleId !== selectedModuleId);
-    if (editingNumberId === removedId) closeNumberEditor();
-    selectedModuleId = null;
+      !removed.has(c.from.moduleId) && !removed.has(c.to.moduleId));
+    if (editingNumberId !== null && removed.has(editingNumberId)) closeNumberEditor();
+    setSelection([]);
+    selectRect = null;
+    dragState = null;
     draw();
   }
 });
@@ -1013,7 +1121,7 @@ wrap.addEventListener('drop', e => {
   };
   if (key === 'number') mod.value = DEFAULT_NUMBER_VALUE;
   modules.push(mod);
-  selectedModuleId = mod.id;
+  setSelection([mod.id]);
   draw();
 });
 
@@ -1129,9 +1237,11 @@ function loadGraph(json) {
   idCounter = usedIds.length ? Math.max(...usedIds) + 1 : 1;
 
   selectedModuleId = null;
+  selectedIds = [];
   hoverPort = null;
   hoverModule = null;
   dragState = null;
+  selectRect = null;
   connectDrag = null;
   closeNumberEditor();
   draw();
