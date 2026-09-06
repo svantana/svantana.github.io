@@ -136,14 +136,14 @@ const moduleDefs = {
   ctrlOut:    { name: "Ctrl Out", audioInputs: [], controlInputs: [""], audioOutputs: [], controlOutputs: [] },
   midiIn:     { name: "Midi In", audioInputs: [], controlInputs: ["poly"], audioOutputs: [], controlOutputs: ["gate", "note", "velocity", "pitchbend", "mod-wheel"]},
   number:     { name: "Number", audioInputs: [], controlInputs: ["scale"], audioOutputs: [], controlOutputs: ["out"] },
-  oscillator: { name: "BlitOsc", audioInputs: [],              controlInputs: ["note", "width","color"],   audioOutputs: ["out"],           controlOutputs: [] },
-  vca:        { name: "VCA",        audioInputs: ["in"],          controlInputs: ["gain", "power"],        audioOutputs: ["out"],           controlOutputs: [] },
-  polyMix:    { name: "PolyMix",      audioInputs: ["in"],          controlInputs: [],        audioOutputs: ["out"],           controlOutputs: [] },
-  filter:     { name: "LP24 Ladder",  audioInputs: ["in"],          controlInputs: ["cutoff", "resonance","drive"], audioOutputs: ["out"], controlOutputs: [] },
-  envADSR:    { name: "Env ADSR",   audioInputs: [],              controlInputs: ["gate", "attack", "decay", "sustain", "release"], audioOutputs: [], controlOutputs: ["env"] },
-  envFollow:  { name: "Env Follow", audioInputs: ["in"],          controlInputs: ["attack", "release"], audioOutputs: [], controlOutputs: ["env"] },
-  lfo:        { name: "LFO",        audioInputs: [],              controlInputs: ["rate"],           audioOutputs: [],                controlOutputs: ["out"] },
-  noise:      { name: "Noise",      audioInputs: [],              controlInputs: [],                 audioOutputs: ["out"],           controlOutputs: [] },
+  oscillator: { name: "BlitOsc", audioInputs: [],             controlInputs: ["note", "width","color"],   audioOutputs: ["out"],           controlOutputs: [] },
+  vca:        { name: "VCA",        audioInputs: ["in"],      controlInputs: ["gain", "exponent"],        audioOutputs: ["out"],           controlOutputs: [] },
+  polyMix:    { name: "PolyMix",      audioInputs: ["in"],    controlInputs: [],        audioOutputs: ["out"],           controlOutputs: [] },
+  filter:     { name: "LP24 Ladder",  audioInputs: ["in"],    controlInputs: ["cutoff", "resonance","drive"], audioOutputs: ["out"], controlOutputs: [] },
+  envADSR:    { name: "Env ADSR",   audioInputs: [],          controlInputs: ["gate", "attack", "decay", "sustain", "release"], audioOutputs: [], controlOutputs: ["env"] },
+  envFollow:  { name: "Env Follow", audioInputs: ["in"],      controlInputs: ["attack", "release"], audioOutputs: [], controlOutputs: ["env"] },
+  lfo:        { name: "LFO",        audioInputs: [],          controlInputs: ["rate"],           audioOutputs: [],                controlOutputs: ["out"] },
+  noise:      { name: "Noise",      audioInputs: [],          controlInputs: [],                 audioOutputs: ["out"],           controlOutputs: [] },
   pulse:  { name: "Pulse", audioInputs: [], controlInputs: ["rate", "probability"], audioOutputs: [], controlOutputs: ["gate"]},
   delay:      { name: "Delay",      audioInputs: ["in"],          controlInputs: ["time", "color","feedback"],  audioOutputs: ["out"],           controlOutputs: [] },
 };
@@ -151,9 +151,9 @@ const moduleDefs = {
 /* =========================================================
    CONSTANTS
    ========================================================= */
-const GRID = 20;
+const GRID = 24;
 const MODULE_H = GRID * 2;     // fixed height: 2 grid cells
-const PORT_HIT = 9;            // hit radius for ports
+const PORT_HIT = GRID / 2;     // hit half-size for ports: hitbox is exactly one grid cell
 const PORT_R = 5;              // audio port circle radius
 const PORT_SQ = 9;             // control port square side
 const CABLE_HIT = 6;           // px distance to grab a cable
@@ -544,7 +544,7 @@ function findPortAt(x, y) {
     for (const [kind, dir, arr] of groups) {
       for (let idx = 0; idx < arr.length; idx++) {
         const p = arr[idx];
-        if (Math.hypot(p.x - x, p.y - y) <= PORT_HIT) {
+        if (Math.abs(p.x - x) <= PORT_HIT && Math.abs(p.y - y) <= PORT_HIT) {
           return { moduleId: mod.id, kind, dir, index: idx, x: p.x, y: p.y, name: p.name };
         }
       }
