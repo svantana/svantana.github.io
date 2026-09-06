@@ -340,15 +340,15 @@ const DEFAULT_CONFIG = {
   },
   fillLight: {
     color: "#ffd",
-    intensity: 0.3
+    intensity: 0.5
   },
   fillLight2: {
     color: "#ffffff",
-    intensity: 0.25
+    intensity: 0.2
   },
   ambientLight: {
     color: "#fdf",
-    intensity: 0.3
+    intensity: 0.1
   },
   render: {
     pixelRatio: 2.0,
@@ -594,13 +594,14 @@ function makeKnob(k, depth){
   //      corner where the skirt meets the vertical cylinder.
   //   3. vertical cylinder wall up to the top
   //   4. top edge (optionally rounded by `topRounding`) → axis
-  const baseY = -halfHeight + 0.001;
-  const bottomY = -halfHeight;
+  const baseY = -halfHeight;
+  const bottomY = -halfHeight * .9;
   const skirtFillR = skirtRounding * (radius - topRadius);
 
   const profile = [
     new THREE.Vector2(0, baseY),
     new THREE.Vector2(radius, baseY),
+    new THREE.Vector2(radius, baseY+.001),
     new THREE.Vector2(radius, bottomY)
   ];
 
@@ -673,7 +674,7 @@ function makeKnob(k, depth){
   const knobGeo = new THREE.LatheGeometry(profile, segments);
   const knobMesh = new THREE.Mesh(knobGeo, bodyMat);
   knobMesh.rotation.x = Math.PI / 2;
-  knobMesh.position.z = depth/2 + halfHeight + kHeight * 0.1;
+  knobMesh.position.z = depth/2 + halfHeight;
   knobMesh.castShadow = true;
   knobMesh.receiveShadow = false;
   cap.add(knobMesh);
@@ -703,10 +704,12 @@ function makeKnob(k, depth){
       font: `600 ${Math.round(30 * labelSize)}px ui-monospace, monospace`
     });
     const labelGeo = new THREE.PlaneGeometry(.5 * labelSize, 0.15 * labelSize);
-    const labelMat = new THREE.MeshBasicMaterial({
-      map: tex, transparent: true,
-      polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
-    });
+    const labelMat = new THREE.MeshStandardMaterial({map: tex, transparent: true,
+    roughness: 0.5,
+    metalness: 0.0,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4});
     const labelMesh = new THREE.Mesh(labelGeo, labelMat);
     labelMesh.castShadow = false;
     labelMesh.position.set(0, -radius * 1.55, depth/2 + 0.006);
@@ -812,7 +815,7 @@ function makeButton(btn, depth){
       });
       const plateSize = Math.min(w, len) * 0.95 * labelSize;
       const plateGeo = new THREE.PlaneGeometry(plateSize, plateSize);
-      const plateMat = new THREE.MeshBasicMaterial({
+      const plateMat = new THREE.MeshStandardMaterial({
         map: tex, transparent: true,
         polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
       });
@@ -969,7 +972,7 @@ function makeSlider(s, depth){
       font: `600 ${Math.round(30 * labelSize)}px ui-monospace, monospace`
     });
     const labelGeo = new THREE.PlaneGeometry(capWidth * 3.2 * labelSize, capWidth * 1.05 * labelSize);
-    const labelMat = new THREE.MeshBasicMaterial({
+    const labelMat = new THREE.MeshStandardMaterial({
       map: tex,
       transparent: true,
       polygonOffset: true,
