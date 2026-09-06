@@ -6,8 +6,14 @@
 <title>Music Machine Designer</title>
 <meta property="og:title" content="Music Machine Designer">
 <meta name="description" content="Define a music machine in JSON and view it in glorious 3D" />
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
+  }
+}
+</script>
 <style>
   :root{
     --bg: #131418;
@@ -261,7 +267,10 @@
   </main>
 </div>
 
-<script>
+<script type="module">
+import * as THREE from 'three';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+
 /* ============================= Default config ============================= */
 const DEFAULT_CONFIG = {
   body: { 
@@ -288,7 +297,7 @@ const DEFAULT_CONFIG = {
      }
   ],
   buttons: [
-    { label: "PLAY",  labelColor: "#b59", labelSize: 1, x: -1.2, y: -0.95, width: 0.34, length: 0.28, height: 0.1, color: "#ecd", roughness: 0.4, metalness: 0.25, pressed: false },
+    { label: "PLAY",  labelColor: "#b39", labelSize: 1, x: -1.2, y: -0.95, width: 0.34, length: 0.28, height: 0.08, color: "#fde", roughness: 0.5, metalness: 0.35, pressed: false },
     { label: "STOP",  x: -0.4 },
     { label: "REC",   pressed: false },
     { label: "FUN!", pressed: false }
@@ -325,8 +334,8 @@ const DEFAULT_CONFIG = {
     x: -3,
     y: -3,
     z: 4,
-    color: "#eff",
-    intensity: 0.9,
+    color: "#fff",
+    intensity: 1.9,
     shadowRadius: 12
   },
   fillLight: {
@@ -374,7 +383,7 @@ const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 60);
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.VSMShadowMap;
 host.appendChild(renderer.domElement);
 
 // lights
@@ -389,11 +398,13 @@ scene.add(softboxGroup);
 for (let i = 0; i < NUM_SOFTBOX_LIGHTS; i++){
   const l = new THREE.DirectionalLight(0xfff2e0, 0.2);
   l.castShadow = i === 0;
-  l.shadow.mapSize.set(512, 512);
+  l.shadow.mapSize.set(1024, 1024);
   l.shadow.camera.near = 0.5;
   l.shadow.camera.far = 40;
   l.shadow.bias = -0.0001;
   l.shadow.normalBias = 0.02;
+  l.shadow.radius = 2;
+  l.shadow.blurSamples = 16;
   softboxGroup.add(l);
   softboxGroup.add(l.target);
   softboxLights.push(l);
@@ -506,7 +517,7 @@ function makeBody(width, height, depth, roundedness, color, roughness, metalness
   // get purely perpendicular normals from computeVertexNormals. The returned
   // geometry has only a position attribute, so mergeVertices welds by position
   // only — no UV or pre-baked normal conflicts.
-  geo = THREE.BufferGeometryUtils.mergeVertices(geo, 1e-4);
+  geo = mergeVertices(geo, 1e-4);
   geo.computeVertexNormals();
   geo.center();
   const mat = new THREE.MeshStandardMaterial({ color, roughness, metalness });
@@ -697,6 +708,7 @@ function makeKnob(k, depth){
       polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
     });
     const labelMesh = new THREE.Mesh(labelGeo, labelMat);
+    labelMesh.castShadow = false;
     labelMesh.position.set(0, -radius * 1.55, depth/2 + 0.006);
     knobGroup.add(labelMesh);
   }
@@ -820,6 +832,7 @@ function makeButton(btn, depth){
         polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
       });
       const labelMesh = new THREE.Mesh(labelGeo, labelMat);
+      labelMesh.castShadow = false;
       const sign = labelPosition === 'above' ? 1 : -1;
       const yOff = sign * (len/2 + Math.max(w, 0.5) * 0.32);
       labelMesh.position.set(0, yOff, depth/2 + 0.02);
@@ -964,6 +977,7 @@ function makeSlider(s, depth){
       polygonOffsetUnits: -4
     });
     const labelMesh = new THREE.Mesh(labelGeo, labelMat);
+    labelMesh.castShadow = false;
     const sign = labelPosition === 'above' ? 1 : -1;
     const yOff = sign * (plateLength / 2 + 0.11 * labelSize);
     labelMesh.position.set(0, yOff, depth / 2 + 0.006);
@@ -1087,6 +1101,7 @@ function makeLabel(lbl, depth){
     polygonOffsetUnits: -4
   });
   const labelMesh = new THREE.Mesh(labelGeo, labelMat);
+  labelMesh.castShadow = false;
   labelMesh.position.set(alignX, 0, depth / 2 + 0.008 + posZ);
   g.add(labelMesh);
 
@@ -1239,7 +1254,7 @@ function build(config){
   // The chassis casts the important broad shadow. Small controls can opt in
   // when their individual shadows are worth the additional shadow-map work.
   rig.traverse(object => {
-    if (object.isMesh) object.castShadow = detailShadows || object === bodyMesh;
+    if (object.isMesh && object.castShadow !== false) object.castShadow = detailShadows || object === bodyMesh;
   });
 
   const surface = config.surface || {};
@@ -1271,7 +1286,7 @@ function build(config){
   const shadowRadius = Math.max(0, num(light.shadowRadius ?? light.shadowSoftness ?? light.radius, 8));
   const shadowBias = num(light.shadowBias, -0.00006);
   const shadowNormalBias = num(light.shadowNormalBias, 0.0015);
-  const mapSize = Math.max(128, Math.floor(num(render.shadowMapSize ?? light.shadowMapSize ?? light.mapSize, 512)));
+  const mapSize = Math.max(128, Math.floor(num(render.shadowMapSize ?? light.shadowMapSize ?? light.mapSize, 1024)));
 
   // Softbox spread: larger shadowRadius -> wider physical aperture -> softer penumbra & diffuse shadows
   const spread = shadowRadius * 0.07;
