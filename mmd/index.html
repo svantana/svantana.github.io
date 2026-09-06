@@ -245,7 +245,7 @@
           <b>labels[]</b>: text, x, y, fontsize, font, fontweight, color, roughness, metalness, align ("left"/"center"/"right")<br/>
            <b>lcd</b>: width, height, x, y, text, textColor, backgroundColor, roughness (0–1), metalness (0–1)<br/>
           <b>surface</b>: color, grid: { size, color, linewidth }<br/>
-          <b>light</b>: x, y, z, color, intensity, shadowRadius (blur/softness, default 8), shadowBias, shadowNormalBias, shadowMapSize<br/>
+           <b>spotlight</b>: x, y, z, color, intensity, shadowRadius (blur/softness, default 8), shadowBias, shadowNormalBias, shadowMapSize<br/>
            <b>fillLight</b>: color, intensity (fixed-position secondary light)<br/>
            <b>fillLight2</b>: color, intensity (second fixed-position fill light)<br/>
            <b>ambientLight</b>: color, intensity (diffuse baseline ambient light)<br/><br/>
@@ -270,97 +270,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-
-/* ============================= Default config ============================= */
-const DEFAULT_CONFIG = {
-  body: { 
-    width: 4.2, height: 3, depth: 0.5,
-    roundedness: 0.2, segments: 32,
-    color: "#d79",
-    roughness: 0.55, metalness: 0.18
-  },
-  knobs: [
-    { label: "BOUNCE", x: -1.6, y: 0.8, radius: 0.15, height: 0.2, 
-        color: "#e9a", roughness: 0.55, metalness: 0.12, value: 0.62, topRounding: 0.1,
-        markColor: "#645", markLength: 0.7, markWidth: 0.2,
-        labelColor: "#fff", labelSize: 1
-    },
-    { label: "SHAKE",   x: -0.8, value: 0.28 },
-    { label: "HAPPY", value: 0.1 },
-    { label: "SAD",  value: 0.55 },
-    { label: "BIG",  y:1.0, value: 0.5, radius: 0.3, 
-      "topRounding": 0.2,
-      "skirtFactor": 0.6,
-      "skirtRounding": 0.98,
-      "markLength": 0.29,
-      "markWidth": 0.14,
-     }
-  ],
-  buttons: [
-    { label: "PLAY",  labelColor: "#b39", labelSize: 1, x: -1.2, y: -0.95, width: 0.34, length: 0.28, height: 0.08, color: "#fde", roughness: 0.5, metalness: 0.35, pressed: false },
-    { label: "STOP",  x: -0.4 },
-    { label: "REC",   pressed: false },
-    { label: "FUN!", pressed: false }
-  ],
-  sliders: [
-    { label: "EXCITE", labelColor: "#fff", labelSize: 1, x: -1.7, y: -0.05, length: 0.7, orientation: 0, value: 0.75, color: "#e9a", capWidth: 0.14, capLength: 0.2, capHeight: 0.12, capRoundedness: 0.8 },
-    { label: "ENHANCE", x: -1.2, value: 0.35 },
-    { label: "ENGAGE", x: 1.2, value: 0.6 },
-    { label: "ENTRANCE",  x: 1.7, value: 0.9 }
-  ],
-  labels: [
-    {
-      text: "BarbieSynth", font: "Brush Script MT", fontsize: 55, fontweight: "500", align: "left",
-      x: -2.1, y: 1.25,
-      color: "#cff", roughness: 0.4, metalness: 0.25
-    }
-  ],
-  lcd: {
-    width: 1.6,
-    height: 0.65,
-    x: 0,
-    y: -0.05,
-     text: "you are\nbeautiful",
-    textColor: "#fab",
-    backgroundColor: "#146",
-    roughness: 0.1,
-    metalness: 0.0
-  },
-  surface: {
-    color: "#3cb",
-    grid: { size: 10, color: "#ffffff", linewidth: 1.5 }
-  },
-  light: {
-    x: -3,
-    y: -3,
-    z: 4,
-    color: "#fff",
-    intensity: 1.9,
-    shadowRadius: 12
-  },
-  fillLight: {
-    color: "#ffd",
-    intensity: 0.5
-  },
-  fillLight2: {
-    color: "#ffffff",
-    intensity: 0.2
-  },
-  ambientLight: {
-    color: "#fdf",
-    intensity: 0.1
-  },
-  render: {
-    pixelRatio: 2.0,
-    shadows: true,
-    shadowMapSize: 512,
-    softboxShadowCount: 2,
-    detailShadows: true,
-    continuous: false,
-    showFps: true,
-    wireframe: false
-  }
-};
+import { DEFAULT_CONFIG } from './default-config.js';
 
 /* ============================= Three.js setup ============================= */
 const host = document.getElementById('canvasHost');
@@ -390,7 +300,7 @@ host.appendChild(renderer.domElement);
 const ambient = new THREE.AmbientLight(0xffffff, 0.55);
 scene.add(ambient);
 
-const NUM_SOFTBOX_LIGHTS = 5;
+const NUM_SOFTBOX_LIGHTS = 1;
 const softboxLights = [];
 const softboxGroup = new THREE.Group();
 scene.add(softboxGroup);
@@ -398,13 +308,13 @@ scene.add(softboxGroup);
 for (let i = 0; i < NUM_SOFTBOX_LIGHTS; i++){
   const l = new THREE.DirectionalLight(0xfff2e0, 0.2);
   l.castShadow = i === 0;
-  l.shadow.mapSize.set(1024, 1024);
+  l.shadow.mapSize.set(512, 512);
   l.shadow.camera.near = 0.5;
   l.shadow.camera.far = 40;
   l.shadow.bias = -0.0001;
   l.shadow.normalBias = 0.02;
   l.shadow.radius = 2;
-  l.shadow.blurSamples = 16;
+  l.shadow.blurSamples = 8;
   softboxGroup.add(l);
   softboxGroup.add(l.target);
   softboxLights.push(l);
@@ -575,7 +485,7 @@ function makeKnob(k, depth){
   const skirtRounding = Math.max(0, Math.min(1, num(k.skirtRounding, 0)));
 
   // cap + indicator turn together to reflect the knob's value
-  const cap = new THREE.Group();
+  const capGroup = new THREE.Group();
 
   const bodyMat = new THREE.MeshStandardMaterial({ color, roughness, metalness });
 
@@ -676,8 +586,8 @@ function makeKnob(k, depth){
   knobMesh.rotation.x = Math.PI / 2;
   knobMesh.position.z = depth/2 + halfHeight;
   knobMesh.castShadow = true;
-  knobMesh.receiveShadow = false;
-  cap.add(knobMesh);
+  knobMesh.receiveShadow = true;
+  capGroup.add(knobMesh);
 
   // indicator ridge — markLength/markWidth are proportional to the knob radius
   const markColor = k.markColor || '#15161a';
@@ -689,11 +599,12 @@ function makeKnob(k, depth){
   const ridge = new THREE.Mesh(ridgeGeo, ridgeMat);
   ridge.position.set(0, radius * markLength, depth/2 + kHeight * 0.1 + markDepth * 0.5);
   ridge.castShadow = true;
-  cap.add(ridge);
+  ridge.receiveShadow = true;
+  capGroup.add(ridge);
 
   const sweepDeg = 270; // full-sweep pot travel, value 0 = full ccw, 1 = full cw
-  cap.rotation.z = -THREE.MathUtils.degToRad((value - 0.5) * sweepDeg);
-  knobGroup.add(cap);
+  capGroup.rotation.z = -THREE.MathUtils.degToRad((value - 0.5) * sweepDeg);
+  knobGroup.add(capGroup);
 
   // label plate
   if (k.label){
@@ -712,6 +623,7 @@ function makeKnob(k, depth){
     polygonOffsetUnits: -4});
     const labelMesh = new THREE.Mesh(labelGeo, labelMat);
     labelMesh.castShadow = false;
+    labelMesh.receiveShadow = true;
     labelMesh.position.set(0, -radius * 1.55, depth/2 + 0.006);
     knobGroup.add(labelMesh);
   }
@@ -788,11 +700,11 @@ function makeButton(btn, depth){
   });
   capGeo.center();
   const capMat = new THREE.MeshStandardMaterial({ color, roughness, metalness });
-  const cap = new THREE.Mesh(capGeo, capMat);
-  cap.position.z = depth/2 + actualHeight/2 + 0.008;
-  cap.castShadow = true;
-  cap.receiveShadow = true;
-  g.add(cap);
+  const capMesh = new THREE.Mesh(capGeo, capMat);
+  capMesh.position.z = depth/2 + actualHeight/2 + 0.008;
+  capMesh.castShadow = true;
+  capMesh.receiveShadow = true;
+  g.add(capMesh);
 
   // label
   if (btn.label){
@@ -1280,16 +1192,16 @@ function build(config){
     scene.add(gridHelper);
   }
 
-  const light = config.light || {};
-  const lx = num(light.x, -3);
-  const ly = num(light.y, -3);
-  const lz = num(light.z, 4);
-  const lightColor = light.color || '#bdf';
-  const totalIntensity = num(light.intensity, 0.6);
-  const shadowRadius = Math.max(0, num(light.shadowRadius ?? light.shadowSoftness ?? light.radius, 8));
-  const shadowBias = num(light.shadowBias, -0.00006);
-  const shadowNormalBias = num(light.shadowNormalBias, 0.0015);
-  const mapSize = Math.max(128, Math.floor(num(render.shadowMapSize ?? light.shadowMapSize ?? light.mapSize, 1024)));
+  const spotlight = config.spotlight || {};
+  const lx = num(spotlight.x, -3);
+  const ly = num(spotlight.y, -3);
+  const lz = num(spotlight.z, 4);
+  const lightColor = spotlight.color || '#bdf';
+  const totalIntensity = num(spotlight.intensity, 0.6);
+  const shadowRadius = Math.max(0, num(spotlight.shadowRadius ?? spotlight.shadowSoftness ?? spotlight.radius, 8));
+  const shadowBias = num(spotlight.shadowBias, -0.00006);
+  const shadowNormalBias = num(spotlight.shadowNormalBias, 0.0015);
+  const mapSize = Math.max(128, Math.floor(num(render.shadowMapSize ?? spotlight.shadowMapSize ?? spotlight.mapSize, 1024)));
 
   // Softbox spread: larger shadowRadius -> wider physical aperture -> softer penumbra & diffuse shadows
   const spread = shadowRadius * 0.07;
@@ -1344,12 +1256,24 @@ function build(config){
   rim.intensity = Math.max(0, num(fillLight.intensity, 0.4));
 
   const ambConfig = config.ambientLight || {};
-  ambient.color.set(ambConfig.color || light.ambientColor || '#ffffff');
-  ambient.intensity = Math.max(0, num(ambConfig.intensity ?? light.ambient ?? light.ambientIntensity, 0.55));
+  ambient.color.set(ambConfig.color || spotlight.ambientColor || '#ffffff');
+  ambient.intensity = Math.max(0, num(ambConfig.intensity ?? spotlight.ambient ?? spotlight.ambientIntensity, 0.55));
 
   const fill2 = config.fillLight2 || {};
   fill.color.set(fill2.color || '#ffffff');
   fill.intensity = Math.max(0, num(fill2.intensity, 0.25));
+
+  const noAuxLight = !num(fillLight.intensity, -1) && !num(fill2.intensity, -1) && !num(ambConfig.intensity, -1);
+  if (noAuxLight) {
+    softboxLights.forEach((sl, i) => {
+      if (i === 0) {
+        sl.intensity = totalIntensity;
+      } else {
+        sl.intensity = 0;
+      }
+      sl.castShadow = shadowsEnabled && i === 0;
+    });
+  }
 
   if (!cameraInitialized){
     radius = Math.max(2.5, Math.max(width, height) * 1.35 + depth);
