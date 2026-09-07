@@ -517,6 +517,12 @@ function getPortCoord(moduleId, kind, dir, index) {
   return pos[key][index];
 }
 
+function getModuleFromId(moduleId) {
+  const mod = modules.find(m => m.id === moduleId);
+  if (!mod) return null;
+  return mod;
+}
+
 function getCanvasCoords(e) {
   const rect = canvas.getBoundingClientRect();
   return { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -716,8 +722,9 @@ function drawConnection(c) {
   const b = getPortCoord(c.to.moduleId, c.kind, 'in', c.to.index);
   if (!a || !b) return;
   const isHovered = hoverCable && hoverCable.id === c.id;
+
   ctx.lineWidth = 2;
-  ctx.setLineDash([]);
+  
   if (isHovered) {
     ctx.strokeStyle = COLOR_DELETE_CABLE;
   } else if (c.kind === 'audio') {
@@ -725,6 +732,14 @@ function drawConnection(c) {
   } else {
     ctx.strokeStyle = COLOR_CABLE_CTRL;
   }
+  
+  const mSrc = getModuleFromId(c.from.moduleId);
+  const mDst = getModuleFromId(c.to.moduleId);
+  const isBwd = ((mDst.y - mSrc.y)*1000 + (mDst.x - mSrc.x)) < 0;
+  if (isBwd) {
+    ctx.setLineDash([3,2]);
+  }
+  
   drawOrthogonalPath(a.x, a.y, b.x, b.y, 8);
   ctx.setLineDash([]);
 }
