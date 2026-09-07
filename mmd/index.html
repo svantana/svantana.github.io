@@ -597,7 +597,7 @@ function makeKnob(k, depth){
   const ridgeGeo = new THREE.BoxGeometry(radius * markWidth, radius * markLength, markDepth);
   const ridgeMat = new THREE.MeshStandardMaterial({ color: markColor, metalness: 0.2, roughness: 0.6 });
   const ridge = new THREE.Mesh(ridgeGeo, ridgeMat);
-  ridge.position.set(0, radius * markLength, depth/2 + kHeight * 0.1 + markDepth * 0.5);
+  ridge.position.set(0, radius * markLength, depth/2 + kHeight * 0.02 + markDepth * 0.5);
   ridge.castShadow = true;
   ridge.receiveShadow = true;
   capGroup.add(ridge);

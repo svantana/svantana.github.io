@@ -1,0 +1,33 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2870
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww18560\viewh11940\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 make a html canvas app for building modular signal flows connected by patch cables, in the style of max/msp. \
+only the UI for editing, don't do any signal processing. \
+every module should have the following properties: name, numAudioInputs, numControlInputs, numAudioOutputs, numControlOutputs\
+make a js dictionary that defines the modules, and fill it with a few examples.\
+the visual style should be minimal - rectangular black modules on white background, gray grid\
+module inputs are arranged horizontally along the top of the module, outputs on the bottom. audio connections to the left, control connections to the right\
+\
+GUI:\
+on the left hand side, an array of available chips in a vertical list. \
+on the right, an empty pcb area where modules can be placed\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 module sizes and positions snap to a grid\
+connections should only go vertically and horizontally, with rounded corners when changing direction\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 interactions should be keyboard only, no mouse control. \
+editing is done in a hierarchy. Enter key moves down one level, Esc moves up one level.\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 arrow keys are used for edits/movements at the current level.\
+D deletes the current module or connection\
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 The levels are:\
+1. select module. arrows make selection move to the nearest module in the arrow's direction\
+2. move selected module. if the module is in the left-hand list, an instance is moved to the patching area. arrow keys move the module along the grid\
+3. edit module. arrow keys step through the input and output nodes, selecting current connections one by one. If a connection is selected, D deletes it. If an output node is selected, N creates a new connection from there. Then, arrow keys select the receiving module\
+}

@@ -38,7 +38,7 @@ export const DEFAULT_CONFIG = {
     {
       text: "BarbieSynth", font: "Brush Script MT", fontsize: 55, fontweight: "500", align: "left",
       x: -2.1, y: 1.25,
-      color: "#cff", roughness: 0.4, metalness: 0.25
+      color: "#ffc", roughness: 0.4, metalness: 0.35
     }
   ],
   lcd: {
@@ -61,16 +61,16 @@ export const DEFAULT_CONFIG = {
     y: -3,
     z: 4,
     color: "#fff",
-    intensity: 1.5,
+    intensity: 3.5,
     shadowRadius: 1
   },
   fillLight: {
     color: "#ffd",
-    intensity: 0.5
+    intensity: 0.8
   },
   fillLight2: {
     color: "#fff",
-    intensity: 0.4
+    intensity: 0.8
   },
   ambientLight: {
     color: "#fff",
