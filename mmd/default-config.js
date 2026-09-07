@@ -85,5 +85,11 @@ export const DEFAULT_CONFIG = {
     continuous: false,
     showFps: true,
     wireframe: false
+  },
+  physics: {
+    dropHeight: 5.0,
+    tilt: { x: 0.3, y: 0.25, z: 0.02 },
+    restitution: 0.28,
+    friction: 0.15
   }
 };

@@ -1,5 +1,52 @@
 import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+
+/* ============================= Physics (cannon-es) ============================= */
+// Whole instrument drops as one rigid box onto the floor on page load.
+const physWorld = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
+physWorld.broadphase = new CANNON.SAPBroadphase(physWorld);
+physWorld.allowSleep = true;
+const physGroundMat = new CANNON.Material('ground');
+const physBoxMat = new CANNON.Material('box');
+const physContactMat = new CANNON.ContactMaterial(physGroundMat, physBoxMat, {
+  friction: 0.45,
+  restitution: 0.28,
+});
+physWorld.addContactMaterial(physContactMat);
+const physGround = new CANNON.Body({ mass: 0, material: physGroundMat, shape: new CANNON.Plane() });
+physGround.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+physWorld.addBody(physGround);
+
+let physBox = null;
+let physSettled = true; // true when body is sleeping / at rest
+let physHasDropped = false; // only auto-drop from height on first (page-load) build
+let physLastTime = 0;
+
+function physDropPose(depth, phys){
+  const dropHeight = Math.max(0.0, num(phys?.dropHeight, 1.0));
+  const tilt = phys?.tilt || {};
+  const tx = num(tilt.x, 0.10);
+  const ty = num(tilt.y, 0.06);
+  const tz = num(tilt.z, 0.12);
+  const restY = -0.02; // floor sits at -depth/2 - 0.02, box half-thickness is depth/2
+  const q = new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(-Math.PI / 2 + tx, ty, tz)
+  );
+  return { pos: new THREE.Vector3(0, restY + dropHeight, 0), quat: q };
+}
+
+function ensurePhysLoop(){
+  if (animationActive) return;
+  animationActive = true;
+  physLastTime = performance.now();
+  requestAnimationFrame(animate);
+}
+
+function syncRigFromBody(){
+  rig.position.copy(physBox.position);
+  rig.quaternion.copy(physBox.quaternion);
+}
 
 /* ============================= Three.js setup ============================= */
 const host = document.getElementById('canvasHost');
@@ -845,8 +892,19 @@ let animationActive = false;
 let renderQueued = false;
 
 function renderFrame(now){
+  if (physBox && !physSettled){
+    const dt = Math.min(0.05, Math.max(0.0001, (now - physLastTime) / 1000 || 1 / 60));
+    physLastTime = now;
+    physWorld.step(1 / 60, dt, 3);
+    syncRigFromBody();
+    if (physBox.sleepState === CANNON.Body.SLEEPING){
+      physSettled = true;
+      syncRigFromBody();
+      if (!renderContinuously) fps.textContent = '';
+    }
+  }
   renderer.render(scene, camera);
-  if (!renderContinuously) return;
+  if (!renderContinuously && physSettled) return;
   framesSinceFpsUpdate++;
   const elapsed = now - lastFpsUpdate;
   if (elapsed >= 250){
@@ -862,13 +920,13 @@ function renderOnce(now){
 }
 
 function scheduleRender(){
-  if (renderContinuously || renderQueued) return;
+  if (renderContinuously || renderQueued || animationActive) return;
   renderQueued = true;
   requestAnimationFrame(renderOnce);
 }
 
 function animate(now){
-  if (!renderContinuously){
+  if (!renderContinuously && physSettled){
     animationActive = false;
     return;
   }
@@ -958,6 +1016,73 @@ function build(config){
   floorMat.color.set(surfaceColor);
   floor.receiveShadow = shadowsEnabled;
   floor.position.y = -depth / 2 - 0.02;
+
+  /* ---------- physics: whole instrument is one rigid box ---------- */
+  const phys = config.physics || {};
+  const physEnabled = phys.enabled !== false;
+  const floorY = -depth / 2 - 0.02;
+  physGround.position.set(0, floorY, 0);
+  if (phys.friction !== undefined) physContactMat.friction = Math.max(0, num(phys.friction, 0.45));
+  if (phys.restitution !== undefined) physContactMat.restitution = Math.max(0, Math.min(1, num(phys.restitution, 0.28)));
+  if (physEnabled){
+    const half = new CANNON.Vec3(width / 2, height / 2, depth / 2);
+    if (!physBox){
+      // Page-load drop: start a small height above rest with a slight tilt.
+      physBox = new CANNON.Body({
+        mass: Math.max(0.1, num(phys.mass, 2)),
+        material: physBoxMat,
+        linearDamping: num(phys.linearDamping, 0.01),
+        angularDamping: num(phys.angularDamping, 0.08),
+      });
+      physBox.addShape(new CANNON.Box(half));
+      const pose = physDropPose(depth, phys);
+      physBox.position.set(pose.pos.x, pose.pos.y, pose.pos.z);
+      physBox.quaternion.set(pose.quat.x, pose.quat.y, pose.quat.z, pose.quat.w);
+      physBox.allowSleep = true;
+      physBox.sleepSpeedLimit = 0.2;
+      physBox.sleepTimeLimit = 0.5;
+      physWorld.addBody(physBox);
+      syncRigFromBody();
+      physHasDropped = true;
+      physSettled = false;
+      physLastTime = performance.now();
+      ensurePhysLoop();
+    } else {
+      // Later edits: keep the current pose, just resize the collision box.
+      while (physBox.shapes.length) physBox.removeShape(physBox.shapes[0]);
+      physBox.addShape(new CANNON.Box(half));
+      physBox.updateBoundingRadius();
+      physBox.aabbNeedsUpdate = true;
+      // World-space half-height of the (possibly tilted) box.
+      const q = physBox.quaternion;
+      const tq = new THREE.Quaternion(q.x, q.y, q.z, q.w);
+      const ax = new THREE.Vector3(1, 0, 0).applyQuaternion(tq);
+      const ay = new THREE.Vector3(0, 1, 0).applyQuaternion(tq);
+      const az = new THREE.Vector3(0, 0, 1).applyQuaternion(tq);
+      const worldHalfY = Math.abs(ax.y) * half.x + Math.abs(ay.y) * half.y + Math.abs(az.y) * half.z;
+      const restingY = floorY + worldHalfY + 0.001;
+      if (physBox.position.y < restingY){
+        physBox.position.y = restingY + 0.02;
+        physBox.velocity.setZero();
+        physBox.angularVelocity.setZero();
+        physBox.wakeUp();
+        physSettled = false;
+        physLastTime = performance.now();
+        ensurePhysLoop();
+      } else {
+        syncRigFromBody();
+        scheduleRender();
+      }
+    }
+  } else {
+    if (physBox){
+      physWorld.removeBody(physBox);
+      physBox = null;
+    }
+    physSettled = true;
+    rig.position.set(0, -0.02, 0);
+    rig.quaternion.setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+  }
 
   if (gridHelper){
     scene.remove(gridHelper);

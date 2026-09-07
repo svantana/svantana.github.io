@@ -10,7 +10,8 @@
 {
   "imports": {
     "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/",
+    "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
   }
 }
 </script>
@@ -249,7 +250,8 @@
            <b>fillLight</b>: color, intensity (fixed-position secondary light)<br/>
            <b>fillLight2</b>: color, intensity (second fixed-position fill light)<br/>
            <b>ambientLight</b>: color, intensity (diffuse baseline ambient light)<br/><br/>
-          <b>render</b>: pixelRatio (0.5–2), shadows, shadowMapSize, softboxShadowCount, detailShadows, continuous, showFps, wireframe<br/><br/>
+           <b>render</b>: pixelRatio (0.5–2), shadows, shadowMapSize, softboxShadowCount, detailShadows, continuous, showFps, wireframe<br/>
+           <b>physics</b>: enabled, dropHeight, tilt {x,y,z} (drop tilt in radians), restitution (bounciness 0–1), friction<br/><br/>
           In knobs[]/buttons[]/sliders[]/labels[]: entry 0 should set every field it needs.
           Later entries inherit any omitted field from the entry before them.
           Omitted x/y continue the sequence: x[n] = 2·x[n-1] − x[n-2].
