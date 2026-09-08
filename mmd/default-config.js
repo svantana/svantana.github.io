@@ -7,7 +7,7 @@ export const DEFAULT_CONFIG = {
   },
   knobs: [
     { label: "BOUNCE", x: -1.6, y: 0.8, radius: 0.15, height: 0.2, 
-        color: "#e9a", roughness: 0.3, metalness: 0.3, value: 0.62, topRounding: 0.2,
+        color: "#e9a", roughness: 0.4, metalness: 0.3, value: 0.62, topRounding: 0.2,
         markColor: "#645", markLength: 0.7, markWidth: 0.25,
         labelColor: "#fff", labelSize: 0.15
     },
@@ -20,7 +20,7 @@ export const DEFAULT_CONFIG = {
       "skirtRounding": 0.98,
       "markLength": 0.36,
       "markWidth": 0.14,
-      roughness: 0.3, metalness: 0.1
+      roughness: 0.4, metalness: 0.1
      }
   ],
   buttons: [
