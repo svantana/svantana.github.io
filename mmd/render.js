@@ -29,7 +29,7 @@ function physDropPose(depth, phys){
   const tx = num(tilt.x, 0.10);
   const ty = num(tilt.y, 0.06);
   const tz = num(tilt.z, 0.12);
-  const restY = -0.02; // floor sits at -depth/2 - 0.02, box half-thickness is depth/2
+  const restY = 0.01; // floor sits at -depth/2 - 0.02, box half-thickness is depth/2
   const q = new THREE.Quaternion().setFromEuler(
     new THREE.Euler(-Math.PI / 2 + tx, ty, tz)
   );
@@ -65,11 +65,11 @@ const scene = new THREE.Scene();
   scene.background = new THREE.CanvasTexture(c);
 })();
 
-const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 60);
+const camera = new THREE.PerspectiveCamera(45, 1, 1.0, 50);
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.VSMShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap; // alt VSMShadowMap, PCFShadowMap, PCFSoftShadowMap
 host.appendChild(renderer.domElement);
 
 // lights
@@ -82,18 +82,18 @@ const softboxGroup = new THREE.Group();
 scene.add(softboxGroup);
 
 for (let i = 0; i < NUM_SOFTBOX_LIGHTS; i++){
-  const l = new THREE.DirectionalLight(0xfff2e0, 0.2);
-  l.castShadow = i === 0;
-  l.shadow.mapSize.set(512, 512);
-  l.shadow.camera.near = 0.5;
-  l.shadow.camera.far = 40;
-  l.shadow.bias = -0.0001;
-  l.shadow.normalBias = 0.02;
-  l.shadow.radius = 2;
-  l.shadow.blurSamples = 8;
-  softboxGroup.add(l);
-  softboxGroup.add(l.target);
-  softboxLights.push(l);
+  const light = new THREE.DirectionalLight(0xfff2e0, 0.0);
+  light.castShadow = i === 0;
+  light.shadow.mapSize.set(2048, 2048);
+  light.shadow.camera.near = 1.0;
+  light.shadow.camera.far = 10.0;
+  light.shadow.bias = 0.001;
+  light.shadow.normalBias = 0.01;
+  light.shadow.radius = 6;
+  //light.shadow.blurSamples = 16; // VSMShadowMap only
+  softboxGroup.add(light);
+  softboxGroup.add(light.target);
+  softboxLights.push(light);
 }
 
 const rim = new THREE.DirectionalLight(0x8fb8ff, 0.4); // settable via config.fillLight
@@ -426,11 +426,11 @@ function makeLCD(lcd, depth){
   g.add(bezel);
 
   const tex = textTexture(lcd.text || '', {
-    width: 512, height: 256, bg, fg,
+    width: 512, height: 256, bg: bg, fg: fg,
     font: '600 46px ui-monospace, monospace'
   });
   const screenGeo = new THREE.PlaneGeometry(w, h);
-  const screenMat = new THREE.MeshStandardMaterial({ color: '#ffffff', map: tex, roughness, metalness });
+  const screenMat = new THREE.MeshStandardMaterial({ color: '#fff', map: tex, roughness, metalness, emissiveMap: tex, emissive: "#fff", emissiveIntensity: 0.3 });
   const screen = new THREE.Mesh(screenGeo, screenMat);
   screen.position.z = depth/2 + 0.012;
   g.add(screen);

@@ -79,7 +79,7 @@ export const DEFAULT_CONFIG = {
   render: {
     pixelRatio: 2.0,
     shadows: true,
-    shadowMapSize: 512,
+    shadowMapSize: 2048,
     softboxShadowCount: 2,
     detailShadows: true,
     continuous: false,
