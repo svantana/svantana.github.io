@@ -383,24 +383,21 @@ function makeKnob(k, depth){
   knobGroup.add(capGroup);
 
   // label plate
-  if (k.label){
-    const labelSize = num(k.labelSize, 1);
+  if (k.label) {
+    const labelSize = num(k.labelSize, 0.15);
     const labelColor = k.labelColor || '#c9ccd2';
     const tex = textTexture(String(k.label).toUpperCase(), {
       width: 220, height: 72, fg: labelColor,
-      font: `600 ${Math.round(30 * labelSize)}px ui-monospace, monospace`
+      font: `600 ${Math.round(150 * labelSize)}px ui-monospace, monospace`
     });
-    const labelGeo = new THREE.PlaneGeometry(.5 * labelSize, 0.15 * labelSize);
+    const labelGeo = new THREE.PlaneGeometry(5 * labelSize, labelSize);
     const labelMat = new THREE.MeshStandardMaterial({map: tex, transparent: true,
-    roughness: 0.5,
-    metalness: 0.0,
-    polygonOffset: true,
-    polygonOffsetFactor: -4,
-    polygonOffsetUnits: -4});
+    roughness: 0.5, metalness: 0.0,
+    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4});
     const labelMesh = new THREE.Mesh(labelGeo, labelMat);
     labelMesh.castShadow = false;
     labelMesh.receiveShadow = true;
-    labelMesh.position.set(0, -radius * 1.55, depth/2 + 0.006);
+    labelMesh.position.set(0, -radius * 1.1 - .7 * labelSize - .01, depth/2 + 0.006);
     knobGroup.add(labelMesh);
   }
 
@@ -410,14 +407,15 @@ function makeKnob(k, depth){
 
 function makeLCD(lcd, depth){
   const g = new THREE.Group();
-  const w = Math.max(0.05, num(lcd.width, 1.4));
-  const h = Math.max(0.05, num(lcd.height, 0.6));
+  const w = num(lcd.width, 1.0);
+  const h = num(lcd.height, 1.0);
+  const bez = num(lcd.bezel, 0.1*w);
   const bg = lcd.backgroundColor || '#08130b';
   const fg = lcd.textColor || '#7CFC98';
   const roughness = Math.max(0, Math.min(1, num(lcd.roughness, 0.6)));
   const metalness = Math.max(0, Math.min(1, num(lcd.metalness, 0.1)));
 
-  const bezelGeo = new THREE.PlaneGeometry(w * 1.14, h * 1.28);
+  const bezelGeo = new THREE.PlaneGeometry(w, h);
   const bezelMat = new THREE.MeshStandardMaterial({ color: '#0d0d10', roughness, metalness });
   const bezel = new THREE.Mesh(bezelGeo, bezelMat);
   bezel.position.z = depth/2 + 0.003;
@@ -429,8 +427,8 @@ function makeLCD(lcd, depth){
     width: 512, height: 256, bg: bg, fg: fg,
     font: '600 46px ui-monospace, monospace'
   });
-  const screenGeo = new THREE.PlaneGeometry(w, h);
-  const screenMat = new THREE.MeshStandardMaterial({ color: '#fff', map: tex, roughness, metalness, emissiveMap: tex, emissive: "#fff", emissiveIntensity: 0.3 });
+  const screenGeo = new THREE.PlaneGeometry(w-2*bez, h-2*bez);
+  const screenMat = new THREE.MeshStandardMaterial({ color: '#fff', map: tex, roughness, metalness, emissiveMap: tex, emissive: "#fff", emissiveIntensity: 0.5 });
   const screen = new THREE.Mesh(screenGeo, screenMat);
   screen.position.z = depth/2 + 0.012;
   g.add(screen);
@@ -484,7 +482,7 @@ function makeButton(btn, depth){
 
   // label
   if (btn.label){
-    const labelSize = num(btn.labelSize, 1);
+    const labelSize = num(btn.labelSize, 0.15);
     const labelColor = btn.labelColor || '#c9ccd2';
     const labelPosition = String(btn.labelPosition || 'on').toLowerCase(); // 'on' | 'above' | 'below'
     const upperLabel = String(btn.label).toUpperCase();
@@ -496,12 +494,12 @@ function makeButton(btn, depth){
       const fontFamily = emoji
         ? "'Segoe UI Symbol','Noto Sans Symbols','Arial Unicode MS',sans-serif"
         : 'ui-monospace, monospace';
-      const fontSize = emoji ? 150 * labelSize : 64 * labelSize;
+      const fontSize = emoji ? 1000 * labelSize : 400 * labelSize;
       const tex = textTexture(display, {
         width: 220, height: 220, fg: labelColor,
         font: `600 ${Math.round(fontSize)}px ${fontFamily}`
       });
-      const plateSize = Math.min(w, len) * 0.95 * labelSize;
+      const plateSize = Math.min(w, len) * 5 * labelSize;
       const plateGeo = new THREE.PlaneGeometry(plateSize, plateSize);
       const plateMat = new THREE.MeshStandardMaterial({
         map: tex, transparent: true,
