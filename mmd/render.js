@@ -67,7 +67,7 @@ const scene = new THREE.Scene();
 
 const camera = new THREE.PerspectiveCamera(45, 1, 1.0, 50);
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+renderer.setPixelRatio(window.devicePixelRatio);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap; // alt VSMShadowMap, PCFShadowMap, PCFSoftShadowMap
 host.appendChild(renderer.domElement);
