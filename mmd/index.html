@@ -238,14 +238,14 @@
           <span class="chevron">&#9654;</span>
         </summary>
         <div class="schema-content">
-          <b>body</b>: width, height, depth, roundedness (0–0.5), segments (rounding fidelity, default 8), material: { color, roughness (0–1), metalness (0–1) }<br/>
-           <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, value (0–1), topRounding (0–1), segments, skirtFactor (0–1), skirtRounding (0–1), markColor, markLength (∝ radius), markWidth (∝ radius), material: { color, roughness, metalness }<br/>
-           <b>buttons[]</b>: label, labelColor, labelSize, labelPosition ("on"/"above"/"below"), x, y, width, length, height, travel, roundedness (0–1), pressed, material: { color, roughness, metalness }<br/>
+          <b>body</b>: width, height, depth, roundedness (0–0.5), segments (rounding fidelity, default 8), material: { color, roughness (0–1), metalness (0–1), opacity (0–1, default 1) }<br/>
+           <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, value (0–1), topRounding (0–1), segments, skirtFactor (0–1), skirtRounding (0–1), markColor, markLength (∝ radius), markWidth (∝ radius), material: { color, roughness, metalness, opacity }<br/>
+           <b>buttons[]</b>: label, labelColor, labelSize, labelPosition ("on"/"above"/"below"), x, y, width, length, height, travel, roundedness (0–1), pressed, material: { color, roughness, metalness, opacity }<br/>
           &nbsp;&nbsp;labelPosition "on" (default) shows a flat icon on the cap — play/stop/rec/etc. auto-map to monochrome symbols<br/>
-           <b>sliders[]</b>: label, labelColor, labelSize, x, y, length, orientation (deg), value (0–1), capWidth, capLength, capHeight, capRoundedness (0–1), material: { color, roughness, metalness }<br/>
-          <b>labels[]</b>: text, x, y, fontsize, font, fontweight, align ("left"/"center"/"right"), material: { color, roughness, metalness }<br/>
-           <b>lcd</b>: width, height, x, y, text, textColor, backgroundColor, material: { color (bezel), roughness (0–1), metalness (0–1) }<br/>
-          <b>surface</b>: material: { color, roughness, metalness }, grid: { size, color, linewidth }<br/>
+           <b>sliders[]</b>: label, labelColor, labelSize, x, y, length, orientation (deg), value (0–1), capWidth, capLength, capHeight, capRoundedness (0–1), material: { color, roughness, metalness, opacity }<br/>
+          <b>labels[]</b>: text, x, y, fontsize, font, fontweight, align ("left"/"center"/"right"), material: { color, roughness, metalness, opacity }<br/>
+           <b>lcd</b>: width, height, x, y, text, textColor, backgroundColor, material: { color (bezel), roughness (0–1), metalness (0–1), opacity }<br/>
+          <b>surface</b>: material: { color, roughness, metalness, opacity }, grid: { size, color, linewidth }<br/>
            <b>spotlight</b>: x, y, z, color, intensity, shadowRadius (blur/softness, default 8), shadowBias, shadowNormalBias, shadowMapSize<br/>
            <b>fillLight</b>: color, intensity (fixed-position secondary light)<br/>
            <b>fillLight2</b>: color, intensity (second fixed-position fill light)<br/>

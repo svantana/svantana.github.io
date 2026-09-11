@@ -105,7 +105,7 @@ scene.add(fill);
 
 // floor surface (settable via config.surface.material)
 const floorGeo = new THREE.PlaneGeometry(60, 60);
-const floorMat = new THREE.MeshStandardMaterial({ color: '#1c1e24', roughness: 0.9, metalness: 0.05 });
+const floorMat = makeMaterial({ color: '#1c1e24', roughness: 0.9, metalness: 0.05 });
 const floor = new THREE.Mesh(floorGeo, floorMat);
 floor.receiveShadow = true;
 floor.rotation.x = -Math.PI / 2;
@@ -181,7 +181,7 @@ function roundedRectShape(w, h, r){
   return shape;
 }
 
-function makeBody(width, height, depth, roundedness, color, roughness, metalness, segments, bevelSegments, curveSegments){
+function makeBody(width, height, depth, roundedness, material, segments, bevelSegments, curveSegments){
   const bevel = Math.max(0.001, Math.min(roundedness, Math.min(width, height) * 0.45, depth * 0.45));
   const cornerR = Math.max(0.001, Math.min(bevel, Math.min(width, height) * 0.4));
   const shape2 = roundedRectShape(width, height, cornerR);
@@ -206,7 +206,7 @@ function makeBody(width, height, depth, roundedness, color, roughness, metalness
   geo = mergeVertices(geo, 1e-4);
   geo.computeVertexNormals();
   geo.center();
-  const mat = new THREE.MeshStandardMaterial({ color, roughness, metalness });
+  const mat = makeMaterial(material);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -251,7 +251,7 @@ function makeKnob(k, depth){
   const knobGroup = new THREE.Group();
   const radius = num(k.radius, 0.16);
   const kHeight = num(k.height, 0.22);
-  const { color, roughness, metalness } = matProps(k, { color: '#cfd3d8', roughness: 0.4, metalness: 0.25 });
+  const km = matProps(k, { color: '#cfd3d8', roughness: 0.4, metalness: 0.25 });
   const value = Math.max(0, Math.min(1, num(k.value, 0.5))); // knob setting, 0–1
   const segments = Math.max(3, Math.min(64, num(k.segments, 32)));
   const topRounding = Math.max(0, Math.min(1, num(k.topRounding, 0)));
@@ -261,7 +261,7 @@ function makeKnob(k, depth){
   // cap + indicator turn together to reflect the knob's value
   const capGroup = new THREE.Group();
 
-  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness, metalness });
+  const bodyMat = makeMaterial(km);
 
   // Build the knob body as a surface of revolution. Unlike an extruded
   // circle, this keeps the wall's radial normals continuous and reflections even.
@@ -369,7 +369,7 @@ function makeKnob(k, depth){
   const markWidth = Math.max(0.01, num(k.markWidth, 0.14));
   const markDepth = kHeight * 1.1;
   const ridgeGeo = new THREE.BoxGeometry(radius * markWidth, radius * markLength, markDepth);
-  const ridgeMat = new THREE.MeshStandardMaterial({ color: markColor, metalness: 0.2, roughness: 0.6 });
+  const ridgeMat = makeMaterial({ color: markColor, roughness: 0.6, metalness: 0.2, opacity: km.opacity });
   const ridge = new THREE.Mesh(ridgeGeo, ridgeMat);
   ridge.position.set(0, radius * markLength, depth/2 + kHeight * 0.02 + markDepth * 0.5);
   ridge.castShadow = true;
@@ -389,9 +389,8 @@ function makeKnob(k, depth){
       font: `600 ${Math.round(150 * labelSize)}px ui-monospace, monospace`
     });
     const labelGeo = new THREE.PlaneGeometry(5 * labelSize, labelSize);
-    const labelMat = new THREE.MeshStandardMaterial({map: tex, transparent: true,
-    roughness: 0.5, metalness: 0.0,
-    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4});
+    const labelMat = makeMaterial({ roughness: 0.5, metalness: 0.0, opacity: km.opacity }, { map: tex, transparent: true,
+    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
     const labelMesh = new THREE.Mesh(labelGeo, labelMat);
     labelMesh.castShadow = false;
     labelMesh.receiveShadow = true;
@@ -411,10 +410,9 @@ function makeLCD(lcd, depth){
   const bg = lcd.backgroundColor || '#08130b';
   const fg = lcd.textColor || '#7CFC98';
   const lm = matProps(lcd, { color: '#0d0d10', roughness: 0.6, metalness: 0.1 });
-  const bezelColor = lm.color, roughness = lm.roughness, metalness = lm.metalness;
 
   const bezelGeo = new THREE.PlaneGeometry(w, h);
-  const bezelMat = new THREE.MeshStandardMaterial({ color: bezelColor, roughness, metalness });
+  const bezelMat = makeMaterial({ color: lm.color, roughness: lm.roughness, metalness: lm.metalness, opacity: lm.opacity });
   const bezel = new THREE.Mesh(bezelGeo, bezelMat);
   bezel.position.z = depth/2 + 0.003;
   bezel.castShadow = true;
@@ -426,7 +424,7 @@ function makeLCD(lcd, depth){
     font: '600 46px ui-monospace, monospace'
   });
   const screenGeo = new THREE.PlaneGeometry(w-2*bez, h-2*bez);
-  const screenMat = new THREE.MeshStandardMaterial({ color: '#fff', map: tex, roughness, metalness, emissiveMap: tex, emissive: "#fff", emissiveIntensity: 0.5 });
+  const screenMat = makeMaterial({ color: '#fff', roughness: lm.roughness, metalness: lm.metalness, opacity: lm.opacity }, { map: tex, emissiveMap: tex, emissive: "#fff", emissiveIntensity: 0.5 });
   const screen = new THREE.Mesh(screenGeo, screenMat);
   screen.position.z = depth/2 + 0.012;
   g.add(screen);
@@ -443,14 +441,14 @@ function makeButton(btn, depth){
   const pressed = !!btn.pressed;
   const btnHeight = Math.max(0.01, num(btn.height, travel));
   const actualHeight = pressed ? Math.max(0.01, btnHeight * 0.35) : btnHeight;
-  const { color, roughness, metalness } = matProps(btn, { color: '#3a3d44', roughness: 0.4, metalness: 0.25 });
+  const bm = matProps(btn, { color: '#3a3d44', roughness: 0.4, metalness: 0.25 });
   const roundedness = Math.max(0, Math.min(1, num(btn.roundedness, 0.4)));
 
   // recessed bezel (the "hole" the cap sits in) — rounded to match the cap
   const bezelR = Math.max(0.001, Math.min(w * 1.2, len * 1.2) * 0.5 * roundedness);
   const bezelShape = roundedRectShape(w * 1.2, len * 1.2, bezelR);
   const bezelGeo = new THREE.ExtrudeGeometry(bezelShape, { depth: 0.02, bevelEnabled: false, curveSegments: 10 });
-  const bezelMat = new THREE.MeshStandardMaterial({ color: '#111216', roughness: 0.75, metalness: 0.1 });
+  const bezelMat = makeMaterial({ color: '#111216', roughness: 0.75, metalness: 0.1, opacity: bm.opacity });
   const bezel = new THREE.Mesh(bezelGeo, bezelMat);
   bezel.position.z = depth/2 - 0.016;
   bezel.receiveShadow = true;
@@ -469,7 +467,7 @@ function makeButton(btn, depth){
     bevelSegments: 3, curveSegments: 8
   });
   capGeo.center();
-  const capMat = new THREE.MeshStandardMaterial({ color, roughness, metalness });
+  const capMat = makeMaterial(bm);
   const capMesh = new THREE.Mesh(capGeo, capMat);
   capMesh.position.z = depth/2 + actualHeight/2 + 0.008;
   capMesh.castShadow = true;
@@ -497,7 +495,7 @@ function makeButton(btn, depth){
       });
       const plateSize = Math.min(w, len) * 5 * labelSize;
       const plateGeo = new THREE.PlaneGeometry(plateSize, plateSize);
-      const plateMat = new THREE.MeshStandardMaterial({
+      const plateMat = makeMaterial({ opacity: bm.opacity }, {
         map: tex, transparent: true,
         polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
       });
@@ -583,7 +581,7 @@ function makeSlider(s, depth){
   const trackLen = Math.max(0.15, num(s.length, 0.75));
   const orientationDeg = num(s.orientation, 0);
   const value = Math.max(0, Math.min(1, num(s.value, 0.5)));
-  const { color: capColor, roughness, metalness } = matProps(s, { color: '#202228', roughness: 0.4, metalness: 0.2 });
+  const sm = matProps(s, { color: '#202228', roughness: 0.4, metalness: 0.2 });
   const indicatorColor = s.indicatorColor || '#ffffff';
 
   const capWidth = Math.max(0.05, num(s.capWidth, 0.16));
@@ -597,12 +595,10 @@ function makeSlider(s, depth){
   // Track plate with recessed slot & ticks
   const trackTex = getSliderTrackTexture();
   const trackGeo = new THREE.PlaneGeometry(plateWidth, plateLength);
-  const trackMat = new THREE.MeshStandardMaterial({
+  const trackMat = makeMaterial({ roughness: 0.85, metalness: 0.1, opacity: sm.opacity }, {
     map: trackTex,
     transparent: true,
     depthWrite: false,
-    roughness: 0.85,
-    metalness: 0.1,
     polygonOffset: true,
     polygonOffsetFactor: -4,
     polygonOffsetUnits: -4
@@ -624,11 +620,7 @@ function makeSlider(s, depth){
     bevelSegments: 3
   });
   capGeo.center();
-  const capMat = new THREE.MeshStandardMaterial({
-    color: capColor,
-    roughness,
-    metalness
-  });
+  const capMat = makeMaterial(sm);
   const capMesh = new THREE.Mesh(capGeo, capMat);
   capMesh.castShadow = true;
   capMesh.receiveShadow = true;
@@ -652,7 +644,7 @@ function makeSlider(s, depth){
       font: `600 ${Math.round(30 * labelSize)}px ui-monospace, monospace`
     });
     const labelGeo = new THREE.PlaneGeometry(capWidth * 3.2 * labelSize, capWidth * 1.05 * labelSize);
-    const labelMat = new THREE.MeshStandardMaterial({
+    const labelMat = makeMaterial({ opacity: sm.opacity }, {
       map: tex,
       transparent: true,
       polygonOffset: true,
@@ -683,7 +675,7 @@ function makeLabel(lbl, depth){
   // Extract font, fontsize, fontweight, color, material properties
   const fontFam = lbl.font || 'ui-monospace, monospace';
   const fontWeight = lbl.fontweight ?? lbl.fontWeight ?? '600';
-  const { color, roughness, metalness } = matProps(lbl, { color: lbl.textColor || '#ffffff', roughness: 0.4, metalness: 0.25 });
+  const { color, roughness, metalness, opacity } = matProps(lbl, { color: lbl.textColor || '#ffffff', roughness: 0.4, metalness: 0.25 });
 
   const rawSize = lbl.fontsize ?? lbl.fontSize ?? 28;
   let numFontSize = 28;
@@ -772,11 +764,9 @@ function makeLabel(lbl, depth){
   const alignX = align === 'left' ? w / 2 : align === 'right' ? -w / 2 : 0;
 
   const labelGeo = new THREE.PlaneGeometry(w, h);
-  const labelMat = new THREE.MeshStandardMaterial({
+  const labelMat = makeMaterial({ roughness, metalness, opacity }, {
     map: tex,
     transparent: true,
-    roughness,
-    metalness,
     polygonOffset: true,
     polygonOffsetFactor: -4,
     polygonOffsetUnits: -4
@@ -821,10 +811,8 @@ function makeGridPlane(size, color, lineWidth, baseColor){
   const tex = new THREE.CanvasTexture(canvas);
   tex.needsUpdate = true;
   const geo = new THREE.PlaneGeometry(size, size);
-  const mat = new THREE.MeshStandardMaterial({
+  const mat = makeMaterial({ roughness: 0.9, metalness: 0.05 }, {
     map: tex,
-    roughness: 0.9,
-    metalness: 0.05,
     side: THREE.DoubleSide
   });
   const mesh = new THREE.Mesh(geo, mat);
@@ -838,8 +826,8 @@ function num(v, fallback){
 }
 
 /**
- * Reads color/roughness/metalness from an object's `material` sub-dictionary.
- * Flat `color`/`roughness`/`metalness` fields still work as a legacy fallback.
+ * Reads color/roughness/metalness/opacity from an object's `material` sub-dictionary.
+ * Flat `color`/`roughness`/`metalness`/`opacity` fields still work as a legacy fallback.
  */
 function matProps(obj, defaults){
   obj = obj || {};
@@ -848,7 +836,24 @@ function matProps(obj, defaults){
     color: m.color ?? obj.color ?? defaults.color,
     roughness: Math.max(0, Math.min(1, num(m.roughness ?? obj.roughness, defaults.roughness))),
     metalness: Math.max(0, Math.min(1, num(m.metalness ?? obj.metalness, defaults.metalness))),
+    opacity: Math.max(0, Math.min(1, num(m.opacity ?? obj.opacity, defaults.opacity ?? 1.0))),
   };
+}
+
+/**
+ * Centralizes MeshStandardMaterial creation for all panel parts.
+ * `props` is a matProps-style object (partial objects allowed; missing fields
+ * fall back to three.js defaults); `extra` holds per-part parameters such as
+ * map, emissive, side, or polygonOffset. Opacity defaults to 1.0 (opaque) and
+ * enables transparency automatically when set below 1.
+ */
+function makeMaterial(props = {}, extra = {}){
+  const opacity = Math.max(0, Math.min(1, num(props.opacity, 1.0)));
+  const params = { opacity, transparent: opacity < 1, ...extra };
+  if (props.color !== undefined) params.color = props.color;
+  if (props.roughness !== undefined) params.roughness = props.roughness;
+  if (props.metalness !== undefined) params.metalness = props.metalness;
+  return new THREE.MeshStandardMaterial(params);
 }
 
 /**
@@ -1020,9 +1025,9 @@ function build(config){
   const segments = num(b.segments ?? b.roundingSegments ?? b.bevelSegments, 16);
   const bevelSegments = b.bevelSegments !== undefined ? num(b.bevelSegments, segments) : undefined;
   const curveSegments = b.curveSegments !== undefined ? num(b.curveSegments, segments * 2) : undefined;
-  const { color, roughness: bodyRoughness, metalness: bodyMetalness } = matProps(b, { color: '#2a2c31', roughness: 0.55, metalness: 0.18 });
+  const bodyMatProps = matProps(b, { color: '#2a2c31', roughness: 0.55, metalness: 0.18 });
 
-  const bodyMesh = makeBody(width, height, depth, roundedness, color, bodyRoughness, bodyMetalness, segments, bevelSegments, curveSegments);
+  const bodyMesh = makeBody(width, height, depth, roundedness, bodyMatProps, segments, bevelSegments, curveSegments);
   rig.add(bodyMesh);
 
   const knobs = resolveArray(config.knobs);
@@ -1060,10 +1065,14 @@ function build(config){
   });
 
   const surface = config.surface || {};
-  const { color: surfaceColor, roughness: surfaceRoughness, metalness: surfaceMetalness } = matProps(surface, { color: '#1c1e24', roughness: 0.9, metalness: 0.05 });
-  floorMat.color.set(surfaceColor);
-  floorMat.roughness = surfaceRoughness;
-  floorMat.metalness = surfaceMetalness;
+  const smat = matProps(surface, { color: '#1c1e24', roughness: 0.9, metalness: 0.05, opacity: 1.0 });
+  floorMat.color.set(smat.color);
+  floorMat.roughness = smat.roughness;
+  floorMat.metalness = smat.metalness;
+  floorMat.opacity = smat.opacity;
+  const floorTransparent = smat.opacity < 1;
+  if (floorMat.transparent !== floorTransparent) floorMat.needsUpdate = true;
+  floorMat.transparent = floorTransparent;
   floor.receiveShadow = shadowsEnabled;
   floor.position.y = -depth / 2 - 0.02;
 
@@ -1143,7 +1152,7 @@ function build(config){
     const gSize = Math.max(0.1, num(gridCfg.size, 10));
     const gColor = gridCfg.color || '#ffffff';
     const gLinewidth = Math.max(0.5, num(gridCfg.linewidth, 1.5));
-    gridHelper = makeGridPlane(gSize, gColor, gLinewidth, surfaceColor);
+    gridHelper = makeGridPlane(gSize, gColor, gLinewidth, smat.color);
     gridHelper.position.set(0, -depth / 2 - 0.019, 0);
     scene.add(gridHelper);
   }
