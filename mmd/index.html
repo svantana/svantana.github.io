@@ -251,7 +251,8 @@
            <b>fillLight2</b>: color, intensity (second fixed-position fill light)<br/>
            <b>ambientLight</b>: color, intensity (diffuse baseline ambient light)<br/><br/>
            <b>render</b>: pixelRatio (0.5–2), shadows, shadowMapSize, softboxShadowCount, detailShadows, continuous, showFps, wireframe<br/>
-           <b>physics</b>: enabled, dropHeight, tilt {x,y,z} (drop tilt in radians), restitution (bounciness 0–1), friction<br/><br/>
+           <b>physics</b>: enabled, dropHeight, tilt {x,y,z} (drop tilt in radians), restitution (bounciness 0–1), friction<br/>
+           <b>constants</b>: { name: value, ... } — any string value anywhere in the config that exactly matches a name is replaced with its value (any JSON type, any depth)<br/><br/>
           In knobs[]/buttons[]/sliders[]/labels[]: entry 0 should set every field it needs.
           Later entries inherit any omitted field from the entry before them (material sub-fields merge independently).
           Omitted x/y continue the sequence: x[n] = 2·x[n-1] − x[n-2].

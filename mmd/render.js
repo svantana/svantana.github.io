@@ -852,6 +852,46 @@ function matProps(obj, defaults){
 }
 
 /**
+ * Substitutes `constants` references throughout the config.
+ * Any string value anywhere in the config (any depth, inside dicts or
+ * arrays) that exactly matches a key of the top-level `constants` dict is
+ * replaced with a copy of that constant's value. Constant values may be any
+ * JSON data type. Chained references (a constant whose value is another
+ * constant's key) resolve via repeated passes, capped to avoid infinite
+ * loops on cyclic definitions. The input is never mutated.
+ */
+function resolveConstants(config){
+  const defs = (config && typeof config.constants === 'object' && config.constants !== null && !Array.isArray(config.constants))
+    ? config.constants
+    : null;
+  if (!defs || Object.keys(defs).length === 0) return config;
+  const clone = (v) => JSON.parse(JSON.stringify(v));
+  let root = clone(config);
+  const MAX_DEPTH = 100;
+  const substitute = (node, snapshot, depth) => {
+    if (depth > MAX_DEPTH) return node;
+    if (typeof node === 'string'){
+      if (Object.prototype.hasOwnProperty.call(snapshot, node)) return clone(snapshot[node]);
+      return node;
+    }
+    if (Array.isArray(node)) return node.map(item => substitute(item, snapshot, depth + 1));
+    if (node && typeof node === 'object'){
+      const out = {};
+      for (const key of Object.keys(node)) out[key] = substitute(node[key], snapshot, depth + 1);
+      return out;
+    }
+    return node;
+  };
+  for (let pass = 0; pass < 10; pass++){
+    const snapshot = root.constants;
+    const next = substitute(root, snapshot, 0);
+    if (JSON.stringify(next) === JSON.stringify(root)) { root = next; break; }
+    root = next;
+  }
+  return root;
+}
+
+/**
  * Resolves a sparse array of panel elements (knobs, buttons, ...):
  * - The first entry should define every field it needs; anything it omits
  *   stays undefined (caller functions apply their own final fallbacks).
@@ -957,6 +997,7 @@ function setRenderMode(continuous){
 }
 
 function build(config){
+  config = resolveConstants(config);
   while (rig.children.length) rig.remove(rig.children[0]);
 
   const render = config.render || {};

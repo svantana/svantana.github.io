@@ -1,8 +1,9 @@
 export const DEFAULT_CONFIG = {
+  constants: { "bodyColor": "#b6a" },
   body: { 
     width: 4.2, height: 3, depth: 0.5,
     roundedness: 0.2, segments: 20,
-    material: { color: "#d79", roughness: 0.5, metalness: 0.3 }
+    material: { color: "bodyColor", roughness: 0.5, metalness: 0.3 }
   },
   knobs: [
     { label: "BOUNCE", x: -1.6, y: 0.8, radius: 0.15, height: 0.2, 
