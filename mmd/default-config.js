@@ -2,12 +2,11 @@ export const DEFAULT_CONFIG = {
   body: { 
     width: 4.2, height: 3, depth: 0.5,
     roundedness: 0.2, segments: 20,
-    color: "#d79",
-    roughness: 0.5, metalness: 0.3
+    material: { color: "#d79", roughness: 0.5, metalness: 0.3 }
   },
   knobs: [
     { label: "BOUNCE", x: -1.6, y: 0.8, radius: 0.15, height: 0.2, 
-        color: "#e9a", roughness: 0.4, metalness: 0.3, value: 0.62, topRounding: 0.2,
+        material: { color: "#e9a", roughness: 0.4, metalness: 0.3 }, value: 0.62, topRounding: 0.2,
         markColor: "#645", markLength: 0.7, markWidth: 0.25,
         labelColor: "#fff", labelSize: 0.15
     },
@@ -20,17 +19,17 @@ export const DEFAULT_CONFIG = {
       "skirtRounding": 0.98,
       "markLength": 0.36,
       "markWidth": 0.14,
-      roughness: 0.4, metalness: 0.1
+      material: { roughness: 0.4, metalness: 0.1 }
      }
   ],
   buttons: [
-    { label: "PLAY",  labelColor: "#b39", labelSize: 0.15, x: -1.2, y: -0.95, width: 0.34, length: 0.28, height: 0.1, color: "#ecd", roughness: 0.4, metalness: 0.25, pressed: false },
+    { label: "PLAY",  labelColor: "#b39", labelSize: 0.15, x: -1.2, y: -0.95, width: 0.34, length: 0.28, height: 0.1, material: { color: "#ecd", roughness: 0.4, metalness: 0.25 }, pressed: false },
     { label: "STOP",  x: -0.4 },
     { label: "REC",   pressed: false },
     { label: "FUN!", pressed: false }
   ],
   sliders: [
-    { label: "EXCITE", labelColor: "#fff", labelSize: 0.15, x: -1.7, y: -0.05, length: 0.7, orientation: 0, value: 0.75, color: "#e9a", capWidth: 0.14, capLength: 0.2, capHeight: 0.12, capRoundedness: 0.8 },
+    { label: "EXCITE", labelColor: "#fff", labelSize: 0.15, x: -1.7, y: -0.05, length: 0.7, orientation: 0, value: 0.75, material: { color: "#e9a" }, capWidth: 0.14, capLength: 0.2, capHeight: 0.12, capRoundedness: 0.8 },
     { label: "ENHANCE", x: -1.2, value: 0.35 },
     { label: "ENGAGE", x: 1.2, value: 0.6 },
     { label: "ENTRANCE",  x: 1.7, value: 0.9 }
@@ -39,7 +38,7 @@ export const DEFAULT_CONFIG = {
     {
       text: "BarbieSynth", font: "Brush Script MT", fontsize: 55, fontweight: "500", align: "left",
       x: -2.1, y: 1.25,
-      color: "#ffc", roughness: 0.4, metalness: 0.35
+      material: { color: "#ffc", roughness: 0.4, metalness: 0.35 }
     }
   ],
   lcd: {
@@ -51,11 +50,10 @@ export const DEFAULT_CONFIG = {
      text: "you are\nbeautiful",
     textColor: "#fab",
     backgroundColor: "#024",
-    roughness: 0.1,
-    metalness: 0.0
+    material: { roughness: 0.1, metalness: 0.0 }
   },
   surface: {
-    color: "#3cb",
+    material: { color: "#3cb" },
     grid: { size: 10, color: "#fff", linewidth: 1.5 }
   },
   spotlight: {

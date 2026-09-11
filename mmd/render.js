@@ -103,7 +103,7 @@ const fill = new THREE.DirectionalLight(0xffffff, 0.25);
 fill.position.set(-2, -3, 4);
 scene.add(fill);
 
-// floor surface (color settable via config.surface.color)
+// floor surface (settable via config.surface.material)
 const floorGeo = new THREE.PlaneGeometry(60, 60);
 const floorMat = new THREE.MeshStandardMaterial({ color: '#1c1e24', roughness: 0.9, metalness: 0.05 });
 const floor = new THREE.Mesh(floorGeo, floorMat);
@@ -251,9 +251,7 @@ function makeKnob(k, depth){
   const knobGroup = new THREE.Group();
   const radius = num(k.radius, 0.16);
   const kHeight = num(k.height, 0.22);
-  const color = k.color || '#cfd3d8';
-  const roughness = Math.max(0, Math.min(1, num(k.roughness, 0.4)));
-  const metalness = Math.max(0, Math.min(1, num(k.metalness, 0.25)));
+  const { color, roughness, metalness } = matProps(k, { color: '#cfd3d8', roughness: 0.4, metalness: 0.25 });
   const value = Math.max(0, Math.min(1, num(k.value, 0.5))); // knob setting, 0–1
   const segments = Math.max(3, Math.min(64, num(k.segments, 32)));
   const topRounding = Math.max(0, Math.min(1, num(k.topRounding, 0)));
@@ -412,11 +410,11 @@ function makeLCD(lcd, depth){
   const bez = num(lcd.bezel, 0.1*w);
   const bg = lcd.backgroundColor || '#08130b';
   const fg = lcd.textColor || '#7CFC98';
-  const roughness = Math.max(0, Math.min(1, num(lcd.roughness, 0.6)));
-  const metalness = Math.max(0, Math.min(1, num(lcd.metalness, 0.1)));
+  const lm = matProps(lcd, { color: '#0d0d10', roughness: 0.6, metalness: 0.1 });
+  const bezelColor = lm.color, roughness = lm.roughness, metalness = lm.metalness;
 
   const bezelGeo = new THREE.PlaneGeometry(w, h);
-  const bezelMat = new THREE.MeshStandardMaterial({ color: '#0d0d10', roughness, metalness });
+  const bezelMat = new THREE.MeshStandardMaterial({ color: bezelColor, roughness, metalness });
   const bezel = new THREE.Mesh(bezelGeo, bezelMat);
   bezel.position.z = depth/2 + 0.003;
   bezel.castShadow = true;
@@ -445,9 +443,7 @@ function makeButton(btn, depth){
   const pressed = !!btn.pressed;
   const btnHeight = Math.max(0.01, num(btn.height, travel));
   const actualHeight = pressed ? Math.max(0.01, btnHeight * 0.35) : btnHeight;
-  const color = btn.color || '#3a3d44';
-  const roughness = Math.max(0, Math.min(1, num(btn.roughness, 0.4)));
-  const metalness = Math.max(0, Math.min(1, num(btn.metalness, 0.25)));
+  const { color, roughness, metalness } = matProps(btn, { color: '#3a3d44', roughness: 0.4, metalness: 0.25 });
   const roundedness = Math.max(0, Math.min(1, num(btn.roundedness, 0.4)));
 
   // recessed bezel (the "hole" the cap sits in) — rounded to match the cap
@@ -587,10 +583,8 @@ function makeSlider(s, depth){
   const trackLen = Math.max(0.15, num(s.length, 0.75));
   const orientationDeg = num(s.orientation, 0);
   const value = Math.max(0, Math.min(1, num(s.value, 0.5)));
-  const capColor = s.color || '#202228';
+  const { color: capColor, roughness, metalness } = matProps(s, { color: '#202228', roughness: 0.4, metalness: 0.2 });
   const indicatorColor = s.indicatorColor || '#ffffff';
-  const roughness = Math.max(0, Math.min(1, num(s.roughness, 0.4)));
-  const metalness = Math.max(0, Math.min(1, num(s.metalness, 0.2)));
 
   const capWidth = Math.max(0.05, num(s.capWidth, 0.16));
   const capLength = Math.max(0.05, num(s.capLength, 0.22));
@@ -689,9 +683,7 @@ function makeLabel(lbl, depth){
   // Extract font, fontsize, fontweight, color, material properties
   const fontFam = lbl.font || 'ui-monospace, monospace';
   const fontWeight = lbl.fontweight ?? lbl.fontWeight ?? '600';
-  const color = lbl.color || lbl.textColor || '#ffffff';
-  const roughness = Math.max(0, Math.min(1, num(lbl.roughness, 0.4)));
-  const metalness = Math.max(0, Math.min(1, num(lbl.metalness, 0.25)));
+  const { color, roughness, metalness } = matProps(lbl, { color: lbl.textColor || '#ffffff', roughness: 0.4, metalness: 0.25 });
 
   const rawSize = lbl.fontsize ?? lbl.fontSize ?? 28;
   let numFontSize = 28;
@@ -846,6 +838,20 @@ function num(v, fallback){
 }
 
 /**
+ * Reads color/roughness/metalness from an object's `material` sub-dictionary.
+ * Flat `color`/`roughness`/`metalness` fields still work as a legacy fallback.
+ */
+function matProps(obj, defaults){
+  obj = obj || {};
+  const m = (typeof obj.material === 'object' && obj.material !== null) ? obj.material : {};
+  return {
+    color: m.color ?? obj.color ?? defaults.color,
+    roughness: Math.max(0, Math.min(1, num(m.roughness ?? obj.roughness, defaults.roughness))),
+    metalness: Math.max(0, Math.min(1, num(m.metalness ?? obj.metalness, defaults.metalness))),
+  };
+}
+
+/**
  * Resolves a sparse array of panel elements (knobs, buttons, ...):
  * - The first entry should define every field it needs; anything it omits
  *   stays undefined (caller functions apply their own final fallbacks).
@@ -876,6 +882,11 @@ function resolveArray(raw, extrapolateKeys = ['x', 'y']){
         resolved[key] = prev[key];
       }
     });
+    // Deep-merge the material sub-dictionary so partial overrides inherit
+    // the previous entry's color/roughness/metalness instead of replacing them.
+    const pm = prev && typeof prev.material === 'object' && prev.material !== null && prev.material;
+    const im = typeof item.material === 'object' && item.material !== null && item.material;
+    if (pm || im) resolved.material = { ...(pm || {}), ...(im || {}) };
     out.push(resolved);
   });
   return out;
@@ -968,9 +979,7 @@ function build(config){
   const segments = num(b.segments ?? b.roundingSegments ?? b.bevelSegments, 16);
   const bevelSegments = b.bevelSegments !== undefined ? num(b.bevelSegments, segments) : undefined;
   const curveSegments = b.curveSegments !== undefined ? num(b.curveSegments, segments * 2) : undefined;
-  const color = b.color || '#2a2c31';
-  const bodyRoughness = Math.max(0, Math.min(1, num(b.roughness, 0.55)));
-  const bodyMetalness = Math.max(0, Math.min(1, num(b.metalness, 0.18)));
+  const { color, roughness: bodyRoughness, metalness: bodyMetalness } = matProps(b, { color: '#2a2c31', roughness: 0.55, metalness: 0.18 });
 
   const bodyMesh = makeBody(width, height, depth, roundedness, color, bodyRoughness, bodyMetalness, segments, bevelSegments, curveSegments);
   rig.add(bodyMesh);
@@ -1010,8 +1019,10 @@ function build(config){
   });
 
   const surface = config.surface || {};
-  const surfaceColor = surface.color || '#1c1e24';
+  const { color: surfaceColor, roughness: surfaceRoughness, metalness: surfaceMetalness } = matProps(surface, { color: '#1c1e24', roughness: 0.9, metalness: 0.05 });
   floorMat.color.set(surfaceColor);
+  floorMat.roughness = surfaceRoughness;
+  floorMat.metalness = surfaceMetalness;
   floor.receiveShadow = shadowsEnabled;
   floor.position.y = -depth / 2 - 0.02;
 

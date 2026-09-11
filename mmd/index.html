@@ -238,14 +238,14 @@
           <span class="chevron">&#9654;</span>
         </summary>
         <div class="schema-content">
-          <b>body</b>: width, height, depth, roundedness (0–0.5), segments (rounding fidelity, default 8), color, roughness (0–1), metalness (0–1)<br/>
-           <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, color, roughness, metalness, value (0–1), topRounding (0–1), segments, skirtFactor (0–1), skirtRounding (0–1), markColor, markLength (∝ radius), markWidth (∝ radius)<br/>
-           <b>buttons[]</b>: label, labelColor, labelSize, labelPosition ("on"/"above"/"below"), x, y, width, length, height, travel, color, roughness, metalness, roundedness (0–1), pressed<br/>
+          <b>body</b>: width, height, depth, roundedness (0–0.5), segments (rounding fidelity, default 8), material: { color, roughness (0–1), metalness (0–1) }<br/>
+           <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, value (0–1), topRounding (0–1), segments, skirtFactor (0–1), skirtRounding (0–1), markColor, markLength (∝ radius), markWidth (∝ radius), material: { color, roughness, metalness }<br/>
+           <b>buttons[]</b>: label, labelColor, labelSize, labelPosition ("on"/"above"/"below"), x, y, width, length, height, travel, roundedness (0–1), pressed, material: { color, roughness, metalness }<br/>
           &nbsp;&nbsp;labelPosition "on" (default) shows a flat icon on the cap — play/stop/rec/etc. auto-map to monochrome symbols<br/>
-           <b>sliders[]</b>: label, labelColor, labelSize, x, y, length, orientation (deg), value (0–1), color, roughness, metalness, capWidth, capLength, capHeight, capRoundedness (0–1)<br/>
-          <b>labels[]</b>: text, x, y, fontsize, font, fontweight, color, roughness, metalness, align ("left"/"center"/"right")<br/>
-           <b>lcd</b>: width, height, x, y, text, textColor, backgroundColor, roughness (0–1), metalness (0–1)<br/>
-          <b>surface</b>: color, grid: { size, color, linewidth }<br/>
+           <b>sliders[]</b>: label, labelColor, labelSize, x, y, length, orientation (deg), value (0–1), capWidth, capLength, capHeight, capRoundedness (0–1), material: { color, roughness, metalness }<br/>
+          <b>labels[]</b>: text, x, y, fontsize, font, fontweight, align ("left"/"center"/"right"), material: { color, roughness, metalness }<br/>
+           <b>lcd</b>: width, height, x, y, text, textColor, backgroundColor, material: { color (bezel), roughness (0–1), metalness (0–1) }<br/>
+          <b>surface</b>: material: { color, roughness, metalness }, grid: { size, color, linewidth }<br/>
            <b>spotlight</b>: x, y, z, color, intensity, shadowRadius (blur/softness, default 8), shadowBias, shadowNormalBias, shadowMapSize<br/>
            <b>fillLight</b>: color, intensity (fixed-position secondary light)<br/>
            <b>fillLight2</b>: color, intensity (second fixed-position fill light)<br/>
@@ -253,7 +253,7 @@
            <b>render</b>: pixelRatio (0.5–2), shadows, shadowMapSize, softboxShadowCount, detailShadows, continuous, showFps, wireframe<br/>
            <b>physics</b>: enabled, dropHeight, tilt {x,y,z} (drop tilt in radians), restitution (bounciness 0–1), friction<br/><br/>
           In knobs[]/buttons[]/sliders[]/labels[]: entry 0 should set every field it needs.
-          Later entries inherit any omitted field from the entry before them.
+          Later entries inherit any omitted field from the entry before them (material sub-fields merge independently).
           Omitted x/y continue the sequence: x[n] = 2·x[n-1] − x[n-2].
         </div>
       </details>
