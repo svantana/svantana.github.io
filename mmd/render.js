@@ -666,7 +666,6 @@ function makeSlider(s, depth){
 }
 
 function makeLabel(lbl, depth){
-  const g = new THREE.Group();
   if (!lbl || lbl.text === undefined || lbl.text === null) return g;
 
   const textStr = String(lbl.text);
@@ -767,6 +766,7 @@ function makeLabel(lbl, depth){
   const labelMat = makeMaterial({ roughness, metalness, opacity }, {
     map: tex,
     transparent: true,
+    depthWrite: false,
     polygonOffset: true,
     polygonOffsetFactor: -4,
     polygonOffsetUnits: -4
@@ -774,10 +774,11 @@ function makeLabel(lbl, depth){
   const labelMesh = new THREE.Mesh(labelGeo, labelMat);
   labelMesh.castShadow = false;
   labelMesh.position.set(alignX, 0, depth / 2 + 0.008 + posZ);
-  g.add(labelMesh);
 
-  g.position.set(posX, posY, 0);
-  return g;
+  const labelGroup = new THREE.Group();
+  labelGroup.add(labelMesh);
+  labelGroup.position.set(posX, posY, 0.0);
+  return labelGroup;
 }
 
 function makeGridPlane(size, color, lineWidth, baseColor){
