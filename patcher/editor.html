@@ -25,6 +25,19 @@
     margin: 0; padding: 14px 14px 10px 14px;
     border-bottom: 1px solid #ccc;
   }
+  #moduleSearchWrap {
+    padding: 10px 10px 0 10px;
+  }
+  #moduleSearch {
+    width: 100%;
+    border: 1px solid #111;
+    background: #fff; color: #111;
+    padding: 6px 8px;
+    font-size: 12px; font-family: inherit;
+    outline: none;
+  }
+  #moduleSearch:focus { box-shadow: 2px 2px 0 rgba(0,0,0,0.2); }
+  #moduleSearch::placeholder { color: #999; }
   #moduleList {
     flex: 1; overflow-y: auto; padding: 10px;
   }
@@ -99,6 +112,9 @@
 <div id="app">
   <div id="sidebar">
     <h1>Modules</h1>
+    <div id="moduleSearchWrap">
+      <input id="moduleSearch" type="text" placeholder="Search modules…" autocomplete="off" spellcheck="false">
+    </div>
     <div id="moduleList"></div>
     <div id="graphActions">
       <button id="saveBtn" class="action-btn">Save graph</button>
@@ -208,6 +224,24 @@ function buildSidebar() {
   });
 }
 buildSidebar();
+
+// Filters the sidebar module list on each keystroke (case-insensitive).
+const moduleSearchEl = document.getElementById('moduleSearch');
+moduleSearchEl.addEventListener('input', () => {
+  const q = moduleSearchEl.value.trim().toLowerCase();
+  Array.from(moduleListEl.children).forEach(item => {
+    const nameEl = item.querySelector('.m-name');
+    const name = nameEl ? nameEl.textContent.toLowerCase() : '';
+    item.style.display = (!q || name.includes(q)) ? '' : 'none';
+  });
+});
+moduleSearchEl.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    moduleSearchEl.value = '';
+    moduleSearchEl.dispatchEvent(new Event('input'));
+  }
+  e.stopPropagation();
+});
 
 function clampModulePosition(gx, gy, w, h) {
   const cellsW = w / GRID;
