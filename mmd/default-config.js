@@ -2,7 +2,7 @@ export const DEFAULT_CONFIG = {
   constants: { "bodyColor": "#b6a" },
   body: { 
     width: 4.2, height: 3, depth: 0.5,
-    roundedness: 0.2, segments: 20,
+    corner: 0.2, bevel: 0.2, cornerSegments: 20, bevelSegments: 20,
     material: { color: "bodyColor", roughness: 0.5, metalness: 0.3, opacity:1.0 }
   },
   knobs: [

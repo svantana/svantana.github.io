@@ -166,9 +166,17 @@ dom.addEventListener('touchend', () => { touchLast = null; });
 
 /* ---------- geometry helpers ---------- */
 function roundedRectShape(w, h, r){
-  r = Math.min(r, w/2, h/2);
+  r = Math.max(0, Math.min(r, w/2, h/2));
   const shape = new THREE.Shape();
   const x = -w/2, y = -h/2;
+  if (r <= 1e-5){
+    shape.moveTo(x, y);
+    shape.lineTo(x, y + h);
+    shape.lineTo(x + w, y + h);
+    shape.lineTo(x + w, y);
+    shape.closePath();
+    return shape;
+  }
   shape.moveTo(x, y + r);
   shape.lineTo(x, y + h - r);
   shape.quadraticCurveTo(x, y + h, x + r, y + h);
@@ -181,20 +189,28 @@ function roundedRectShape(w, h, r){
   return shape;
 }
 
-function makeBody(width, height, depth, roundedness, material, segments, bevelSegments, curveSegments){
-  const bevel = Math.max(0.001, Math.min(roundedness, Math.min(width, height) * 0.45, depth * 0.45));
-  const cornerR = Math.max(0.001, Math.min(bevel, Math.min(width, height) * 0.4));
-  const shape2 = roundedRectShape(width, height, cornerR);
-  const baseSegs = num(segments, 8);
-  const bSegs = Math.max(1, Math.min(64, num(bevelSegments, baseSegs)));
-  const cSegs = Math.max(1, Math.min(64, num(curveSegments, Math.max(bSegs * 2, 8))));
+function makeBody(width, height, depth, corner, bevel, material, cornerSegments, bevelSegments){
+  const cornerFactor = Math.max(0, Math.min(1, num(corner, 0.15)));
+  const bevelFactor = Math.max(0, Math.min(1, num(bevel, 0.15)));
 
+  const maxCorner = Math.min(width, height) * 0.5;
+  const cornerR = cornerFactor * maxCorner;
+
+  const maxBevel = Math.min(depth, width, height) * 0.5;
+  const bevelVal = bevelFactor * maxBevel;
+
+  const shape2 = roundedRectShape(width, height, cornerR);
+  const cSegs = Math.max(1, Math.min(64, num(cornerSegments, 16)));
+  const bSegs = Math.max(1, Math.min(64, num(bevelSegments, 16)));
+
+  const hasBevel = bevelVal > 1e-5;
+  const extrudeDepth = hasBevel ? Math.max(0.001, depth - bevelVal * 2) : depth;
   const extrudeSettings = {
     steps: 1,
-    depth: Math.max(0.02, depth - bevel * 2),
-    bevelEnabled: true,
-    bevelThickness: bevel,
-    bevelSize: bevel * 0.85,
+    depth: extrudeDepth,
+    bevelEnabled: hasBevel,
+    bevelThickness: bevelVal,
+    bevelSize: bevelVal * 0.85,
     bevelSegments: bSegs,
     curveSegments: cSegs
   };
@@ -1022,13 +1038,13 @@ function build(config){
   const width = Math.max(0.3, num(b.width, 6));
   const height = Math.max(0.3, num(b.height, 2));
   const depth = Math.max(0.1, num(b.depth, 1.2));
-  const roundedness = Math.max(0, Math.min(0.5, num(b.roundedness, 0.15)));
-  const segments = num(b.segments ?? b.roundingSegments ?? b.bevelSegments, 16);
-  const bevelSegments = b.bevelSegments !== undefined ? num(b.bevelSegments, segments) : undefined;
-  const curveSegments = b.curveSegments !== undefined ? num(b.curveSegments, segments * 2) : undefined;
+  const corner = Math.max(0, Math.min(1, num(b.corner ?? b.roundedness, 0.15)));
+  const bevel = Math.max(0, Math.min(1, num(b.bevel ?? b.roundedness, 0.15)));
+  const cornerSegments = num(b.cornerSegments ?? b.curveSegments ?? b.segments, 16);
+  const bevelSegments = num(b.bevelSegments ?? b.roundingSegments ?? b.segments, 16);
   const bodyMatProps = matProps(b, { color: '#2a2c31', roughness: 0.55, metalness: 0.18 });
 
-  const bodyMesh = makeBody(width, height, depth, roundedness, bodyMatProps, segments, bevelSegments, curveSegments);
+  const bodyMesh = makeBody(width, height, depth, corner, bevel, bodyMatProps, cornerSegments, bevelSegments);
   rig.add(bodyMesh);
 
   const knobs = resolveArray(config.knobs);
