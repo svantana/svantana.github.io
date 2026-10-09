@@ -179,13 +179,17 @@ function roundedRectShape(w, h, r){
   }
   shape.moveTo(x, y + r);
   shape.lineTo(x, y + h - r);
-  shape.quadraticCurveTo(x, y + h, x + r, y + h);
+  // True quarter-circle corners (absarc) instead of quadratic Bezier curves,
+  // so the outline stays exactly circular at any segment count. Each arc runs
+  // 90° clockwise between its two edges' tangent points; three's EllipseCurve
+  // takes decreasing start/end angles for a clockwise sweep.
+  shape.absarc(x + r, y + h - r, r, Math.PI, Math.PI / 2, true);        // top-left
   shape.lineTo(x + w - r, y + h);
-  shape.quadraticCurveTo(x + w, y + h, x + w, y + h - r);
+  shape.absarc(x + w - r, y + h - r, r, Math.PI / 2, 0, true);          // top-right
   shape.lineTo(x + w, y + r);
-  shape.quadraticCurveTo(x + w, y, x + w - r, y);
+  shape.absarc(x + w - r, y + r, r, 0, -Math.PI / 2, true);             // bottom-right
   shape.lineTo(x + r, y);
-  shape.quadraticCurveTo(x, y, x, y + r);
+  shape.absarc(x + r, y + r, r, -Math.PI / 2, -Math.PI, true);          // bottom-left
   return shape;
 }
 
@@ -193,10 +197,13 @@ function makeBody(width, height, depth, corner, bevel, material, cornerSegments,
   const cornerFactor = Math.max(0, Math.min(1, num(corner, 0.15)));
   const bevelFactor = Math.max(0, Math.min(1, num(bevel, 0.15)));
 
+  // Unit factors: 1 = the largest rounding the current dimensions allow.
+  // Corner: up to half the shorter side (a fully pill-shaped outline).
+  // Bevel:  up to half the depth (the whole cross-section rounded).
   const maxCorner = Math.min(width, height) * 0.5;
   const cornerR = cornerFactor * maxCorner;
 
-  const maxBevel = Math.min(depth, width, height) * 0.5;
+  const maxBevel = depth * 0.5;
   const bevelVal = bevelFactor * maxBevel;
 
   const shape2 = roundedRectShape(width, height, cornerR);
