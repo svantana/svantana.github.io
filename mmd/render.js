@@ -1107,6 +1107,15 @@ function build(config){
   physGround.position.set(0, floorY, 0);
   if (phys.friction !== undefined) physContactMat.friction = Math.max(0, num(phys.friction, 0.45));
   if (phys.restitution !== undefined) physContactMat.restitution = Math.max(0, Math.min(1, num(phys.restitution, 0.28)));
+  // gravity: { x, y, z } vector, or a scalar to scale the y component
+  const grav = phys.gravity;
+  if (grav !== undefined){
+    if (typeof grav === 'object' && grav !== null){
+      physWorld.gravity.set(num(grav.x, 0), num(grav.y, -9.82), num(grav.z, 0));
+    } else {
+      physWorld.gravity.set(0, num(grav, -9.82), 0);
+    }
+  }
   if (physEnabled){
     const half = new CANNON.Vec3(width / 2, height / 2, depth / 2);
     if (!physBox){

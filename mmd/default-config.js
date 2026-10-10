@@ -91,6 +91,7 @@ export const DEFAULT_CONFIG = {
     dropHeight: 5.0,
     tilt: { x: 0.3, y: 0.25, z: 0.02 },
     restitution: 0.28,
-    friction: 0.15
+    friction: 0.15,
+    gravity: { x: 0, y: -9.82, z: 0 }
   }
 };
