@@ -19,6 +19,7 @@ physGround.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
 physWorld.addBody(physGround);
 
 let physBox = null;
+let physHalf = null; // collision half-extents currently on physBox
 let physSettled = true; // true when body is sleeping / at rest
 let physHasDropped = false; // only auto-drop from height on first (page-load) build
 let physLastTime = 0;
@@ -123,6 +124,142 @@ let azimuth = 0, elevation = 1.0 / 3, radius = 8; // straight front, 60° elevat
 let cameraInitialized = false;
 let dragging = false, lastX = 0, lastY = 0;
 
+/* ---------- direct manipulation of panel controls (raycast picking) ---------- */
+const KNOB_SWEEP_DEG = 270; // full-sweep pot travel, value 0 = full ccw, 1 = full cw
+// Vertical pointer travel, in canvas pixels, that sweeps a knob's whole range.
+const KNOB_DRAG_PIXELS = 200;
+// A track seen shorter than this on screen points (nearly) at the camera, so
+// dragging along it can't be resolved reliably.
+const SLIDER_MIN_PIXEL_LENGTH = 6;
+
+let activeConfig = null;
+let activeControl = null; // control currently being dragged or held
+let hoveredControl = null;
+const controlPress = { startX: 0, startY: 0, startValue: 0 };
+
+function clamp01(v){ return v < 0 ? 0 : v > 1 ? 1 : v; }
+
+// control.kind is 'knob' | 'slider' | 'button', so the config list is the plural form.
+function storeControlValue(control, key, value){
+  const list = activeConfig && activeConfig[control.kind + 's'];
+  const index = control.configIndex;
+  if (!list || !list[index]) return;
+  const before = resolveArray(list).map(e => e[key]);
+  list[index][key] = value;
+  const after = resolveArray(list).map(e => e[key]);
+  // The sparse array resolves by inheritance, so an entry that omits this key
+  // inherits it from the entry before. Pin any later entry whose value only
+  // changed as a side effect, so editing one control can't change its siblings.
+  for (let j = 0; j < after.length; j++){
+    if (j === index || !list[j]) continue;
+    if (after[j] !== before[j] && list[j][key] === undefined){
+      list[j][key] = before[j];
+    }
+  }
+}
+
+function applyKnobValue(control, value){
+  const v = clamp01(value);
+  control.value = v;
+  control.capGroup.rotation.z = -THREE.MathUtils.degToRad((v - 0.5) * KNOB_SWEEP_DEG);
+  storeControlValue(control, 'value', v);
+}
+
+function applySliderValue(control, value){
+  const v = clamp01(value);
+  control.value = v;
+  control.capGroup.position.y = (v - 0.5) * control.travel;
+  storeControlValue(control, 'value', v);
+}
+
+// Pressing a button changes the cap's height, which is baked into its geometry,
+// so the panel is rebuilt with the new state.
+function toggleButton(control){
+  control.pressed = !control.pressed;
+  storeControlValue(control, 'pressed', control.pressed);
+  build(activeConfig);
+}
+
+// Walks the scene live rather than caching, so picking stays correct if
+// geometry is added or moved after build(). The graph is small (tens of
+// nodes), so this is far cheaper than the intersection test itself.
+function collectPickableMeshes(){
+  const out = [];
+  scene.traverse(o => {
+    if (o.isMesh && o.visible !== false) out.push(o);
+  });
+  return out;
+}
+
+const controlRaycaster = new THREE.Raycaster();
+const controlNdc = new THREE.Vector2();
+
+// Raycasts the scene at a client point and returns the frontmost hit's control,
+// but only when a control surface is the nearest mesh — anything closer (body,
+// floor, another part sitting in front) blocks the pick and falls through to orbit.
+function findControlAt(clientX, clientY){
+  const rect = dom.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  controlNdc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  controlNdc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+  controlRaycaster.setFromCamera(controlNdc, camera);
+  const hits = controlRaycaster.intersectObjects(collectPickableMeshes(), false);
+  if (!hits.length) return null;
+  const mesh = hits[0].object;
+  if (!mesh.userData.control) return null; // obstructed
+  return { mesh, control: mesh.userData.control };
+}
+
+const _trkA = new THREE.Vector3();
+const _trkB = new THREE.Vector3();
+const _trkQ = new THREE.Quaternion();
+
+// Projects a slider's full travel into CSS pixels: p0 is the track centre and
+// (dx,dy) is the on-screen vector the cap sweeps across its 0..1 range.
+function sliderTrackScreen(control){
+  const rect = dom.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  const g = control.group;
+  g.updateWorldMatrix(true, false);
+  _trkA.setFromMatrixPosition(g.matrixWorld);
+  _trkB.set(0, 1, 0).applyQuaternion(g.getWorldQuaternion(_trkQ));
+  _trkB.multiplyScalar(control.travel).add(_trkA);
+  _trkA.project(camera);
+  _trkB.project(camera);
+  return {
+    p0x: (_trkA.x * 0.5 + 0.5) * rect.width,
+    p0y: (-_trkA.y * 0.5 + 0.5) * rect.height,
+    dx: (_trkB.x - _trkA.x) * 0.5 * rect.width,
+    dy: (-_trkB.y + _trkA.y) * 0.5 * rect.height
+  };
+}
+
+// Relative mapping: the pointer's travel, measured along the track's projected
+// axis and scaled by that axis' on-screen length, offsets the value captured at
+// mousedown. Dragging across the whole visible travel sweeps the full range, so
+// pressing a slider without moving it leaves its value untouched.
+function sliderValueFromDrag(control, clientX, clientY){
+  const t = sliderTrackScreen(control);
+  if (!t) return control.value;
+  const len2 = t.dx * t.dx + t.dy * t.dy;
+  if (len2 < SLIDER_MIN_PIXEL_LENGTH * SLIDER_MIN_PIXEL_LENGTH) return control.value;
+  const rect = dom.getBoundingClientRect();
+  const sx = controlPress.startX - rect.left, sy = controlPress.startY - rect.top;
+  const px = clientX - rect.left, py = clientY - rect.top;
+  const along = ((px - sx) * t.dx + (py - sy) * t.dy) / len2;
+  return controlPress.startValue + along;
+}
+
+function controlCursor(control){
+  if (!control) return dragging ? 'grabbing' : 'grab';
+  if (control.kind === 'button') return 'pointer';
+  if (control.kind === 'knob') return 'ns-resize';
+  const t = sliderTrackScreen(control);
+  if (!t) return 'move';
+  if (Math.hypot(t.dx, t.dy) < SLIDER_MIN_PIXEL_LENGTH) return 'move';
+  return Math.abs(t.dx) > Math.abs(t.dy) ? 'ew-resize' : 'ns-resize';
+}
+
 function updateCamera(){
   const x = radius * Math.cos(Math.PI * elevation) * Math.sin(Math.PI * azimuth);
   const y = radius * Math.sin(Math.PI * elevation);
@@ -134,15 +271,63 @@ function updateCamera(){
 
 const dom = renderer.domElement;
 dom.style.cursor = 'grab';
-dom.addEventListener('mousedown', e => { dragging = true; lastX = e.clientX; lastY = e.clientY; dom.style.cursor = 'grabbing'; });
-window.addEventListener('mouseup', () => { dragging = false; dom.style.cursor = 'grab'; });
-window.addEventListener('mousemove', e => {
-  if (!dragging) return;
-  const dx = e.clientX - lastX, dy = e.clientY - lastY;
-  lastX = e.clientX; lastY = e.clientY;
-  azimuth -= dx * 0.002;
-  elevation = Math.max(-0.4999, Math.min(0.4999, elevation + dy * 0.002));
-  updateCamera();
+
+function refreshCursor(){
+  dom.style.cursor = controlCursor(activeControl || hoveredControl);
+}
+
+dom.addEventListener('mousedown', e => {
+  const hit = findControlAt(e.clientX, e.clientY);
+  if (hit){
+    // Take over the gesture so it adjusts the control instead of orbiting.
+    activeControl = hit.control;
+    controlPress.startX = e.clientX;
+    controlPress.startY = e.clientY;
+    controlPress.startValue = activeControl.value;
+    if (activeControl.kind === 'button'){
+      toggleButton(activeControl); // latch on press, like hardware
+    }
+    // Sliders hold their value until the pointer actually moves.
+    refreshCursor();
+    return;
+  }
+  dragging = true; lastX = e.clientX; lastY = e.clientY; dom.style.cursor = 'grabbing';
+});
+
+window.addEventListener('mouseup', () => {
+  activeControl = null;
+  dragging = false;
+  refreshCursor();
+});
+
+dom.addEventListener('mousemove', e => {
+  if (activeControl){
+    const c = activeControl;
+    if (c.kind === 'knob'){
+      // Drag up increases the value (screen Y grows downward).
+      const delta = (controlPress.startY - e.clientY) / KNOB_DRAG_PIXELS;
+      applyKnobValue(c, controlPress.startValue + delta);
+      scheduleRender();
+    } else if (c.kind === 'slider'){
+      applySliderValue(c, sliderValueFromDrag(c, e.clientX, e.clientY));
+      scheduleRender();
+    }
+    // A button has already latched, so dragging on does nothing further.
+    refreshCursor();
+    return;
+  }
+  if (dragging){
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    azimuth -= dx * 0.002;
+    elevation = Math.max(-0.4999, Math.min(0.4999, elevation + dy * 0.002));
+    updateCamera();
+    return;
+  }
+  // Not dragging: reflect what is under the cursor in the pointer style.
+  const hit = findControlAt(e.clientX, e.clientY);
+  hoveredControl = hit ? hit.control : null;
+  refreshCursor();
 });
 dom.addEventListener('wheel', e => {
   e.preventDefault();
@@ -283,6 +468,7 @@ function makeKnob(k, depth){
 
   // cap + indicator turn together to reflect the knob's value
   const capGroup = new THREE.Group();
+  const knobInfo = { kind: 'knob', group: knobGroup, capGroup, value, configIndex: k.knobIndex };
 
   const bodyMat = makeMaterial(km);
 
@@ -384,6 +570,7 @@ function makeKnob(k, depth){
   knobMesh.position.z = depth/2 + halfHeight;
   knobMesh.castShadow = true;
   knobMesh.receiveShadow = true;
+  knobMesh.userData.control = knobInfo;
   capGroup.add(knobMesh);
 
   // indicator ridge — markLength/markWidth are proportional to the knob radius
@@ -397,9 +584,10 @@ function makeKnob(k, depth){
   ridge.position.set(0, radius * markLength, depth/2 + kHeight * 0.02 + markDepth * 0.5);
   ridge.castShadow = true;
   ridge.receiveShadow = true;
+  ridge.userData.control = knobInfo;
   capGroup.add(ridge);
 
-  const sweepDeg = 270; // full-sweep pot travel, value 0 = full ccw, 1 = full cw
+  const sweepDeg = KNOB_SWEEP_DEG; // full-sweep pot travel, value 0 = full ccw, 1 = full cw
   capGroup.rotation.z = -THREE.MathUtils.degToRad((value - 0.5) * sweepDeg);
   knobGroup.add(capGroup);
 
@@ -495,6 +683,7 @@ function makeButton(btn, depth){
   capMesh.position.z = depth/2 + actualHeight/2 + 0.008;
   capMesh.castShadow = true;
   capMesh.receiveShadow = true;
+  capMesh.userData.control = { kind: 'button', pressed, configIndex: btn.buttonIndex };
   g.add(capMesh);
 
   // label
@@ -525,6 +714,7 @@ function makeButton(btn, depth){
       const plate = new THREE.Mesh(plateGeo, plateMat);
       const topZ = depth/2 + actualHeight + 0.008 + capRadius * 0.35;
       plate.position.set(0, 0, topZ + 0.015);
+      plate.userData.control = capMesh.userData.control;
       g.add(plate);
     } else {
       // printed name plate above or below the button
@@ -654,6 +844,11 @@ function makeSlider(s, depth){
   const capY = (value - 0.5) * capTravel;
   capGroup.position.set(0, capY, depth / 2 + capHeight / 2 - 0.01);
   g.add(capGroup);
+
+  // Both the cap and the track plate set the value, mapped onto the track axis.
+  const sliderInfo = { kind: 'slider', group: g, capGroup, value, travel: capTravel, configIndex: s.sliderIndex };
+  capMesh.userData.control = sliderInfo;
+  trackMesh.userData.control = sliderInfo;
 
   // Label plate (optional)
   if (s.label){
@@ -1054,14 +1249,20 @@ function build(config){
   const bodyMesh = makeBody(width, height, depth, corner, bevel, bodyMatProps, cornerSegments, bevelSegments);
   rig.add(bodyMesh);
 
+  activeConfig = config;
+  // Any in-flight gesture referenced meshes that are about to be destroyed.
+  activeControl = null;
+  dragging = false;
+  hoveredControl = null;
+  refreshCursor();
   const knobs = resolveArray(config.knobs);
-  knobs.forEach(k => rig.add(makeKnob(k, depth)));
+  knobs.forEach((k, i) => { k.knobIndex = i; rig.add(makeKnob(k, depth)); });
 
   const buttons = resolveArray(config.buttons);
-  buttons.forEach(btn => rig.add(makeButton(btn, depth)));
+  buttons.forEach((btn, i) => { btn.buttonIndex = i; rig.add(makeButton(btn, depth)); });
 
   const sliders = resolveArray(config.sliders);
-  sliders.forEach(s => rig.add(makeSlider(s, depth)));
+  sliders.forEach((s, i) => { s.sliderIndex = i; rig.add(makeSlider(s, depth)); });
 
   const labels = resolveArray(config.labels);
   labels.forEach(lbl => rig.add(makeLabel(lbl, depth)));
@@ -1134,17 +1335,26 @@ function build(config){
       physBox.sleepSpeedLimit = 0.2;
       physBox.sleepTimeLimit = 0.5;
       physWorld.addBody(physBox);
+      physHalf = { x: half.x, y: half.y, z: half.z };
       syncRigFromBody();
       physHasDropped = true;
       physSettled = false;
       physLastTime = performance.now();
       ensurePhysLoop();
+    } else if (physHalf && physHalf.x === half.x && physHalf.y === half.y && physHalf.z === half.z){
+      // Unchanged collision footprint: leave the body exactly as it is, pose,
+      // velocity and sleep state included. Edits that don't resize the chassis
+      // — pressing a button, recolouring a knob — must not disturb it.
+      syncRigFromBody();
+      scheduleRender();
     } else {
-      // Later edits: keep the current pose, just resize the collision box.
+      // The chassis was actually resized, so reshape the collision box and
+      // re-check the resting pose.
       while (physBox.shapes.length) physBox.removeShape(physBox.shapes[0]);
       physBox.addShape(new CANNON.Box(half));
       physBox.updateBoundingRadius();
       physBox.aabbNeedsUpdate = true;
+      physHalf = { x: half.x, y: half.y, z: half.z };
       // World-space half-height of the (possibly tilted) box.
       const q = physBox.quaternion;
       const tq = new THREE.Quaternion(q.x, q.y, q.z, q.w);
@@ -1170,6 +1380,7 @@ function build(config){
     if (physBox){
       physWorld.removeBody(physBox);
       physBox = null;
+      physHalf = null;
     }
     physSettled = true;
     rig.position.set(0, -0.02, 0);
