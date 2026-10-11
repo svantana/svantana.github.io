@@ -54,6 +54,7 @@ export const DEFAULT_CONFIG = {
     material: { roughness: 0.1, metalness: 0.0 }
   },
   surface: {
+    z: 0,
     material: { color: "#3cb" },
     grid: { size: 10, color: "#fff", linewidth: 1.5 }
   },
@@ -88,8 +89,8 @@ export const DEFAULT_CONFIG = {
     wireframe: false
   },
   physics: {
-    dropHeight: 5.0,
-    tilt: { x: 0.3, y: 0.25, z: 0.02 },
+    dropHeight: 0.0,
+    tilt: { x: 0.0, y: 0.0, z: 0.0 },
     restitution: 0.28,
     friction: 0.15,
     gravity: { x: 0, y: -9.82, z: 0 }

@@ -30,7 +30,7 @@ function physDropPose(depth, phys){
   const tx = num(tilt.x, 0.10);
   const ty = num(tilt.y, 0.06);
   const tz = num(tilt.z, 0.12);
-  const restY = 0.01; // floor sits at -depth/2 - 0.02, box half-thickness is depth/2
+  const restY = depth / 2 + 0.03; // boundary is the z=0 plane, box half-thickness is depth/2
   const q = new THREE.Quaternion().setFromEuler(
     new THREE.Euler(-Math.PI / 2 + tx, ty, tz)
   );
@@ -1290,6 +1290,10 @@ function build(config){
   });
 
   const surface = config.surface || {};
+  // Height (z) at which the surface plane and its grid are drawn. Defaults to
+  // z=0, the plane the panel rests on; raising/lowering it only moves the
+  // drawing, never the physics boundary.
+  const surfaceZ = num(surface.z, 0);
   const smat = matProps(surface, { color: '#1c1e24', roughness: 0.9, metalness: 0.05, opacity: 1.0 });
   floorMat.color.set(smat.color);
   floorMat.roughness = smat.roughness;
@@ -1299,12 +1303,14 @@ function build(config){
   if (floorMat.transparent !== floorTransparent) floorMat.needsUpdate = true;
   floorMat.transparent = floorTransparent;
   floor.receiveShadow = shadowsEnabled;
-  floor.position.y = -depth / 2 - 0.02;
+  floor.position.y = surfaceZ;
 
   /* ---------- physics: whole instrument is one rigid box ---------- */
   const phys = config.physics || {};
   const physEnabled = phys.enabled !== false;
-  const floorY = -depth / 2 - 0.02;
+  // The collision boundary is always the z=0 plane, regardless of where the
+  // surface and grid are drawn.
+  const floorY = 0;
   physGround.position.set(0, floorY, 0);
   if (phys.friction !== undefined) physContactMat.friction = Math.max(0, num(phys.friction, 0.45));
   if (phys.restitution !== undefined) physContactMat.restitution = Math.max(0, Math.min(1, num(phys.restitution, 0.28)));
@@ -1383,7 +1389,7 @@ function build(config){
       physHalf = null;
     }
     physSettled = true;
-    rig.position.set(0, -0.02, 0);
+    rig.position.set(0, depth / 2, 0); // back face rests on the z=0 boundary
     rig.quaternion.setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
   }
 
@@ -1397,7 +1403,7 @@ function build(config){
     const gColor = gridCfg.color || '#ffffff';
     const gLinewidth = Math.max(0.5, num(gridCfg.linewidth, 1.5));
     gridHelper = makeGridPlane(gSize, gColor, gLinewidth, smat.color);
-    gridHelper.position.set(0, -depth / 2 - 0.019, 0);
+    gridHelper.position.set(0, surfaceZ + 0.001, 0);
     scene.add(gridHelper);
   }
 
