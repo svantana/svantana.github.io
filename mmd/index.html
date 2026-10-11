@@ -108,6 +108,27 @@
   }
   .editor-toolbar .filename b{ color: var(--ink); font-weight:600; }
   .toolbar-btns{ display:flex; gap:6px; }
+  .config-picker{
+    display:flex; align-items:center; gap:10px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--hairline);
+    background: var(--panel-2);
+  }
+  .config-picker label{
+    font-family: var(--mono); font-size: 11px; color: var(--ink-dim);
+    letter-spacing: 0.08em; text-transform: uppercase; flex-shrink:0;
+  }
+  .config-picker select{
+    flex:1; min-width:0;
+    font-family: var(--sans); font-size: 12.5px;
+    color: var(--ink); background: var(--panel);
+    border: 1px solid var(--hairline); border-radius: 5px;
+    padding: 5px 8px; cursor: pointer;
+  }
+  .config-picker select:hover,
+  .config-picker select:focus{
+    color: var(--ink); border-color:#454852; outline: none;
+  }
   button.tool{
     font-family: var(--sans); font-size: 11.5px; font-weight:600;
     color: var(--ink-dim); background: transparent;
@@ -227,6 +248,10 @@
           <button class="tool" id="btnReset">Reset</button>
         </div>
       </div>
+      <div class="config-picker">
+        <label for="configSelect">preset</label>
+        <select id="configSelect"></select>
+      </div>
       <div class="editor-body">
         <div class="gutter" id="gutter"></div>
         <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
@@ -272,7 +297,7 @@
 
 <script type="module">
 import { build } from './render.js';
-import { DEFAULT_CONFIG } from './default-config.js';
+import { DEFAULT_CONFIGS } from './default-config.js';
 
 /* ============================= Editor wiring ============================= */
 const editor = document.getElementById('editor');
@@ -280,6 +305,26 @@ const gutter = document.getElementById('gutter');
 const footer = document.getElementById('footer');
 const statusEl = document.getElementById('status');
 const statusText = document.getElementById('statusText');
+const configSelect = document.getElementById('configSelect');
+
+DEFAULT_CONFIGS.forEach((entry, i) => {
+  const opt = document.createElement('option');
+  opt.value = String(i);
+  opt.textContent = entry.name;
+  configSelect.appendChild(opt);
+});
+
+function selectedConfig(){
+  const i = Number(configSelect.value);
+  const entry = DEFAULT_CONFIGS[i] || DEFAULT_CONFIGS[0];
+  return entry.config;
+}
+
+function loadSelectedConfig(){
+  editor.value = JSON.stringify(selectedConfig(), null, 2);
+  refreshGutter();
+  applyEditor();
+}
 
 function refreshGutter(){
   const lines = editor.value.split('\n').length;
@@ -347,11 +392,8 @@ document.getElementById('btnFormat').addEventListener('click', () => {
   }
 });
 
-document.getElementById('btnReset').addEventListener('click', () => {
-  editor.value = JSON.stringify(DEFAULT_CONFIG, null, 2);
-  refreshGutter();
-  applyEditor();
-});
+document.getElementById('btnReset').addEventListener('click', loadSelectedConfig);
+configSelect.addEventListener('change', loadSelectedConfig);
 
 /* ---------- Draggable splitter ---------- */
 const mainLayout = document.getElementById('mainLayout');
@@ -402,9 +444,7 @@ window.addEventListener('touchmove', handleResize, { passive: false });
 window.addEventListener('touchend', stopResize);
 
 /* ---------- init ---------- */
-editor.value = JSON.stringify(DEFAULT_CONFIG, null, 2);
-refreshGutter();
-build(DEFAULT_CONFIG);
+loadSelectedConfig();
 </script>
 </body>
 </html>
