@@ -465,12 +465,13 @@ function makeKnob(k, depth){
   const topRounding = Math.max(0, Math.min(1, num(k.topRounding, 0)));
   const skirtFactor = Math.max(0, Math.min(1, num(k.skirtFactor, 0)));
   const skirtRounding = Math.max(0, Math.min(1, num(k.skirtRounding, 0)));
+  const smoothShading = k.smoothShading !== false;
 
   // cap + indicator turn together to reflect the knob's value
   const capGroup = new THREE.Group();
   const knobInfo = { kind: 'knob', group: knobGroup, capGroup, value, configIndex: k.knobIndex };
 
-  const bodyMat = makeMaterial(km);
+  const bodyMat = makeMaterial(km, { flatShading: !smoothShading });
 
   // Build the knob body as a surface of revolution. Unlike an extruded
   // circle, this keeps the wall's radial normals continuous and reflections even.

@@ -264,7 +264,7 @@
         </summary>
         <div class="schema-content">
           <b>body</b>: width, height, depth, corner (0–1), bevel (0–1), cornerSegments (rounding fidelity, default 16), bevelSegments (depth rounding fidelity, default 16), material: { color, roughness (0–1), metalness (0–1), opacity (0–1, default 1) }<br/>
-           <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, value (0–1), topRounding (0–1), segments, skirtFactor (0–1), skirtRounding (0–1), markColor, markLength (∝ radius), markWidth (∝ radius), material: { color, roughness, metalness, opacity }<br/>
+           <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, value (0–1), topRounding (0–1), segments, smoothShading (default true; false uses faceted lighting), skirtFactor (0–1), skirtRounding (0–1), markColor, markLength (∝ radius), markWidth (∝ radius), material: { color, roughness, metalness, opacity }<br/>
            <b>buttons[]</b>: label, labelColor, labelSize, labelPosition ("on"/"above"/"below"), x, y, width, length, height, travel, roundedness (0–1), pressed, material: { color, roughness, metalness, opacity }<br/>
           &nbsp;&nbsp;labelPosition "on" (default) shows a flat icon on the cap — play/stop/rec/etc. auto-map to monochrome symbols<br/>
            <b>sliders[]</b>: label, labelColor, labelSize, x, y, length, orientation (deg), value (0–1), capWidth, capLength, capHeight, capRoundedness (0–1), material: { color, roughness, metalness, opacity }<br/>

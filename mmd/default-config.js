@@ -109,7 +109,7 @@ export const DEFAULT_CONFIGS = [
         material: { color: "bodyColor", roughness: 0.5, metalness: 0.3, opacity:1.0 }
       },
       knobs: [
-        { label: "BLACK", x: -1.4, y: 0.1, radius: 0.2, height: 0.2, segments: 6,
+        { label: "BLACK", x: -1.4, y: 0.1, radius: 0.2, height: 0.2, segments: 6, smoothShading: false,
             material: { color: "#ff0", roughness: 0.4, metalness: 0.3 }, value: 0.62, topRounding: 0.2,
             markColor: "#f00", markLength: 0.7, markWidth: 0.25,
             labelColor: "#ff0", labelSize: 0.16
@@ -120,7 +120,7 @@ export const DEFAULT_CONFIGS = [
       ],
       labels: [
         {
-          text: "DARKWAVE", font: "Arial", fontsize: 40, fontweight: "500", align: "left",
+          text: "DARKWAVE", font: "Times New Roman", fontsize: 40, fontweight: "500", align: "left",
           x: -1.7, y: 0.6,
           material: { color: "#ff0", roughness: 0.4, metalness: 0.35 }
         }
