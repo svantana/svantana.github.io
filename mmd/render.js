@@ -172,12 +172,13 @@ function applySliderValue(control, value){
   storeControlValue(control, 'value', v);
 }
 
-// Pressing a button changes the cap's height, which is baked into its geometry,
-// so the panel is rebuilt with the new state.
+function applyButtonPressed(control, pressed){
+  control.pressed = !!pressed;
+  control.capGroup.position.z = control.pressed ? -control.travel : 0;
+}
+
 function toggleButton(control){
-  control.pressed = !control.pressed;
-  storeControlValue(control, 'pressed', control.pressed);
-  build(activeConfig);
+  applyButtonPressed(control, !control.pressed);
 }
 
 // Walks the scene live rather than caching, so picking stays correct if
@@ -286,6 +287,7 @@ dom.addEventListener('mousedown', e => {
     controlPress.startValue = activeControl.value;
     if (activeControl.kind === 'button'){
       toggleButton(activeControl); // latch on press, like hardware
+      scheduleRender();
     }
     // Sliders hold their value until the pointer actually moves.
     refreshCursor();
@@ -376,6 +378,16 @@ function roundedRectShape(w, h, r){
   shape.lineTo(x + r, y);
   shape.absarc(x + r, y + r, r, -Math.PI / 2, -Math.PI, true);          // bottom-left
   return shape;
+}
+
+function assignPlanarUVs(geo, w, h){
+  const pos = geo.attributes.position;
+  const uvs = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++){
+    uvs[i * 2] = (pos.getX(i) + w / 2) / w;
+    uvs[i * 2 + 1] = (pos.getY(i) + h / 2) / h;
+  }
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
 }
 
 function makeBody(width, height, depth, corner, bevel, material, cornerSegments, bevelSegments){
@@ -618,13 +630,38 @@ function makeLCD(lcd, depth){
   const g = new THREE.Group();
   const w = num(lcd.width, 1.0);
   const h = num(lcd.height, 1.0);
-  const bez = num(lcd.bezel, 0.1*w);
+  const bez = Math.max(0, num(lcd.bezel, 0.1*w));
   const bg = lcd.backgroundColor || '#08130b';
   const fg = lcd.textColor || '#7CFC98';
   const lm = matProps(lcd, { color: '#0d0d10', roughness: 0.6, metalness: 0.1 });
+  const bezelColor = lcd.bezelColor || lm.color;
+  const roundedness = Math.max(0, Math.min(1, num(lcd.roundedness, 0)));
 
-  const bezelGeo = new THREE.PlaneGeometry(w, h);
-  const bezelMat = makeMaterial({ color: lm.color, roughness: lm.roughness, metalness: lm.metalness, opacity: lm.opacity });
+  const sw = Math.max(0.01, w - 2 * bez);
+  const sh = Math.max(0.01, h - 2 * bez);
+
+  let bezelGeo, screenGeo;
+  if (roundedness <= 1e-5){
+    bezelGeo = new THREE.PlaneGeometry(w, h);
+    screenGeo = new THREE.PlaneGeometry(sw, sh);
+  } else {
+    const maxBezelR = Math.min(w, h) * 0.5;
+    const bezelR = roundedness * maxBezelR;
+    const maxScreenR = Math.min(sw, sh) * 0.5;
+    const screenR = bezelR > bez ? Math.min(maxScreenR, bezelR - bez) : roundedness * maxScreenR;
+
+    const bezelShape = roundedRectShape(w, h, bezelR);
+    bezelGeo = new THREE.ShapeGeometry(bezelShape, 16);
+    assignPlanarUVs(bezelGeo, w, h);
+    bezelGeo.computeVertexNormals();
+
+    const screenShape = roundedRectShape(sw, sh, screenR);
+    screenGeo = new THREE.ShapeGeometry(screenShape, 16);
+    assignPlanarUVs(screenGeo, sw, sh);
+    screenGeo.computeVertexNormals();
+  }
+
+  const bezelMat = makeMaterial({ color: bezelColor, roughness: lm.roughness, metalness: lm.metalness, opacity: lm.opacity });
   const bezel = new THREE.Mesh(bezelGeo, bezelMat);
   bezel.position.z = depth/2 + 0.003;
   bezel.castShadow = true;
@@ -635,7 +672,6 @@ function makeLCD(lcd, depth){
     width: 512, height: 256, bg: bg, fg: fg,
     font: '600 46px ui-monospace, monospace'
   });
-  const screenGeo = new THREE.PlaneGeometry(w-2*bez, h-2*bez);
   const screenMat = makeMaterial({ color: '#fff', roughness: lm.roughness, metalness: lm.metalness, opacity: lm.opacity }, { map: tex, emissiveMap: tex, emissive: "#fff", emissiveIntensity: 0.5 });
   const screen = new THREE.Mesh(screenGeo, screenMat);
   screen.position.z = depth/2 + 0.012;
@@ -649,18 +685,22 @@ function makeButton(btn, depth){
   const g = new THREE.Group();
   const w = Math.max(0.05, num(btn.width, 0.4));
   const len = Math.max(0.05, num(btn.length, 0.4));
-  const travel = Math.max(0.01, num(btn.travel, 0.12));
-  const pressed = !!btn.pressed;
-  const btnHeight = Math.max(0.01, num(btn.height, travel));
-  const actualHeight = pressed ? Math.max(0.01, btnHeight * 0.35) : btnHeight;
+  const btnHeight = Math.max(0.01, num(btn.height, 0.12));
+  const travel = Math.max(0, Math.min(btnHeight, num(btn.travel, btnHeight * 0.65)));
   const bm = matProps(btn, { color: '#3a3d44', roughness: 0.4, metalness: 0.25 });
   const roundedness = Math.max(0, Math.min(1, num(btn.roundedness, 0.4)));
 
+  const capGroup = new THREE.Group();
+  const buttonInfo = { kind: 'button', pressed: false, travel, capGroup, configIndex: btn.buttonIndex };
+
   // recessed bezel (the "hole" the cap sits in) — rounded to match the cap
-  const bezelR = Math.max(0.001, Math.min(w * 1.2, len * 1.2) * 0.5 * roundedness);
-  const bezelShape = roundedRectShape(w * 1.2, len * 1.2, bezelR);
+  const margin = 0.025;
+  const bezelW = w + 2 * margin;
+  const bezelL = len + 2 * margin;
+  const bezelR = Math.max(0.001, Math.min(bezelW, bezelL) * 0.5 * roundedness);
+  const bezelShape = roundedRectShape(bezelW, bezelL, bezelR);
   const bezelGeo = new THREE.ExtrudeGeometry(bezelShape, { depth: 0.02, bevelEnabled: false, curveSegments: 10 });
-  const bezelMat = makeMaterial({ color: '#111216', roughness: 0.75, metalness: 0.1, opacity: bm.opacity });
+  const bezelMat = makeMaterial({ color: '#444', roughness: 1.0, opacity: bm.opacity });
   const bezel = new THREE.Mesh(bezelGeo, bezelMat);
   bezel.position.z = depth/2 - 0.016;
   bezel.receiveShadow = true;
@@ -674,18 +714,19 @@ function makeButton(btn, depth){
   const bevelSize = Math.min(capRadius * 0.3, Math.min(w, len) * 0.06);
   const shape = roundedRectShape(w, len, capRadius);
   const capGeo = new THREE.ExtrudeGeometry(shape, {
-    depth: actualHeight, bevelEnabled: true,
+    depth: btnHeight, bevelEnabled: true,
     bevelThickness, bevelSize,
     bevelSegments: 3, curveSegments: 8
   });
   capGeo.center();
   const capMat = makeMaterial(bm);
   const capMesh = new THREE.Mesh(capGeo, capMat);
-  capMesh.position.z = depth/2 + actualHeight/2 + 0.008;
+  capMesh.position.z = depth/2 + btnHeight/2 + 0.008;
   capMesh.castShadow = true;
   capMesh.receiveShadow = true;
-  capMesh.userData.control = { kind: 'button', pressed, configIndex: btn.buttonIndex };
-  g.add(capMesh);
+  capMesh.userData.control = buttonInfo;
+  capGroup.add(capMesh);
+  g.add(capGroup);
 
   // label
   if (btn.label){
@@ -713,26 +754,30 @@ function makeButton(btn, depth){
         polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
       });
       const plate = new THREE.Mesh(plateGeo, plateMat);
-      const topZ = depth/2 + actualHeight + 0.008 + capRadius * 0.35;
+      const topZ = depth/2 + btnHeight + 0.008 + capRadius * 0.35;
       plate.position.set(0, 0, topZ + 0.015);
-      plate.userData.control = capMesh.userData.control;
-      g.add(plate);
+      plate.userData.control = buttonInfo;
+      capGroup.add(plate);
     } else {
       // printed name plate above or below the button
+      const fontPx = Math.round(Math.max(14, 200 * labelSize));
       const tex = textTexture(upperLabel, {
-        width: 220, height: 72, fg: labelColor,
-        font: `600 ${Math.round(30 * labelSize)}px ui-monospace, monospace`
+        width: 256, height: 72, fg: labelColor,
+        font: `600 ${fontPx}px ui-monospace, monospace`
       });
-      const labelGeo = new THREE.PlaneGeometry(Math.max(w, 0.5) * 1.4 * labelSize, Math.max(w, 0.5) * 0.45 * labelSize);
-      const labelMat = new THREE.MeshBasicMaterial({
-        map: tex, transparent: true,
+      const labelW = Math.max(w * 1.2, 5 * labelSize);
+      const labelH = Math.max(0.1, labelSize * 1.2);
+      const labelGeo = new THREE.PlaneGeometry(labelW, labelH);
+      const labelMat = makeMaterial({ roughness: 0.5, metalness: 0.0, opacity: bm.opacity }, {
+        map: tex, transparent: true, depthWrite: false,
         polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
       });
       const labelMesh = new THREE.Mesh(labelGeo, labelMat);
       labelMesh.castShadow = false;
+      labelMesh.receiveShadow = true;
       const sign = labelPosition === 'above' ? 1 : -1;
-      const yOff = sign * (len/2 + Math.max(w, 0.5) * 0.32);
-      labelMesh.position.set(0, yOff, depth/2 + 0.02);
+      const yOff = sign * (len * 0.6 + labelH * 0.6 + 0.02);
+      labelMesh.position.set(0, yOff, depth/2 + 0.008);
       g.add(labelMesh);
     }
   }
@@ -853,28 +898,34 @@ function makeSlider(s, depth){
 
   // Label plate (optional)
   if (s.label){
-    const labelSize = num(s.labelSize, 1);
+    const rawSize = num(s.labelSize, 0.15);
     const labelColor = s.labelColor || '#c9ccd2';
     const labelPosition = String(s.labelPosition || 'below').toLowerCase();
+    const effectiveSize = rawSize > 0.5 ? rawSize * 0.15 : rawSize;
+    const fontPx = Math.round(Math.max(14, 200 * effectiveSize));
     const tex = textTexture(String(s.label).toUpperCase(), {
-      width: 220,
+      width: 256,
       height: 72,
       fg: labelColor,
-      font: `600 ${Math.round(30 * labelSize)}px ui-monospace, monospace`
+      font: `600 ${fontPx}px ui-monospace, monospace`
     });
-    const labelGeo = new THREE.PlaneGeometry(capWidth * 3.2 * labelSize, capWidth * 1.05 * labelSize);
+    const labelW = Math.max(capWidth * 3.5, 5 * effectiveSize);
+    const labelH = Math.max(0.1, effectiveSize * 1.2);
+    const labelGeo = new THREE.PlaneGeometry(labelW, labelH);
     const labelMat = makeMaterial({ opacity: sm.opacity }, {
       map: tex,
       transparent: true,
+      depthWrite: false,
       polygonOffset: true,
       polygonOffsetFactor: -4,
       polygonOffsetUnits: -4
     });
     const labelMesh = new THREE.Mesh(labelGeo, labelMat);
     labelMesh.castShadow = false;
+    labelMesh.receiveShadow = true;
     const sign = labelPosition === 'above' ? 1 : -1;
-    const yOff = sign * (plateLength / 2 + 0.11 * labelSize);
-    labelMesh.position.set(0, yOff, depth / 2 + 0.006);
+    const yOff = sign * (plateLength / 2 + labelH * 0.6 + 0.02);
+    labelMesh.position.set(0, yOff, depth / 2 + 0.008);
     g.add(labelMesh);
   }
 

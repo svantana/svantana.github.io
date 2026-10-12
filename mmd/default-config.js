@@ -27,10 +27,10 @@ export const DEFAULT_CONFIGS = [
          }
       ],
       buttons: [
-        { label: "PLAY",  labelColor: "#b39", labelSize: 0.15, x: -1.2, y: -0.95, width: 0.34, length: 0.28, height: 0.1, material: { color: "#ecd", roughness: 0.4, metalness: 0.25 }, pressed: false },
+        { label: "PLAY",  labelColor: "#b39", labelSize: 0.15, x: -1.2, y: -0.95, width: 0.34, length: 0.28, height: 0.1, material: { color: "#ecd", roughness: 0.4, metalness: 0.25 } },
         { label: "STOP",  x: -0.4 },
-        { label: "REC",   pressed: false },
-        { label: "FUN!", pressed: false }
+        { label: "REC" },
+        { label: "FUN!" }
       ],
       sliders: [
         { label: "EXCITE", labelColor: "#fff", labelSize: 0.15, x: -1.7, y: -0.05, length: 0.7, orientation: 0, value: 0.75, material: { color: "#e9a" }, capWidth: 0.14, capLength: 0.2, capHeight: 0.12, capRoundedness: 0.8 },
@@ -47,6 +47,7 @@ export const DEFAULT_CONFIGS = [
       ],
       lcd: {
         x: 0, y: -0.05, width: 1.6, height: 0.8, bezel: 0.05,
+        bezelColor: "#0d0d10", roundedness: 0.08,
         text: "you are\nbeautiful", textColor: "#fab",
         backgroundColor: "#024", material: { roughness: 0.1, metalness: 0.0 }
       },
@@ -167,34 +168,35 @@ export const DEFAULT_CONFIGS = [
     config: {
       constants: { "bodyColor": "#fff" },
       body: {
-        width: 2.5, height: 4.0, depth: 0.6, corner: 0.2, bevel: 0.2, cornerSegments: 4, bevelSegments: 4,
-        material: { color: "bodyColor", roughness: 0.7, metalness: 0.0, opacity:1.0 }
+        width: 2.5, height: 4.0, depth: 0.6, corner: 0.2, bevel: 0.3, cornerSegments: 10, bevelSegments: 10,
+        material: {color: "bodyColor", roughness: 0.4, metalness: 0.0, opacity:1.0}
       },
       buttons: [
-        { label: "",  labelColor: "#b39", labelSize: 0.15, x: -0.75, y: -0.75, width: 0.2, length: 0.2, height: 0.05, material: { color: "#111", roughness: 0.4, metalness: 0.25 }},
-        { label: "",  x: -0.5, y: -1.0,},
-        { label: "", x: -0.5, y: -0.5},
-        { label: "", x: -0.25, y: -0.75},
-        { label: "A",  labelColor: "#b39", labelSize: 0.15, x: 0.5, y: -0.75, width: 0.25, length: 0.25, height: 0.05, roundedness: 1.0, material: { color: "#f15", roughness: 0.4, metalness: 0.25 }},
-        { label: "B",  labelColor: "#b39", labelSize: 0.15, x: 0.9, y: -0.55},
-        { label: "SELECT",  labelColor: "#b39", labelSize: 0.1, x: -0.2, y: -1.5, width: 0.3, length: 0.1,  material: { color: "#999", roughness: 0.4, metalness: 0.0 }},
-        { label: "START",  x: 0.2, y: -1.5}
+        { x: -0.85, y: -0.65, width: 0.22, length: 0.22, height: 0.05, material: { color: "#222", roughness: 0.4, metalness: 0.25 }},
+        { x: -0.60, y: -0.90},
+        { x: -0.60, y: -0.40},
+        { x: -0.35, y: -0.65},
+        { label: "A",  labelColor: "#11b", labelSize: 0.2, labelPosition: "below", x: 0.5, y: -0.75, width: 0.25, length: 0.25, height: 0.05, roundedness: 1.0, material: { color: "#f15", roughness: 0.4, metalness: 0.25 }},
+        { label: "B",  x: 0.9, y: -0.55},
+        { label: "SELECT", labelSize: 0.15, x: -0.25, y: -1.5, width: 0.3, length: 0.1,  material: { color: "#999", roughness: 0.4, metalness: 0.0 }},
+        { label: "START",  x: 0.25, y: -1.5}
       ],
       labels: [
         {
           text: "Intendo GAINBOY", font: "Arial", fontsize: 16, fontweight: "600", align: "left",
           x: -0.9, y: -0.0,
-          material: { color: "#11a", roughness: 0.4, metalness: 0.35 }
+          material: { color: "#11b", roughness: 0.4, metalness: 0.35 }
         }
       ],
       lcd: {
         x: 0.0, y: 0.9, width: 1.8, height: 1.6, bezel: 0.1,
-        text: " O  O \n ____", textColor: "#353",
-        backgroundColor: "#9d7", material: { roughness: 0.1, metalness: 0.0 }
+        bezelColor: "#667", roundedness: 0.1,
+        text: "\nlet's\nplay\n", textColor: "#252",
+        backgroundColor: "#8d7", material: { roughness: 0.01, metalness: 0.0 }
       },
 
-      surface: {z: -0.001, material: { color: "#f40" }},
-      spotlight: {x: -3, y: -3, z: 4, color: "#fff", intensity: 5.5, shadowRadius: 1},
+      surface: {z: -0.001, material: { color: "#5af" }},
+      spotlight: {x: 0, y: -4, z: 4, color: "#fff", intensity: 4.5, shadowRadius: 2},
       fillLight: { color: "#ffd", intensity: 0.9},
       fillLight2: { color: "#fff", intensity: 0.8},
       ambientLight: {color: "#fff", intensity: 0.5},
