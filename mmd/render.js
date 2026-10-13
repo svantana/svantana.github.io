@@ -693,25 +693,35 @@ function makeButton(btn, depth){
   const capGroup = new THREE.Group();
   const buttonInfo = { kind: 'button', pressed: false, travel, capGroup, configIndex: btn.buttonIndex };
 
-  // recessed bezel (the "hole" the cap sits in) — rounded to match the cap
-  const margin = 0.025;
-  const bezelW = w + 2 * margin;
-  const bezelL = len + 2 * margin;
-  const bezelR = Math.max(0.001, Math.min(bezelW, bezelL) * 0.5 * roundedness);
-  const bezelShape = roundedRectShape(bezelW, bezelL, bezelR);
-  const bezelGeo = new THREE.ExtrudeGeometry(bezelShape, { depth: 0.02, bevelEnabled: false, curveSegments: 10 });
-  const bezelMat = makeMaterial({ color: '#444', roughness: 1.0, opacity: bm.opacity });
-  const bezel = new THREE.Mesh(bezelGeo, bezelMat);
-  bezel.position.z = depth/2 - 0.016;
-  bezel.receiveShadow = true;
-  g.add(bezel);
-
-  // rounded rectangular cap — corner radius driven by the roundedness parameter
+  // Cap geometry params, needed up front: the bevel flares a lip at the cap's
+  // base that is bevelSize wider than the shape itself, and that lip — not the
+  // shape — is what sits in the recess opening.
   const capRadius = Math.max(0.001, Math.min(w, len) * 0.5 * roundedness);
   // Cap the bevel so a high roundedness can't balloon the base into a rectangular
   // lip that dips below the recess and pokes out at the cap's base.
   const bevelThickness = Math.min(capRadius * 0.35, 0.022);
   const bevelSize = Math.min(capRadius * 0.3, Math.min(w, len) * 0.06);
+
+  // Recessed bezel (the "hole" the cap sits in). Sized from the cap's actual
+  // outline — lip included — and offset outward by a flat `margin`, so the
+  // visible gap is the same on every side of every button no matter how big it
+  // is or how round, and the cap always fits through the hole it drops into.
+  const margin = 0.01;
+  if (margin > 0) {
+    const bezelW = w + 2 * bevelSize + 2 * margin;
+    const bezelL = len + 2 * bevelSize + 2 * margin;
+    // Offsetting a rounded rect outward by m grows each corner radius by exactly m.
+    const bezelR = Math.max(0.001,
+      Math.min(capRadius + bevelSize + margin, Math.min(bezelW, bezelL) * 0.5));
+    const bezelShape = roundedRectShape(bezelW, bezelL, bezelR);
+    const bezelGeo = new THREE.ExtrudeGeometry(bezelShape, { depth: 0.02, bevelEnabled: false, curveSegments: 10 });
+    const bezelMat = makeMaterial({ color: '#444', roughness: 1.0, opacity: bm.opacity });
+    const bezel = new THREE.Mesh(bezelGeo, bezelMat);
+    bezel.position.z = depth/2 - 0.016;
+    bezel.receiveShadow = true;
+    g.add(bezel);
+  }
+  // rounded rectangular cap — corner radius driven by the roundedness parameter
   const shape = roundedRectShape(w, len, capRadius);
   const capGeo = new THREE.ExtrudeGeometry(shape, {
     depth: btnHeight, bevelEnabled: true,
@@ -1420,19 +1430,24 @@ function build(config){
       const ay = new THREE.Vector3(0, 1, 0).applyQuaternion(tq);
       const az = new THREE.Vector3(0, 0, 1).applyQuaternion(tq);
       const worldHalfY = Math.abs(ax.y) * half.x + Math.abs(ay.y) * half.y + Math.abs(az.y) * half.z;
-      const restingY = floorY + worldHalfY + 0.001;
-      if (physBox.position.y < restingY){
-        physBox.position.y = restingY + 0.02;
+      // Where the back face actually meets the floor. Threshold on the true
+      // contact plane rather than a padded value, so a body already resting at
+      // its correct height is never nudged for no reason.
+      const contactY = floorY + worldHalfY;
+      // A slimmer chassis sits *lower* than the old body, so it can be left
+      // hovering in mid-air; a deeper one can end up buried. Either way the
+      // body has to be woken so gravity puts it back on the floor — a sleeping
+      // body would otherwise just hang there.
+      if (physBox.position.y < contactY - 1e-4){
+        physBox.position.y = contactY + 0.021; // pop clear, then drop back
         physBox.velocity.setZero();
         physBox.angularVelocity.setZero();
-        physBox.wakeUp();
-        physSettled = false;
-        physLastTime = performance.now();
-        ensurePhysLoop();
-      } else {
-        syncRigFromBody();
-        scheduleRender();
       }
+      physBox.wakeUp();
+      physSettled = false;
+      physLastTime = performance.now();
+      ensurePhysLoop();
+      scheduleRender(); // draw the rebuilt chassis even before the body moves
     }
   } else {
     if (physBox){
