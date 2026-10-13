@@ -104,45 +104,41 @@ export const DEFAULT_CONFIGS = [
         material: { color: "bodyColor", roughness: 0.5, metalness: 0.3, opacity:1.0 }
       },
       knobs: [
-        { label: "BLACK", x: -1.4, y: 0.1, radius: 0.2, height: 0.2, segments: 6, smoothShading: false,
+        { label: "BLACK", x: -1.4, y: -0.1, radius: 0.25, height: 0.2, segments: 6, smoothShading: false,
             material: { color: "#ff0", roughness: 0.4, metalness: 0.3 }, value: 0.62, topRounding: 0.2,
-            markColor: "#f00", markLength: 0.7, markWidth: 0.25,
-            labelColor: "#ff0", labelSize: 0.16
+            markColor: "#000", markLength: 0.64, markWidth: 0.3,
+            labelColor: "#ff0", labelSize: 0.18
         },
-        { label: "PAIN",   x: -0.6, value: 0.28 },
+        { label: "PAIN",   x: -0.5, value: 0.28 },
         { label: "HARD", value: 0.1 },
         { label: "SICK", value: 0.5 }
       ],
       labels: [
         {
           text: "DARKWAVE", font: "Times New Roman", fontsize: 40, fontweight: "500", align: "left",
-          x: -1.7, y: 0.6,
+          x: -1.8, y: 0.6,
           material: { color: "#ff0", roughness: 0.4, metalness: 0.35 }
         }
       ],
       surface: {
         z: -0.001,
-        material: { color: "#f00" }
+        material: { color: "#500" }
       },
       spotlight: {
-        x: -3,
-        y: -3,
-        z: 4,
-        color: "#fff",
-        intensity: 3.5,
-        shadowRadius: 1
-      },
-      fillLight: {
-        color: "#ffd",
-        intensity: 0.8
+        x: 0,
+        y: -2,
+        z: 2,
+        color: "#f0f",
+        intensity: 4.5,
+        shadowRadius: 10
       },
       fillLight2: {
-        color: "#fff",
-        intensity: 0.8
+        color: "#ff0",
+        intensity: 1.8
       },
       ambientLight: {
         color: "#fff",
-        intensity: 0.1
+        intensity: 0.4
       },
       render: {
         pixelRatio: 2.0,
