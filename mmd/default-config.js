@@ -96,6 +96,70 @@ export const DEFAULT_CONFIGS = [
     }
   },
   {
+    name: "Candy",
+    config: {
+      constants: { "bodyColor": "#fe5" },
+      body: {
+        width: 4.0, height: 2, depth: 0.8, corner: 0.4, bevel: 0.5, cornerSegments: 32, bevelSegments: 32,
+        material: { color: "bodyColor", roughness: 0.15, metalness: 0.0, opacity:1.0 }
+      },
+      knobs: [
+        { label: "Sugar", x: -1.4, y: 0, radius: 0.3, height: 0.25, segments: 32, smoothShading: true,
+            material: { color: "#fe5", roughness: 0.15, metalness: 0 }, value: 0.62, topRounding: 0.7,
+            markColor: "#fff", markLength: 0.5, markWidth: 0.2,
+            labelColor: "#f5c", labelSize: 0.18
+        },
+        { label: "Acid",   x: -0.5, value: 0.28 },
+        { label: "Fat", value: 0.1 },
+        { label: "Heat", value: 0.5 }
+      ],
+      labels: [
+        {
+          text: "Candy", font: "Brush Script MT", fontsize: 70, fontweight: "500", align: "left",
+          x: -1.95, y: 0.7,
+          material: { color: "#f5c", roughness: 0.5, metalness: 0 }
+        }
+      ],
+      surface: {
+        z: -0.01,
+        material: { color: "#f8d", roughness: 0.4 }
+      },
+      spotlight: {
+        x: 0,
+        y: -2,
+        z: 2,
+        color: "#fcf",
+        intensity: 3.5,
+        shadowRadius: 10
+      },
+      fillLight2: {
+        color: "#fff",
+        intensity: 1.5
+      },
+      ambientLight: {
+        color: "#fff",
+        intensity: 1.0
+      },
+      render: {
+        pixelRatio: 2.0,
+        shadows: true,
+        shadowMapSize: 2048,
+        softboxShadowCount: 2,
+        detailShadows: true,
+        continuous: false,
+        showFps: true,
+        wireframe: false
+      },
+      physics: {
+        dropHeight: 0.0,
+        tilt: { x: 0.0, y: 0.0, z: 0.0 },
+        restitution: 0.28,
+        friction: 0.15,
+        gravity: { x: 0, y: -9.82, z: 0 }
+      }
+    }
+  },
+  {
     name: "Darkwave",
     config: {
       constants: { "bodyColor": "#111" },
