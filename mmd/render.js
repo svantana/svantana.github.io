@@ -1127,6 +1127,27 @@ function makeSurfaceTexture(cfg, surfaceColor){
   return tex;
 }
 
+// Replaces the sphere's equirect UVs with an azimuthal-equidistant dome
+// projection: the canvas centre is the zenith, the inscribed circle is the
+// horizon, and below-horizon points clamp to the canvas edge. That keeps the
+// zenith undistorted and concentrates any stretching down at the horizon,
+// instead of the polar pinch an equirect sphere shows straight up.
+function applySkyDomeUVs(geometry){
+  const pos = geometry.attributes.position;
+  const uv = geometry.attributes.uv;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++){
+    v.fromBufferAttribute(pos, i).normalize();
+    const elev = Math.asin(Math.max(-1, Math.min(1, v.y)));
+    const rad = Math.max(0, Math.min(1, 1 - elev / (Math.PI / 2)));
+    const horiz = Math.hypot(v.x, v.z);
+    const ux = horiz > 1e-6 ? v.x / horiz : 1;
+    const uz = horiz > 1e-6 ? v.z / horiz : 0;
+    uv.setXY(i, 0.5 + 0.5 * rad * ux, 0.5 + 0.5 * rad * uz);
+  }
+  uv.needsUpdate = true;
+}
+
 // The circle color with its alpha dialed to zero. Fading to this (rather
 // than transparent black) keeps the glow's hue clean through the falloff.
 function transparentOf(color){
@@ -1144,7 +1165,7 @@ function transparentOf(color){
 // in the sky (upper part of the canvas maps toward the zenith; the canvas
 // middle is the horizon, in the +X direction). The layout is deterministic,
 // so rebuilding never reshuffles the circles.
-function makeSkyTexture({ color, circleColor, circles, circleSize, spread, seed }){
+function makeSkyTexture({ color, circles }){
   const W = 1024, H = 512;
   const canvas = document.createElement('canvas');
   canvas.width = W;
@@ -1154,27 +1175,43 @@ function makeSkyTexture({ color, circleColor, circles, circleSize, spread, seed 
   ctx.fillStyle = color;
   ctx.fillRect(0, 0, W, H);
 
-  let s = seed | 0;
+  const circleCfg = circles || {};
+  const count = Math.max(0, Math.floor(num(circleCfg.count, 5)));
+  const circleColor = circleCfg.color || '#ffffff';
+  const circleSize = Math.max(1, num(circleCfg.size, 16));
+  const spread = Math.max(0, num(circleCfg.spread, 1));
+  let s = Math.floor(num(circleCfg.seed, 1337)) | 0;
   const rnd = () => {
     s = (s + 0x6D2B79F5) | 0;
     let t = Math.imul(s ^ (s >>> 15), 1 | s);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-  for (let i = 0; i < circles; i++){
-    const cx = W * (0.5 + (rnd() - 0.5) * 0.35 * spread);
-    // high above the horizon (canvas top = zenith) but clear of the pole pinch
-    const cy = H * (0.22 + (rnd() - 0.5) * 0.25 * spread);
+  for (let i = 0; i < count; i++){
+    // The dome projection below maps the canvas centre to the zenith and the
+    // inscribed circle to the horizon, so a small radius keeps a circle high
+    // in the sky. `spread` widens that band towards the horizon, where the
+    // projection stretches — the distortion never reaches overhead.
+    const az = rnd() * Math.PI * 2;
+    const rad = Math.min(0.9, Math.max(0, spread) * (0.12 + rnd() * 0.38));
+    const cx = W * (0.5 + 0.5 * rad * Math.cos(az));
+    const cy = H * (0.5 + 0.5 * rad * Math.sin(az));
     const r = Math.max(1, circleSize * (0.5 + rnd()));
+    // UV space is square but the canvas is 2:1, so stretch horizontally to
+    // keep the dots round in the sky.
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(W / H, 1);
     // soft disc: full circle color at the middle, fading to the same hue at
     // zero alpha by r (no dark fringe the way transparent black gives)
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
     g.addColorStop(0, circleColor);
     g.addColorStop(1, transparentOf(circleColor));
     ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   }
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -1650,11 +1687,12 @@ function build(config){
   }
 
   // Skybox: a BackSide sphere covering everything at/above the floor plane
-  // (z >= 0), painted a single flat color with a few light circles near the
-  // texture's middle. Unlit, so the color stays exactly as configured. The
-  // same texture is fed to scene.environment, so every PBR material in the
-  // scene reflects the sky (three samples equirect env maps directly, no
-  // PMREM pass needed — and none possible headless).
+  // (z >= 0), painted a single flat color with light circles placed so the
+  // polar pinch sits below the floor rather than at the zenith. Unlit, so
+  // the color stays exactly as configured. The same texture is fed to
+  // scene.environment, so every PBR material in the scene reflects the sky
+  // (three samples equirect env maps directly, no PMREM pass needed — and
+  // none possible headless).
   if (skyMesh){
     scene.remove(skyMesh);
     skyMesh.geometry.dispose();
@@ -1666,17 +1704,14 @@ function build(config){
   if (skyCfg.enabled !== false){
     // comfortably outside the max camera zoom (24) but inside the far plane (50)
     const skyRadius = Math.max(30, Math.min(48, num(skyCfg.radius, 40)));
-    const skyCount = Math.max(0, Math.floor(num(skyCfg.circles, 5)));
     const skyTex = makeSkyTexture({
       color: skyCfg.color || '#14161c',
-      circleColor: skyCfg.circleColor || '#ffffff',
-      circles: skyCount,
-      circleSize: Math.max(1, num(skyCfg.circleSize, 16)),
-      spread: Math.max(0, num(skyCfg.circleSpread, 1)),
-      seed: Math.floor(num(skyCfg.randSeed, 1337))
+      circles: skyCfg.circles
     });
+    const skyGeo = new THREE.SphereGeometry(skyRadius, 64, 32);
+    applySkyDomeUVs(skyGeo);
     skyMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(skyRadius, 32, 16),
+      skyGeo,
       new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, toneMapped: false })
     );
     skyMesh.position.set(0, surfaceZ, 0); // equator glued to the floor plane

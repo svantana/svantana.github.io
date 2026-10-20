@@ -5,8 +5,8 @@ export const DEFAULT_CONFIGS = [
       constants: { "bodyColor": "#b6a" },
       body: {
         width: 4.2, height: 3, depth: 0.5,
-        corner: 0.2, bevel: 0.2, cornerSegments: 20, bevelSegments: 20,
-        material: { color: "bodyColor", roughness: 0.5, metalness: 0.3, opacity:1.0 }
+        corner: 0.2, bevel: 0.5, cornerSegments: 10, bevelSegments: 10,
+        material: { color: "bodyColor", roughness: 0.4, metalness: 0.4, opacity:1.0 }
       },
       knobs: [
         { label: "BOUNCE", x: -1.6, y: 0.8, radius: 0.15, height: 0.2,
@@ -57,10 +57,10 @@ export const DEFAULT_CONFIGS = [
         texture: { pattern: "grid", size: 1, width: 0.02, color: "#fff" }
       },
       skybox: {
-        color: "#a73", intensity: 3.0,
-        circleColor: "#fff", circles: 4, circleSize: 16, circleSpread: 2, randSeed: 1337, radius: 40
+        color: "#642", intensity: 3.0, radius: 40,
+        circles: { color: "#fff", count: 14, size: 26, spread: 3, seed: 1337 },
       },
-      spotlight: [{x: 0, y: -3, z: 3, color: "#fff", intensity: 1.5, shadowRadius: 4}],
+      spotlight: [{x: 0, y: -3, z: 3, color: "#fff", intensity: 1.2, shadowRadius: 5}],
       render: {
         pixelRatio: 2.0,
         shadows: true,
@@ -104,10 +104,8 @@ export const DEFAULT_CONFIGS = [
           material: { color: "#f5c", roughness: 0.5, metalness: 0 }
         }
       ],
-      surface: {
-        z: -0.01,
-        material: { color: "#f8d", roughness: 0.4 }
-      },
+      surface: { z: -0.01, material: { color: "#f8d", roughness: 0.4 }},
+      skybox: { color: "#cc6", intensity: 3.0, radius: 40},
       spotlight: [{ x: 0, y: -2, z: 2, color: "#fcf", intensity: 3.5, shadowRadius: 4}],
       render: {
         pixelRatio: 2.0,
@@ -152,18 +150,9 @@ export const DEFAULT_CONFIGS = [
           material: { color: "#ff0", roughness: 0.4, metalness: 0.35 }
         }
       ],
-      surface: {
-        z: -0.001,
-        material: { color: "#500" }
-      },
-      spotlight: [{
-        x: 0,
-        y: -2,
-        z: 2,
-        color: "#f0f",
-        intensity: 4.5,
-        shadowRadius: 4
-      }],
+      surface: { z: -0.001, material: { color: "#500" }},
+      skybox: { color: "#f8f", intensity: 2.0, radius: 40},
+      spotlight: [{x: 0, y: -2, z: 2, color: "#f0f", intensity: 4.5, shadowRadius: 4}],
       render: {
         pixelRatio: 2.0,
         shadows: true,
@@ -215,6 +204,7 @@ export const DEFAULT_CONFIGS = [
       },
 
       surface: {z: -0.001, material: { color: "#5af" }},
+      skybox: { color: "#b8b", intensity: 1.0, radius: 40},
       spotlight: [{x: 0, y: -4, z: 4, color: "#fff", intensity: 2.5, shadowRadius: 4}],
       render: {
         pixelRatio: 2.0,
