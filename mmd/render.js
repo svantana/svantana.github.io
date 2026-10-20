@@ -104,15 +104,16 @@ const fill = new THREE.DirectionalLight(0xffffff, 0.25);
 fill.position.set(-2, -3, 4);
 scene.add(fill);
 
-// floor surface (settable via config.surface.material)
-const floorGeo = new THREE.PlaneGeometry(60, 60);
+// floor surface (settable via config.surface.material / surface.texture)
+const SURFACE_SIZE = 60; // world units across the floor plane
+const floorGeo = new THREE.PlaneGeometry(SURFACE_SIZE, SURFACE_SIZE);
 const floorMat = makeMaterial({ color: '#1c1e24', roughness: 0.9, metalness: 0.05 });
 const floor = new THREE.Mesh(floorGeo, floorMat);
 floor.receiveShadow = true;
 floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
 
-let gridHelper = null;
+let floorTexture = null;
 let skyMesh = null;
 
 const rig = new THREE.Group();
@@ -136,7 +137,7 @@ const SLIDER_MIN_PIXEL_LENGTH = 6;
 let activeConfig = null;
 let activeControl = null; // control currently being dragged or held
 let hoveredControl = null;
-// Debug view mode for the instrument only (floor/grid/sky untouched):
+// Debug view mode for the instrument only (floor/sky untouched):
 // 'standard' | 'wireframe' | 'normals'. Survives rebuilds; set from the UI.
 let viewMode = 'standard';
 let normalMaterial = null; // shared MeshNormalMaterial singleton
@@ -1070,45 +1071,65 @@ function makeLabel(lbl, depth){
   return labelGroup;
 }
 
-function makeGridPlane(size, color, lineWidth, baseColor){
-  size = Math.max(0.1, size);
-  const divisions = Math.max(2, Math.round(size));
-  const res = 1024;
+// Paints one seamless tile for the floor and returns it as a repeating
+// texture. The tile is drawn so its edges join: edge-centred lines and
+// half-bands on opposite borders complete each other across neighbouring
+// tiles, and corner dots become whole dots once repeated.
+function makeSurfaceTexture(cfg, surfaceColor){
+  const res = 256;
   const canvas = document.createElement('canvas');
   canvas.width = res;
   canvas.height = res;
   const ctx = canvas.getContext('2d');
 
-  const lw = Math.max(1, lineWidth * (size / 10));
-  ctx.fillStyle = baseColor || '#1c1e24';
+  const pattern = String(cfg.pattern || 'grid').toLowerCase();
+  const bg = cfg.background || surfaceColor || '#1c1e24';
+  const ink = cfg.color || '#ffffff';
+  // Tile size and feature width are world units (like every other length in
+  // the config); convert them to pixels at this tile's resolution.
+  const size = Math.max(0.01, num(cfg.size, 2));
+  const width = Math.max(0.001, Math.min(size, num(cfg.width, 0.06)));
+  const w = (width / size) * res;
+
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, res, res);
+  ctx.fillStyle = ink;
+  ctx.strokeStyle = ink;
 
-  ctx.strokeStyle = color;
-  ctx.lineWidth = lw;
-
-  for (let i = 0; i <= divisions; i++){
-    const p = (i / divisions) * res;
+  if (pattern === 'checker'){
+    const half = res / 2;
+    ctx.fillRect(0, 0, half, half);
+    ctx.fillRect(half, half, half, half);
+  } else if (pattern === 'dots'){
+    // One circle per tile, so the repeat (derived from `size`) spaces the
+    // dots exactly `size` apart in x and y.
+    const r = Math.max(0.5, w / 2);
     ctx.beginPath();
-    ctx.moveTo(p, 0);
-    ctx.lineTo(p, res);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(0, p);
-    ctx.lineTo(res, p);
-    ctx.stroke();
+    ctx.arc(res / 2, res / 2, r, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (pattern === 'stripes'){
+    const half = Math.max(0.5, w) / 2;
+    ctx.fillRect(0, 0, half, res);
+    ctx.fillRect(res - half, 0, half, res);
+  } else { // grid
+    ctx.lineWidth = Math.max(1, w);
+    for (const p of [0, res]){
+      ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, res); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(res, p); ctx.stroke();
+    }
   }
 
   const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  const repeat = SURFACE_SIZE / size;
+  tex.repeat.set(repeat, repeat);
+  const [ox, oy] = pair(cfg.offset, 0);
+  tex.offset.set(ox, oy);
+  tex.anisotropy = maxAnisotropy();
   tex.needsUpdate = true;
-  const geo = new THREE.PlaneGeometry(size, size);
-  const mat = makeMaterial({ roughness: 0.9, metalness: 0.05,
-    map: tex,
-    side: THREE.DoubleSide
-  });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.rotation.x = -Math.PI / 2;
-  mesh.receiveShadow = true;
-  return mesh;
+  return tex;
 }
 
 // The circle color with its alpha dialed to zero. Fading to this (rather
@@ -1176,6 +1197,18 @@ function makeSkyTexture({ color, circleColor, circles, circleSize, spread, seed 
 
 function num(v, fallback){
   return (typeof v === 'number' && isFinite(v)) ? v : fallback;
+}
+
+// Reads a scalar or [x, y] pair, falling back per component.
+function pair(v, fallback){
+  if (Array.isArray(v)) return [num(v[0], fallback), num(v[1], fallback)];
+  return [num(v, fallback), num(v, fallback)];
+}
+
+// Anisotropic filtering for the tiled floor; capped to keep the cost modest.
+function maxAnisotropy(){
+  const caps = renderer.capabilities || {};
+  return Math.max(1, Math.min(8, num(caps.getMaxAnisotropy?.(), 1)));
 }
 
 /**
@@ -1496,12 +1529,17 @@ function build(config){
   });
 
   const surface = config.surface || {};
-  // Height (z) at which the surface plane and its grid are drawn. Defaults to
-  // z=0, the plane the panel rests on; raising/lowering it only moves the
-  // drawing, never the physics boundary.
+  // Height (z) at which the surface plane is drawn. Defaults to z=0, the
+  // plane the panel rests on; raising/lowering it only moves the drawing,
+  // never the physics boundary.
   const surfaceZ = num(surface.z, 0);
   const smat = matProps(surface, { color: '#1c1e24', roughness: 0.9, metalness: 0.05, opacity: 1.0 });
-  floorMat.color.set(smat.color);
+  const texCfg = surface.texture;
+  const hasSurfaceTexture = !!(texCfg && typeof texCfg === 'object' && texCfg.enabled !== false);
+  // With a texture the cells are painted in the surface color, so the
+  // diffuse color must stay white — otherwise three multiplies the map by it
+  // and the cells come out darker (and the grid lines take the tint too).
+  floorMat.color.set(hasSurfaceTexture ? '#ffffff' : smat.color);
   floorMat.roughness = smat.roughness;
   floorMat.metalness = smat.metalness;
   floorMat.opacity = smat.opacity;
@@ -1511,11 +1549,24 @@ function build(config){
   floor.receiveShadow = shadowsEnabled;
   floor.position.y = surfaceZ;
 
+  // Surface texture: an optional procedural tile repeated across the whole
+  // floor. Rebuilt from scratch each build so config edits take effect.
+  if (floorTexture){
+    floorTexture.dispose();
+    floorTexture = null;
+  }
+  floorMat.map = null;
+  if (hasSurfaceTexture){
+    floorTexture = makeSurfaceTexture(texCfg, smat.color);
+    floorMat.map = floorTexture;
+  }
+  floorMat.needsUpdate = true; // adding/removing the map changes the shader
+
   /* ---------- physics: whole instrument is one rigid box ---------- */
   const phys = config.physics || {};
   const physEnabled = phys.enabled !== false;
   // The collision boundary is always the z=0 plane, regardless of where the
-  // surface and grid are drawn.
+  // surface is drawn.
   const floorY = 0;
   physGround.position.set(0, floorY, 0);
   if (phys.friction !== undefined) physContactMat.friction = Math.max(0, num(phys.friction, 0.45));
@@ -1602,20 +1653,6 @@ function build(config){
     physSettled = true;
     rig.position.set(0, depth / 2, 0); // back face rests on the z=0 boundary
     rig.quaternion.setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
-  }
-
-  if (gridHelper){
-    scene.remove(gridHelper);
-    gridHelper = null;
-  }
-  const gridCfg = surface.grid;
-  if (gridCfg && typeof gridCfg === 'object'){
-    const gSize = Math.max(0.1, num(gridCfg.size, 10));
-    const gColor = gridCfg.color || '#ffffff';
-    const gLinewidth = Math.max(0.5, num(gridCfg.linewidth, 1.5));
-    gridHelper = makeGridPlane(gSize, gColor, gLinewidth, smat.color);
-    gridHelper.position.set(0, surfaceZ + 0.001, 0);
-    scene.add(gridHelper);
   }
 
   // Skybox: a BackSide sphere covering everything at/above the floor plane

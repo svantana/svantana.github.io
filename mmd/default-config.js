@@ -54,7 +54,7 @@ export const DEFAULT_CONFIGS = [
       surface: {
         z: -0.05,
         material: { color: "#3cb" },
-        grid: { size: 10, color: "#fff", linewidth: 1.5 }
+        texture: { pattern: "grid", size: 2, width: 0.06, color: "#fff" }
       },
       skybox: {
         color: "#f00", circleColor: "#ffffff",
