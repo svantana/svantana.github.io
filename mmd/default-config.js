@@ -56,6 +56,10 @@ export const DEFAULT_CONFIGS = [
         material: { color: "#3cb" },
         grid: { size: 10, color: "#fff", linewidth: 1.5 }
       },
+      skybox: {
+        color: "#f00", circleColor: "#ffffff",
+        circles: 4, circleSize: 16, circleSpread: 1, randSeed: 1337, radius: 40
+      },
       spotlight: {
         x: -3,
         y: -3,
@@ -84,7 +88,6 @@ export const DEFAULT_CONFIGS = [
         detailShadows: true,
         continuous: false,
         showFps: true,
-        wireframe: false
       },
       physics: {
         dropHeight: 0.0,
@@ -100,11 +103,11 @@ export const DEFAULT_CONFIGS = [
     config: {
       constants: { "bodyColor": "#fe5" },
       body: {
-        width: 4.0, height: 2, depth: 0.8, corner: 0.4, bevel: 0.5, cornerSegments: 32, bevelSegments: 32,
-        material: { color: "bodyColor", roughness: 0.15, metalness: 0.0, opacity:1.0 }
+        width: 4.0, height: 2, depth: 0.8, corner: 0.4, bevel: 0.7, cornerSegments: 16, bevelSegments: 16,
+        material: { color: "bodyColor", roughness: 0.15, metalness: 0.0, flatShading: false }
       },
       knobs: [
-        { label: "Sugar", x: -1.4, y: 0, radius: 0.3, height: 0.25, segments: 32, smoothShading: true,
+        { label: "Sugar", x: -1.4, y: 0, radius: 0.3, height: 0.25, segments: 32, flatShading: false,
             material: { color: "#fe5", roughness: 0.15, metalness: 0 }, value: 0.62, topRounding: 0.7,
             markColor: "#fff", markLength: 0.5, markWidth: 0.2,
             labelColor: "#f5c", labelSize: 0.18
@@ -148,7 +151,6 @@ export const DEFAULT_CONFIGS = [
         detailShadows: true,
         continuous: false,
         showFps: true,
-        wireframe: false
       },
       physics: {
         dropHeight: 0.0,
@@ -165,11 +167,11 @@ export const DEFAULT_CONFIGS = [
       constants: { "bodyColor": "#111" },
       body: {
         width: 4.0, height: 2, depth: 0.6, corner: 0.2, bevel: 0.2, cornerSegments: 1, bevelSegments: 1,
-        material: { color: "bodyColor", roughness: 0.5, metalness: 0.3, opacity:1.0 }
+        material: { color: "bodyColor", roughness: 0.5, metalness: 0.3, opacity:1.0, flatShading: true }
       },
       knobs: [
         { label: "BLACK", x: -1.4, y: -0.1, radius: 0.25, height: 0.2, segments: 6, smoothShading: false,
-            material: { color: "#ff0", roughness: 0.4, metalness: 0.3 }, value: 0.62, topRounding: 0.2,
+            material: { color: "#ff0", roughness: 0.4, metalness: 0.3, flatShading: true}, value: 0.62, topRounding: 0.2,
             markColor: "#000", markLength: 0.64, markWidth: 0.3,
             labelColor: "#ff0", labelSize: 0.18
         },
@@ -212,7 +214,6 @@ export const DEFAULT_CONFIGS = [
         detailShadows: true,
         continuous: false,
         showFps: true,
-        wireframe: false
       },
       physics: {
         dropHeight: 0.0,
@@ -268,7 +269,6 @@ export const DEFAULT_CONFIGS = [
         detailShadows: true,
         continuous: false,
         showFps: true,
-        wireframe: false
       },
       physics: {
         dropHeight: 0.0,

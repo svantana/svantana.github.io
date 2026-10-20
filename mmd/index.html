@@ -184,11 +184,21 @@
   .editor-footer{
     padding: 8px 14px; border-top: 1px solid var(--hairline);
     background: rgba(32,35,41,0.45); min-height: 34px;
-    display:flex; align-items:center;
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
     font-family: var(--mono); font-size: 11.5px;
   }
   .editor-footer.ok{ color: var(--ok); }
   .editor-footer.error{ color: var(--err); }
+  .editor-footer .footer-status{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .view-select{
+    flex-shrink:0;
+    font-family: var(--mono); font-size: 11px;
+    color: var(--ink-dim); background: transparent;
+    border: 1px solid var(--hairline); border-radius: 5px;
+    padding: 3px 6px; cursor: pointer; outline: none;
+  }
+  .view-select:hover, .view-select:focus{ color: var(--ink); border-color: var(--brass); }
+  .view-select option{ background: var(--panel-2); color: var(--ink); }
 
   details.schema-note{
     border-top: 1px solid var(--hairline);
@@ -262,14 +272,20 @@
         <div class="gutter" id="gutter"></div>
         <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
       </div>
-      <div class="editor-footer ok" id="footer">No errors.</div>
+      <div class="editor-footer ok" id="footer"><span class="footer-status" id="footerText">No errors.</span>
+        <select id="viewMode" class="view-select" title="Debug view: standard / wireframe / normals as RGB">
+          <option value="standard">standard</option>
+          <option value="wireframe">wireframe</option>
+          <option value="normals">normals</option>
+        </select>
+      </div>
       <details class="schema-note">
         <summary>
           <span class="title"><b>schema help</b> · parameter reference</span>
           <span class="chevron">&#9654;</span>
         </summary>
         <div class="schema-content">
-          <b>body</b>: width, height, depth, corner (0–1), bevel (0–1), cornerSegments (rounding fidelity, default 16), bevelSegments (depth rounding fidelity, default 16), material: { color, roughness (0–1), metalness (0–1), opacity (0–1, default 1) }<br/>
+          <b>body</b>: width, height, depth, corner (0–1), bevel (0–1), cornerSegments (rounding fidelity, default 16), bevelSegments (depth rounding fidelity, default 16), flatShading / smoothShading (faceted vs smooth lighting; material.flatShading wins if both set), material: { color, roughness (0–1), metalness (0–1), opacity (0–1, default 1) }<br/>
            <b>knobs[]</b>: label, labelColor, labelSize, x, y, radius, height, value (0–1), topRounding (0–1), segments, smoothShading (default true; false uses faceted lighting), skirtFactor (0–1), skirtRounding (0–1), markColor, markLength (∝ radius), markWidth (∝ radius), material: { color, roughness, metalness, opacity }<br/>
            <b>buttons[]</b>: label, labelColor, labelSize, labelPosition ("on"/"above"/"below"), x, y, width, length, height, travel (press depth along z, default 0.65·height), roundedness (0–1), material: { color, roughness, metalness, opacity }<br/>
           &nbsp;&nbsp;labelPosition "on" (default) shows a flat icon on the cap — play/stop/rec/etc. auto-map to monochrome symbols<br/>
@@ -277,11 +293,12 @@
           <b>labels[]</b>: text, x, y, fontsize, font, fontweight, align ("left"/"center"/"right"), material: { color, roughness, metalness, opacity }<br/>
            <b>lcd</b>: width, height, x, y, bezel, bezelColor, roundedness (0–1), text, textColor, backgroundColor, material: { color (bezel fallback), roughness (0–1), metalness (0–1), opacity }<br/>
            <b>surface</b>: z (height at which the surface + grid are drawn, default 0; physics always uses z=0 as its boundary), material: { color, roughness, metalness, opacity }, grid: { size, color, linewidth }<br/>
+           <b>skybox</b>: enabled (default true), color (single flat color, default "#14161c"), circleColor (default "#ffffff"), circles (count, default 5), circleSize (soft falloff radius in px, default 16), circleSpread (scatter factor, default 1; 0 stacks all circles at one point), randSeed (layout seed, default 1337), radius (default 40), envIntensity (scales the skylight on PBR materials, default 1 — try 2–4 for a dark sky) — the texture also feeds scene.environment, so PBR materials reflect the sky<br/>
            <b>spotlight</b>: x, y, z, color, intensity, shadowRadius (blur/softness, default 8), shadowBias, shadowNormalBias, shadowMapSize<br/>
            <b>fillLight</b>: color, intensity (fixed-position secondary light)<br/>
            <b>fillLight2</b>: color, intensity (second fixed-position fill light)<br/>
            <b>ambientLight</b>: color, intensity (diffuse baseline ambient light)<br/><br/>
-           <b>render</b>: pixelRatio (0.5–2), shadows, shadowMapSize, softboxShadowCount, detailShadows, continuous, showFps, wireframe<br/>
+           <b>render</b>: pixelRatio (0.5–2), shadows, shadowMapSize, softboxShadowCount, detailShadows, continuous, showFps<br/>
            <b>physics</b>: enabled, dropHeight, tilt {x,y,z} (drop tilt in radians), restitution (bounciness 0–1), friction, gravity (vector {x,y,z} in m/s², or a scalar for the y component)<br/>
            <b>constants</b>: { name: value, ... } — any string value anywhere in the config that exactly matches a name is replaced with its value (any JSON type, any depth)<br/><br/>
           In knobs[]/buttons[]/sliders[]/labels[]: entry 0 should set every field it needs.
@@ -312,13 +329,15 @@
 </div>
 
 <script type="module">
-import { build } from './render.js';
+import { build, setViewMode } from './render.js';
 import { DEFAULT_CONFIGS } from './default-config.js';
 
 /* ============================= Editor wiring ============================= */
 const editor = document.getElementById('editor');
 const gutter = document.getElementById('gutter');
 const footer = document.getElementById('footer');
+const footerText = document.getElementById('footerText');
+const viewSelect = document.getElementById('viewMode');
 const configSelect = document.getElementById('configSelect');
 const app = document.getElementById('app');
 const editorToggle = document.getElementById('editorToggle');
@@ -347,6 +366,29 @@ DEFAULT_CONFIGS.forEach((entry, i) => {
   opt.textContent = entry.name;
   configSelect.appendChild(opt);
 });
+
+/* ---------- presets can also be pointed at from the URL (?preset=candy) ---- */
+// Compared as slugs, so "candy", "Candy", "barbie-synth" and "BarbieSynth"
+// all resolve to the preset they name.
+const presetSlug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '');
+const presetNameOf = (entry) => entry.slug || entry.name;
+
+function presetIndexFromUrl(){
+  const params = new URLSearchParams(window.location.search || '');
+  const want = presetSlug(params.get('preset') || '');
+  if (!want) return -1;
+  return DEFAULT_CONFIGS.findIndex(e => presetSlug(presetNameOf(e)) === want);
+}
+
+function syncUrlToPreset(){
+  const entry = DEFAULT_CONFIGS[Number(configSelect.value)] || DEFAULT_CONFIGS[0];
+  const url = new URL(window.location.href);
+  url.searchParams.set('preset', presetSlug(presetNameOf(entry)));
+  window.history.replaceState(null, '', url.toString());
+}
+
+// Unresolvable or absent -> the first preset, so the page always starts somewhere known.
+configSelect.value = String(Math.max(0, presetIndexFromUrl()));
 
 function selectedConfig(){
   const i = Number(configSelect.value);
@@ -392,18 +434,18 @@ function applyEditor(){
   try{
     parsed = JSON.parse(text);
   } catch(err){
-    footer.textContent = 'Parse error' + jsonErrorLocation(text, err) + ': ' + err.message;
+    footerText.textContent = 'Parse error' + jsonErrorLocation(text, err) + ': ' + err.message;
     footer.className = 'editor-footer error';
     setStatus(false, 'parse error');
     return;
   }
   try{
     build(parsed);
-    footer.textContent = 'No errors.';
+    footerText.textContent = 'No errors.';
     footer.className = 'editor-footer ok';
     setStatus(true, '');
   } catch(err){
-    footer.textContent = 'Render error: ' + err.message;
+    footerText.textContent = 'Render error: ' + err.message;
     footer.className = 'editor-footer error';
     setStatus(false, 'render error');
   }
@@ -418,13 +460,16 @@ document.getElementById('btnFormat').addEventListener('click', () => {
     refreshGutter();
     applyEditor();
   } catch(err){
-    footer.textContent = 'Cannot format — parse error' + jsonErrorLocation(editor.value, err) + '.';
+    footerText.textContent = 'Cannot format — parse error' + jsonErrorLocation(editor.value, err) + '.';
     footer.className = 'editor-footer error';
   }
 });
 
 document.getElementById('btnReset').addEventListener('click', loadSelectedConfig);
-configSelect.addEventListener('change', loadSelectedConfig);
+configSelect.addEventListener('change', () => {
+  loadSelectedConfig();
+  syncUrlToPreset(); // keep the address bar shareable
+});
 
 /* ---------- Resizing: the editor's own right edge is the handle ---------- */
 const mainLayout = document.getElementById('mainLayout');
@@ -483,8 +528,20 @@ editorPanel.addEventListener('touchstart', startResize, { passive: false });
 window.addEventListener('touchmove', handleResize, { passive: false });
 window.addEventListener('touchend', stopResize);
 
+/* ---------- debug view mode (standard / wireframe / normals) ---------- */
+function applyViewSelect(persist){
+  setViewMode(viewSelect.value);
+  if (persist) localStorage.setItem('mmd_view_mode', viewSelect.value);
+}
+viewSelect.addEventListener('change', () => applyViewSelect(true));
+{
+  const savedView = localStorage.getItem('mmd_view_mode');
+  if (savedView === 'wireframe' || savedView === 'normals') viewSelect.value = savedView;
+}
+
 /* ---------- init ---------- */
 loadSelectedConfig();
+applyViewSelect(false);
 </script>
 </body>
 </html>

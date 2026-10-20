@@ -113,6 +113,7 @@ floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
 
 let gridHelper = null;
+let skyMesh = null;
 
 const rig = new THREE.Group();
 // lay the instrument flat: the panel face (where knobs/LCD sit) now points up (+Y)
@@ -135,6 +136,10 @@ const SLIDER_MIN_PIXEL_LENGTH = 6;
 let activeConfig = null;
 let activeControl = null; // control currently being dragged or held
 let hoveredControl = null;
+// Debug view mode for the instrument only (floor/grid/sky untouched):
+// 'standard' | 'wireframe' | 'normals'. Survives rebuilds; set from the UI.
+let viewMode = 'standard';
+let normalMaterial = null; // shared MeshNormalMaterial singleton
 const controlPress = { startX: 0, startY: 0, startValue: 0 };
 
 function clamp01(v){ return v < 0 ? 0 : v > 1 ? 1 : v; }
@@ -419,10 +424,14 @@ function makeBody(width, height, depth, corner, bevel, material, cornerSegments,
     curveSegments: cSegs
   };
   let geo = new THREE.ExtrudeGeometry(shape2, extrudeSettings);
-  // Add interior support vertices to every flat-face triangle so those vertices
-  // get purely perpendicular normals from computeVertexNormals. The returned
-  // geometry has only a position attribute, so mergeVertices welds by position
-  // only — no UV or pre-baked normal conflicts.
+  // ExtrudeGeometry bakes per-face uv/normal attributes, and mergeVertices
+  // hashes *every* attribute — so as-is it welds almost nothing, the curves
+  // keep per-face normals, and flatShading becomes a no-op (smooth shading
+  // can't smooth what was never welded either). Drop both attributes so the
+  // weld is purely positional, then rebuild truly smooth normals.
+  // (No body map support to lose: body material never had UVs worth keeping.)
+  geo.deleteAttribute('uv');
+  geo.deleteAttribute('normal');
   geo = mergeVertices(geo, 1e-4);
   geo.computeVertexNormals();
   geo.center();
@@ -472,18 +481,18 @@ function makeKnob(k, depth){
   const radius = num(k.radius, 0.16);
   const kHeight = num(k.height, 0.22);
   const km = matProps(k, { color: '#cfd3d8', roughness: 0.4, metalness: 0.25 });
+  applyFacetingShorthand(km, k);
   const value = Math.max(0, Math.min(1, num(k.value, 0.5))); // knob setting, 0–1
   const segments = Math.max(3, Math.min(64, num(k.segments, 32)));
   const topRounding = Math.max(0, Math.min(1, num(k.topRounding, 0)));
   const skirtFactor = Math.max(0, Math.min(1, num(k.skirtFactor, 0)));
   const skirtRounding = Math.max(0, Math.min(1, num(k.skirtRounding, 0)));
-  const smoothShading = k.smoothShading !== false;
 
   // cap + indicator turn together to reflect the knob's value
   const capGroup = new THREE.Group();
   const knobInfo = { kind: 'knob', group: knobGroup, capGroup, value, configIndex: k.knobIndex };
 
-  const bodyMat = makeMaterial(km, { flatShading: !smoothShading });
+  const bodyMat = makeMaterial(km);
 
   // Build the knob body as a surface of revolution. Unlike an extruded
   // circle, this keeps the wall's radial normals continuous and reflections even.
@@ -759,7 +768,7 @@ function makeButton(btn, depth){
       });
       const plateSize = Math.min(w, len) * 5 * labelSize;
       const plateGeo = new THREE.PlaneGeometry(plateSize, plateSize);
-      const plateMat = makeMaterial({ opacity: bm.opacity }, {
+      const plateMat = makeMaterial(bm, {
         map: tex, transparent: true,
         polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
       });
@@ -778,7 +787,7 @@ function makeButton(btn, depth){
       const labelW = Math.max(w * 1.2, 5 * labelSize);
       const labelH = Math.max(0.1, labelSize * 1.2);
       const labelGeo = new THREE.PlaneGeometry(labelW, labelH);
-      const labelMat = makeMaterial({ roughness: 0.5, metalness: 0.0, opacity: bm.opacity }, {
+      const labelMat = makeMaterial({roughness: 0.5, metalness: 0.0, opacity: bm.opacity,
         map: tex, transparent: true, depthWrite: false,
         polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
       });
@@ -864,7 +873,7 @@ function makeSlider(s, depth){
   // Track plate with recessed slot & ticks
   const trackTex = getSliderTrackTexture();
   const trackGeo = new THREE.PlaneGeometry(plateWidth, plateLength);
-  const trackMat = makeMaterial({ roughness: 0.85, metalness: 0.1, opacity: sm.opacity }, {
+  const trackMat = makeMaterial({ roughness: 0.85, metalness: 0.1, opacity: sm.opacity,
     map: trackTex,
     transparent: true,
     depthWrite: false,
@@ -922,7 +931,7 @@ function makeSlider(s, depth){
     const labelW = Math.max(capWidth * 3.5, 5 * effectiveSize);
     const labelH = Math.max(0.1, effectiveSize * 1.2);
     const labelGeo = new THREE.PlaneGeometry(labelW, labelH);
-    const labelMat = makeMaterial({ opacity: sm.opacity }, {
+    const labelMat = makeMaterial({opacity: sm.opacity,
       map: tex,
       transparent: true,
       depthWrite: false,
@@ -946,7 +955,7 @@ function makeSlider(s, depth){
 }
 
 function makeLabel(lbl, depth){
-  if (!lbl || lbl.text === undefined || lbl.text === null) return g;
+  if (!lbl || lbl.text === undefined || lbl.text === null) return null;
 
   const textStr = String(lbl.text);
   const lines = textStr.split('\n');
@@ -954,7 +963,7 @@ function makeLabel(lbl, depth){
   // Extract font, fontsize, fontweight, color, material properties
   const fontFam = lbl.font || 'ui-monospace, monospace';
   const fontWeight = lbl.fontweight ?? lbl.fontWeight ?? '600';
-  const { color, roughness, metalness, opacity } = matProps(lbl, { color: lbl.textColor || '#ffffff', roughness: 0.4, metalness: 0.25 });
+  const mat = matProps(lbl, { color: lbl.textColor || '#ffffff', roughness: 0.4, metalness: 0.25 });
 
   const rawSize = lbl.fontsize ?? lbl.fontSize ?? 28;
   let numFontSize = 28;
@@ -1003,7 +1012,7 @@ function makeLabel(lbl, depth){
   const ctx = drawCanvas.getContext('2d');
 
   ctx.font = canvasFont;
-  ctx.fillStyle = color;
+  ctx.fillStyle = mat.color;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
@@ -1043,7 +1052,7 @@ function makeLabel(lbl, depth){
   const alignX = align === 'left' ? w / 2 : align === 'right' ? -w / 2 : 0;
 
   const labelGeo = new THREE.PlaneGeometry(w, h);
-  const labelMat = makeMaterial({ roughness, metalness, opacity }, {
+  const labelMat = makeMaterial({ ...mat,
     map: tex,
     transparent: true,
     depthWrite: false,
@@ -1092,7 +1101,7 @@ function makeGridPlane(size, color, lineWidth, baseColor){
   const tex = new THREE.CanvasTexture(canvas);
   tex.needsUpdate = true;
   const geo = new THREE.PlaneGeometry(size, size);
-  const mat = makeMaterial({ roughness: 0.9, metalness: 0.05 }, {
+  const mat = makeMaterial({ roughness: 0.9, metalness: 0.05,
     map: tex,
     side: THREE.DoubleSide
   });
@@ -1102,39 +1111,128 @@ function makeGridPlane(size, color, lineWidth, baseColor){
   return mesh;
 }
 
+// The circle color with its alpha dialed to zero. Fading to this (rather
+// than transparent black) keeps the glow's hue clean through the falloff.
+function transparentOf(color){
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(color).trim());
+  if (!m) return 'rgba(0,0,0,0)';
+  const h = m[1];
+  const full = h.length === 3 ? h[0]+h[0]+h[1]+h[1]+h[2]+h[2] : h;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},0)`;
+}
+
+// Paints the skybox texture: one flat color with a few light circles high up
+// in the sky (upper part of the canvas maps toward the zenith; the canvas
+// middle is the horizon, in the +X direction). The layout is deterministic,
+// so rebuilding never reshuffles the circles.
+function makeSkyTexture({ color, circleColor, circles, circleSize, spread, seed }){
+  const W = 1024, H = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, W, H);
+
+  let s = seed | 0;
+  const rnd = () => {
+    s = (s + 0x6D2B79F5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  for (let i = 0; i < circles; i++){
+    const cx = W * (0.5 + (rnd() - 0.5) * 0.35 * spread);
+    // high above the horizon (canvas top = zenith) but clear of the pole pinch
+    const cy = H * (0.22 + (rnd() - 0.5) * 0.25 * spread);
+    const r = Math.max(1, circleSize * (0.5 + rnd()));
+    // soft disc: full circle color at the middle, fading to the same hue at
+    // zero alpha by r (no dark fringe the way transparent black gives)
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, circleColor);
+    g.addColorStop(1, transparentOf(circleColor));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  // Canvas bytes are sRGB; without this the renderer treats them as linear
+  // and washes the fill out on output (white circles survive that untouched,
+  // which is exactly the "circles but no fill" look).
+  tex.colorSpace = THREE.SRGBColorSpace;
+  // The equirect flag is what makes three compile the env-sampling shader
+  // chunk for this texture — without it scene.environment is silently ignored
+  // and lit materials go black when the lights do.
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 function num(v, fallback){
   return (typeof v === 'number' && isFinite(v)) ? v : fallback;
 }
 
 /**
- * Reads color/roughness/metalness/opacity from an object's `material` sub-dictionary.
- * Flat `color`/`roughness`/`metalness`/`opacity` fields still work as a legacy fallback.
+ * Resolves color/roughness/metalness/opacity for a config entry: the nested
+ * `material` dict first, then flat fields on the entry itself, then defaults.
+ * Any other field in the material dict passes straight through untouched.
  */
 function matProps(obj, defaults){
   obj = obj || {};
   const m = (typeof obj.material === 'object' && obj.material !== null) ? obj.material : {};
-  return {
+  const props = { ...m,
     color: m.color ?? obj.color ?? defaults.color,
     roughness: Math.max(0, Math.min(1, num(m.roughness ?? obj.roughness, defaults.roughness))),
     metalness: Math.max(0, Math.min(1, num(m.metalness ?? obj.metalness, defaults.metalness))),
-    opacity: Math.max(0, Math.min(1, num(m.opacity ?? obj.opacity, defaults.opacity ?? 1.0))),
+    opacity: Math.max(0, Math.min(1, num(m.opacity ?? obj.opacity, defaults.opacity ?? 1.0)))
   };
+  // `smoothShading` is the inverse spelling of three's `flatShading` — honor
+  // it wherever it shows up. An explicit flatShading always wins; the alias
+  // is deleted so three never sees (and warns about) an unknown property.
+  if (props.flatShading === undefined && props.smoothShading !== undefined)
+    props.flatShading = !props.smoothShading;
+  delete props.smoothShading;
+  return props;
+}
+
+/**
+ * Per-part faceting shorthand: `flatShading` / `smoothShading` sitting next
+ * to the part (not inside its `material` dict). An explicit material-level
+ * flatShading always wins; otherwise the shorthand decides.
+ */
+function applyFacetingShorthand(props, entry){
+  if (props.flatShading === undefined){
+    if (entry.flatShading !== undefined) props.flatShading = !!entry.flatShading;
+    else if (entry.smoothShading !== undefined) props.flatShading = !entry.smoothShading;
+  }
+  return props;
 }
 
 /**
  * Centralizes MeshStandardMaterial creation for all panel parts.
- * `props` is a matProps-style object (partial objects allowed; missing fields
+ * `params` is a matProps-style object (partial objects allowed; missing fields
  * fall back to three.js defaults); `extra` holds per-part parameters such as
  * map, emissive, side, or polygonOffset. Opacity defaults to 1.0 (opaque) and
  * enables transparency automatically when set below 1.
  */
-function makeMaterial(props = {}, extra = {}){
-  const opacity = Math.max(0, Math.min(1, num(props.opacity, 1.0)));
-  const params = { opacity, transparent: opacity < 1, ...extra };
-  if (props.color !== undefined) params.color = props.color;
-  if (props.roughness !== undefined) params.roughness = props.roughness;
-  if (props.metalness !== undefined) params.metalness = props.metalness;
-  return new THREE.MeshStandardMaterial(params);
+function makeMaterial(params = {}, extra = {}) {
+  // Any JSON field passes straight through; `extra` is just fallback defaults.
+  // (Built fresh each call so defaults written here never leak back into a
+  // caller-owned object that gets reused for the next mesh.)
+  const merged = { opacity: 1.0, roughness: 0.5, ...extra, ...params };
+  // Explicit `field: undefined` entries (e.g. `{opacity: src.opacity}` where
+  // the source omits it) would otherwise clobber the defaults above *and*
+  // make three warn — coerce them back.
+  if (merged.opacity === undefined) merged.opacity = 1.0;
+  if (merged.roughness === undefined) merged.roughness = 0.5;
+  if (merged.transparent === undefined) merged.transparent = merged.opacity < 1;
+  return new THREE.MeshStandardMaterial(merged);
 }
 
 /**
@@ -1282,6 +1380,62 @@ function setRenderMode(continuous){
   }
 }
 
+const VIEW_MODES = ['standard', 'wireframe', 'normals'];
+
+// Applies the current view mode to every mesh of the instrument. Original
+// materials are stashed on first swap so 'standard' restores the exact same
+// objects (including any wireframe flag the JSON itself specified).
+function applyViewMode(){
+  if (!normalMaterial){
+    // toneMapped:false keeps the normal colors exact; fog isn't a
+    // MeshNormalMaterial property (and the scene uses no fog anyway).
+    normalMaterial = new THREE.MeshNormalMaterial({ toneMapped: false });
+  }
+  rig.traverse(object => {
+    if (!object.isMesh || !object.material) return;
+    if (viewMode === 'standard'){
+      if (object.userData.savedMaterial){
+        object.material = object.userData.savedMaterial;
+        delete object.userData.savedMaterial;
+      }
+      const mats = Array.isArray(object.material) ? object.material : [object.material];
+      mats.forEach(m => {
+        if (m.userData.origWireframe !== undefined){
+          m.wireframe = m.userData.origWireframe;
+          delete m.userData.origWireframe;
+        }
+      });
+    } else {
+      if (!object.userData.savedMaterial) object.userData.savedMaterial = object.material;
+      if (viewMode === 'wireframe'){
+        // Flag the saved original, never whatever overlay is currently
+        // assigned: the shared normalMaterial must stay unflagged, or every
+        // later normals view would render as wireframe too.
+        object.material = object.userData.savedMaterial;
+        const mats = Array.isArray(object.material) ? object.material : [object.material];
+        mats.forEach(m => {
+          if (m.userData.origWireframe === undefined) m.userData.origWireframe = !!m.wireframe;
+          m.wireframe = true;
+        });
+      } else { // normals
+        normalMaterial.wireframe = false;
+        delete normalMaterial.userData.origWireframe;
+        object.material = normalMaterial;
+      }
+    }
+  });
+  scheduleRender();
+}
+
+// Switches the instrument's debug view. Unknown modes are ignored; the mode
+// persists across build() calls (which rebuild all materials from scratch).
+function setViewMode(mode){
+  if (!VIEW_MODES.includes(mode)) return;
+  if (mode === viewMode && rig.children.length) return; // already applied
+  viewMode = mode;
+  applyViewMode();
+}
+
 function build(config){
   config = resolveConstants(config);
   while (rig.children.length) rig.remove(rig.children[0]);
@@ -1292,9 +1446,8 @@ function build(config){
   const shadowLightCount = Math.max(0, Math.min(NUM_SOFTBOX_LIGHTS, Math.floor(num(render.softboxShadowCount, 1))));
   const detailShadows = render.detailShadows === true;
   const continuousRendering = render.continuous === true;
-  const wireframe = render.wireframe === true;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatio));
-  renderer.shadowMap.enabled = shadowsEnabled && !wireframe;
+  renderer.shadowMap.enabled = shadowsEnabled;
   fps.style.display = render.showFps === false ? 'none' : '';
   setRenderMode(continuousRendering);
 
@@ -1306,9 +1459,10 @@ function build(config){
   const bevel = Math.max(0, Math.min(1, num(b.bevel ?? b.roundedness, 0.15)));
   const cornerSegments = num(b.cornerSegments ?? b.curveSegments ?? b.segments, 16);
   const bevelSegments = num(b.bevelSegments ?? b.roundingSegments ?? b.segments, 16);
-  const bodyMatProps = matProps(b, { color: '#2a2c31', roughness: 0.55, metalness: 0.18 });
 
-  const bodyMesh = makeBody(width, height, depth, corner, bevel, bodyMatProps, cornerSegments, bevelSegments);
+  const bodyProps = matProps(b, { color: '#2a2c31', roughness: 0.55, metalness: 0.18 });
+  applyFacetingShorthand(bodyProps, b);
+  const bodyMesh = makeBody(width, height, depth, corner, bevel, bodyProps, cornerSegments, bevelSegments);
   rig.add(bodyMesh);
 
   activeConfig = config;
@@ -1327,23 +1481,13 @@ function build(config){
   sliders.forEach((s, i) => { s.sliderIndex = i; rig.add(makeSlider(s, depth)); });
 
   const labels = resolveArray(config.labels);
-  labels.forEach(lbl => rig.add(makeLabel(lbl, depth)));
+  labels.forEach(lbl => { const m = makeLabel(lbl, depth); if (m) rig.add(m); });
 
   if (config.lcd && typeof config.lcd === 'object'){
     rig.add(makeLCD(config.lcd, depth));
   }
 
-  if (wireframe){
-    rig.traverse(object => {
-      if (object.isMesh && object.material){
-        if (Array.isArray(object.material)){
-          object.material.forEach(m => { m.wireframe = true; });
-        } else {
-          object.material.wireframe = true;
-        }
-      }
-    });
-  }
+  applyViewMode(); // re-applies the UI-selected debug view to the fresh materials
 
   // The chassis casts the important broad shadow. Small controls can opt in
   // when their individual shadows are worth the additional shadow-map work.
@@ -1474,6 +1618,46 @@ function build(config){
     scene.add(gridHelper);
   }
 
+  // Skybox: a BackSide sphere covering everything at/above the floor plane
+  // (z >= 0), painted a single flat color with a few light circles near the
+  // texture's middle. Unlit, so the color stays exactly as configured. The
+  // same texture is fed to scene.environment, so every PBR material in the
+  // scene reflects the sky (three samples equirect env maps directly, no
+  // PMREM pass needed — and none possible headless).
+  if (skyMesh){
+    scene.remove(skyMesh);
+    skyMesh.geometry.dispose();
+    skyMesh.material.map.dispose();
+    skyMesh.material.dispose();
+    skyMesh = null;
+  }
+  const skyCfg = config.skybox || {};
+  if (skyCfg.enabled !== false){
+    // comfortably outside the max camera zoom (24) but inside the far plane (50)
+    const skyRadius = Math.max(30, Math.min(48, num(skyCfg.radius, 40)));
+    const skyCount = Math.max(0, Math.floor(num(skyCfg.circles, 5)));
+    const skyTex = makeSkyTexture({
+      color: skyCfg.color || '#14161c',
+      circleColor: skyCfg.circleColor || '#ffffff',
+      circles: skyCount,
+      circleSize: Math.max(1, num(skyCfg.circleSize, 16)),
+      spread: Math.max(0, num(skyCfg.circleSpread, 1)),
+      seed: Math.floor(num(skyCfg.randSeed, 1337))
+    });
+    skyMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(skyRadius, 32, 16),
+      new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, toneMapped: false })
+    );
+    skyMesh.position.set(0, surfaceZ, 0); // equator glued to the floor plane
+    scene.add(skyMesh);
+    scene.environment = skyTex;
+    // global multiplier on the image-based light; the sky is dark by default,
+    // so values above 1 are the normal way to make its contribution visible
+    scene.environmentIntensity = Math.max(0, num(skyCfg.envIntensity, 1));
+  } else {
+    scene.environment = null;
+  }
+
   const spotlight = config.spotlight || {};
   const lx = num(spotlight.x, -3);
   const ly = num(spotlight.y, -3);
@@ -1577,4 +1761,4 @@ new ResizeObserver(resize).observe(host);
 resize();
 updateCamera();
 
-export { build };
+export { build, setViewMode };
