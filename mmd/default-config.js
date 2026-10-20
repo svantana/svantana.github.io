@@ -54,11 +54,11 @@ export const DEFAULT_CONFIGS = [
       surface: {
         z: -0.05,
         material: { color: "#3cb" },
-        texture: { pattern: "grid", size: 2, width: 0.06, color: "#fff" }
+        texture: { pattern: "grid", size: 1, width: 0.02, color: "#fff" }
       },
       skybox: {
-        color: "#f00", circleColor: "#ffffff",
-        circles: 4, circleSize: 16, circleSpread: 1, randSeed: 1337, radius: 40
+        color: "#a73", intensity: 3.0,
+        circleColor: "#fff", circles: 4, circleSize: 16, circleSpread: 2, randSeed: 1337, radius: 40
       },
       spotlight: {
         x: -3,

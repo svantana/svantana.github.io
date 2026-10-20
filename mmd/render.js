@@ -1690,7 +1690,7 @@ function build(config){
     scene.environment = skyTex;
     // global multiplier on the image-based light; the sky is dark by default,
     // so values above 1 are the normal way to make its contribution visible
-    scene.environmentIntensity = Math.max(0, num(skyCfg.envIntensity, 1));
+    scene.environmentIntensity = Math.max(0, num(skyCfg.intensity, 1));
   } else {
     scene.environment = null;
   }
