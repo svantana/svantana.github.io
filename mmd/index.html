@@ -294,11 +294,8 @@
            <b>lcd</b>: width, height, x, y, bezel, bezelColor, roundedness (0–1), text, textColor, backgroundColor, material: { color (bezel fallback), roughness (0–1), metalness (0–1), opacity }<br/>
            <b>surface</b>: z (height at which the surface plane is drawn, default 0; physics always uses z=0 as its boundary), material: { color, roughness, metalness, opacity }, texture: { pattern: grid|dots|checker|stripes, size (world units per tile, default 2), width (line/dot/stripe thickness in world units, default 0.06), offset: [x,y], color (grid lines), background (cells, defaults to the material color), enabled }<br/>
            <b>skybox</b>: enabled (default true), color (single flat color, default "#14161c"), circleColor (default "#ffffff"), circles (count, default 5), circleSize (soft falloff radius in px, default 16), circleSpread (scatter factor, default 1; 0 stacks all circles at one point), randSeed (layout seed, default 1337), radius (default 40), intensity (scales the skylight on PBR materials, default 1 — try 2–4 for a dark sky) — the texture also feeds scene.environment, so PBR materials reflect the sky<br/>
-           <b>spotlight</b>: x, y, z, color, intensity, shadowRadius (blur/softness, default 8), shadowBias, shadowNormalBias, shadowMapSize<br/>
-           <b>fillLight</b>: color, intensity (fixed-position secondary light)<br/>
-           <b>fillLight2</b>: color, intensity (second fixed-position fill light)<br/>
-           <b>ambientLight</b>: color, intensity (diffuse baseline ambient light)<br/><br/>
-           <b>render</b>: pixelRatio (0.5–2), shadows, shadowMapSize, softboxShadowCount, detailShadows, continuous, showFps<br/>
+           <b>spotlight[]</b>: array of lights — x, y, z, color, intensity, shadowRadius (blur/softness, default 8), shadowBias, shadowNormalBias, shadowMapSize, castShadow (default true)<br/><br/>
+           <b>render</b>: pixelRatio (0.5–2), shadows, shadowMapSize, softboxShadowCount (how many spotlights cast shadows), detailShadows, continuous, showFps<br/>
            <b>physics</b>: enabled, dropHeight, tilt {x,y,z} (drop tilt in radians), restitution (bounciness 0–1), friction, gravity (vector {x,y,z} in m/s², or a scalar for the y component)<br/>
            <b>constants</b>: { name: value, ... } — any string value anywhere in the config that exactly matches a name is replaced with its value (any JSON type, any depth)<br/><br/>
           In knobs[]/buttons[]/sliders[]/labels[]: entry 0 should set every field it needs.

@@ -60,26 +60,7 @@ export const DEFAULT_CONFIGS = [
         color: "#a73", intensity: 3.0,
         circleColor: "#fff", circles: 4, circleSize: 16, circleSpread: 2, randSeed: 1337, radius: 40
       },
-      spotlight: {
-        x: -3,
-        y: -3,
-        z: 4,
-        color: "#fff",
-        intensity: 3.5,
-        shadowRadius: 1
-      },
-      fillLight: {
-        color: "#ffd",
-        intensity: 0.8
-      },
-      fillLight2: {
-        color: "#fff",
-        intensity: 0.8
-      },
-      ambientLight: {
-        color: "#fff",
-        intensity: 0.1
-      },
+      spotlight: [{x: 0, y: -3, z: 3, color: "#fff", intensity: 1.5, shadowRadius: 4}],
       render: {
         pixelRatio: 2.0,
         shadows: true,
@@ -127,22 +108,7 @@ export const DEFAULT_CONFIGS = [
         z: -0.01,
         material: { color: "#f8d", roughness: 0.4 }
       },
-      spotlight: {
-        x: 0,
-        y: -2,
-        z: 2,
-        color: "#fcf",
-        intensity: 3.5,
-        shadowRadius: 10
-      },
-      fillLight2: {
-        color: "#fff",
-        intensity: 1.5
-      },
-      ambientLight: {
-        color: "#fff",
-        intensity: 1.0
-      },
+      spotlight: [{ x: 0, y: -2, z: 2, color: "#fcf", intensity: 3.5, shadowRadius: 4}],
       render: {
         pixelRatio: 2.0,
         shadows: true,
@@ -190,22 +156,14 @@ export const DEFAULT_CONFIGS = [
         z: -0.001,
         material: { color: "#500" }
       },
-      spotlight: {
+      spotlight: [{
         x: 0,
         y: -2,
         z: 2,
         color: "#f0f",
         intensity: 4.5,
-        shadowRadius: 10
-      },
-      fillLight2: {
-        color: "#ff0",
-        intensity: 1.8
-      },
-      ambientLight: {
-        color: "#fff",
-        intensity: 0.4
-      },
+        shadowRadius: 4
+      }],
       render: {
         pixelRatio: 2.0,
         shadows: true,
@@ -257,10 +215,7 @@ export const DEFAULT_CONFIGS = [
       },
 
       surface: {z: -0.001, material: { color: "#5af" }},
-      spotlight: {x: 0, y: -4, z: 4, color: "#fff", intensity: 4.5, shadowRadius: 2},
-      fillLight: { color: "#ffd", intensity: 0.9},
-      fillLight2: { color: "#fff", intensity: 0.8},
-      ambientLight: {color: "#fff", intensity: 0.5},
+      spotlight: [{x: 0, y: -4, z: 4, color: "#fff", intensity: 2.5, shadowRadius: 4}],
       render: {
         pixelRatio: 2.0,
         shadows: true,

@@ -73,36 +73,31 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap; // alt VSMShadowMap, PCFShadowMap, PCFSoftShadowMap
 host.appendChild(renderer.domElement);
 
-// lights
-const ambient = new THREE.AmbientLight(0xffffff, 0.55);
-scene.add(ambient);
+// Lights are driven entirely by config.spotlight (an array). The pool grows
+// on demand and is reused across rebuilds.
+const spotLights = [];
 
-const NUM_SOFTBOX_LIGHTS = 1;
-const softboxLights = [];
-const softboxGroup = new THREE.Group();
-scene.add(softboxGroup);
-
-for (let i = 0; i < NUM_SOFTBOX_LIGHTS; i++){
-  const light = new THREE.DirectionalLight(0xfff2e0, 0.0);
-  light.castShadow = i === 0;
-  light.shadow.mapSize.set(2048, 2048);
-  light.shadow.camera.near = 1.0;
-  light.shadow.camera.far = 10.0;
-  light.shadow.bias = 0.001;
-  light.shadow.normalBias = 0.01;
-  light.shadow.radius = 6;
-  //light.shadow.blurSamples = 16; // VSMShadowMap only
-  softboxGroup.add(light);
-  softboxGroup.add(light.target);
-  softboxLights.push(light);
+function ensureSpotLights(count){
+  while (spotLights.length < count){
+    const light = new THREE.DirectionalLight(0xffffff, 0);
+    light.castShadow = false;
+    light.shadow.mapSize.set(1024, 1024);
+    light.shadow.camera.near = 1.0;
+    light.shadow.camera.far = 10.0;
+    light.shadow.bias = 0.001;
+    light.shadow.normalBias = 0.01;
+    light.shadow.radius = 6;
+    //light.shadow.blurSamples = 16; // VSMShadowMap only
+    scene.add(light);
+    scene.add(light.target);
+    spotLights.push(light);
+  }
+  // Park lights that are no longer configured.
+  for (let i = count; i < spotLights.length; i++){
+    spotLights[i].intensity = 0;
+    spotLights[i].castShadow = false;
+  }
 }
-
-const rim = new THREE.DirectionalLight(0x8fb8ff, 0.4); // settable via config.fillLight
-rim.position.set(-5, 2, -4);
-scene.add(rim);
-const fill = new THREE.DirectionalLight(0xffffff, 0.25);
-fill.position.set(-2, -3, 4);
-scene.add(fill);
 
 // floor surface (settable via config.surface.material / surface.texture)
 const SURFACE_SIZE = 60; // world units across the floor plane
@@ -1476,7 +1471,6 @@ function build(config){
   const render = config.render || {};
   const pixelRatio = Math.max(0.5, Math.min(2, num(render.pixelRatio, 1.5)));
   const shadowsEnabled = render.shadows !== false;
-  const shadowLightCount = Math.max(0, Math.min(NUM_SOFTBOX_LIGHTS, Math.floor(num(render.softboxShadowCount, 1))));
   const detailShadows = render.detailShadows === true;
   const continuousRendering = render.continuous === true;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatio));
@@ -1695,88 +1689,51 @@ function build(config){
     scene.environment = null;
   }
 
-  const spotlight = config.spotlight || {};
-  const lx = num(spotlight.x, -3);
-  const ly = num(spotlight.y, -3);
-  const lz = num(spotlight.z, 4);
-  const lightColor = spotlight.color || '#bdf';
-  const totalIntensity = num(spotlight.intensity, 0.6);
-  const shadowRadius = Math.max(0, num(spotlight.shadowRadius ?? spotlight.shadowSoftness ?? spotlight.radius, 8));
-  const shadowBias = num(spotlight.shadowBias, -0.00006);
-  const shadowNormalBias = num(spotlight.shadowNormalBias, 0.0015);
-  const mapSize = Math.max(128, Math.floor(num(render.shadowMapSize ?? spotlight.shadowMapSize ?? spotlight.mapSize, 1024)));
-
-  // Softbox spread: larger shadowRadius -> wider physical aperture -> softer penumbra & diffuse shadows
-  const spread = shadowRadius * 0.07;
-
-  const dir = new THREE.Vector3(lx, lz, ly).normalize();
-  const up = Math.abs(dir.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
-  const right = new THREE.Vector3().crossVectors(dir, up).normalize();
-  const orthoUp = new THREE.Vector3().crossVectors(right, dir).normalize();
-
-  const offsets = [
-    { x: 0, y: 0, weight: 0.44 },
-    { x: spread, y: 0, weight: 0.14 },
-    { x: -spread, y: 0, weight: 0.14 },
-    { x: 0, y: spread, weight: 0.14 },
-    { x: 0, y: -spread, weight: 0.14 }
-  ];
-
+  // Spotlights: config.spotlight is an array of independent lights. A single
+  // object is accepted for older configs; omitting it leaves the scene dark
+  // apart from the skybox environment.
+  const spotRaw = config.spotlight;
+  const spotConfigs = Array.isArray(spotRaw) ? spotRaw : (spotRaw ? [spotRaw] : []);
+  const shadowLightCount = Math.max(0, Math.floor(num(render.softboxShadowCount, 1)));
   const ext = Math.max(width, height) * 0.9 + 2.5;
+  ensureSpotLights(spotConfigs.length);
 
-  softboxLights.forEach((sl, i) => {
-    const off = offsets[i];
-    const pos = new THREE.Vector3(lx, lz, ly)
-      .addScaledVector(right, off.x)
-      .addScaledVector(orthoUp, off.y);
+  spotConfigs.forEach((spotCfg, i) => {
+    const spot = spotCfg || {};
+    const light = spotLights[i];
+    const shadowRadius = Math.max(0, num(spot.shadowRadius ?? spot.shadowSoftness ?? spot.radius, 8));
+    const shadowBias = num(spot.shadowBias, -0.00006);
+    const shadowNormalBias = num(spot.shadowNormalBias, 0.0015);
+    const mapSize = Math.max(128, Math.floor(num(spot.shadowMapSize ?? spot.mapSize ?? render.shadowMapSize, 1024)));
 
-    sl.position.copy(pos);
-    sl.target.position.set(0, 0, 0);
-    sl.color.set(lightColor);
-    sl.intensity = totalIntensity * off.weight;
-    sl.castShadow = shadowsEnabled && i < shadowLightCount;
+    // Config y is depth and z is height for the flat-laid instrument.
+    light.position.set(num(spot.x, -3), num(spot.z, 4), num(spot.y, -3));
+    light.target.position.set(0, 0, 0);
+    light.color.set(spot.color || '#bdf');
+    light.intensity = Math.max(0, num(spot.intensity, 0.6));
+    light.castShadow = shadowsEnabled && spot.castShadow !== false && i < shadowLightCount;
 
-    sl.shadow.bias = shadowBias;
-    sl.shadow.normalBias = shadowNormalBias;
-
-    if (sl.shadow.mapSize.x !== mapSize || sl.shadow.mapSize.y !== mapSize){
-      sl.shadow.mapSize.set(mapSize, mapSize);
-      if (sl.shadow.map) {
-        sl.shadow.map.dispose();
-        sl.shadow.map = null;
+    light.shadow.radius = shadowRadius;
+    light.shadow.bias = shadowBias;
+    light.shadow.normalBias = shadowNormalBias;
+    if (light.shadow.mapSize.x !== mapSize || light.shadow.mapSize.y !== mapSize){
+      light.shadow.mapSize.set(mapSize, mapSize);
+      if (light.shadow.map) {
+        light.shadow.map.dispose();
+        light.shadow.map = null;
       }
     }
 
-    sl.shadow.camera.left = -ext;
-    sl.shadow.camera.right = ext;
-    sl.shadow.camera.top = ext;
-    sl.shadow.camera.bottom = -ext;
-    sl.shadow.camera.updateProjectionMatrix();
+    // Fit the shadow frustum to the instrument and the light's distance.
+    const dist = light.position.length();
+    light.shadow.camera.near = Math.max(0.1, dist * 0.1);
+    light.shadow.camera.far = dist + ext * 2;
+    light.shadow.camera.left = -ext;
+    light.shadow.camera.right = ext;
+    light.shadow.camera.top = ext;
+    light.shadow.camera.bottom = -ext;
+    light.shadow.camera.updateProjectionMatrix();
   });
-
-  const fillLight = config.fillLight || {};
-  rim.color.set(fillLight.color || '#8bf');
-  rim.intensity = Math.max(0, num(fillLight.intensity, 0.4));
-
-  const ambConfig = config.ambientLight || {};
-  ambient.color.set(ambConfig.color || spotlight.ambientColor || '#ffffff');
-  ambient.intensity = Math.max(0, num(ambConfig.intensity ?? spotlight.ambient ?? spotlight.ambientIntensity, 0.55));
-
-  const fill2 = config.fillLight2 || {};
-  fill.color.set(fill2.color || '#ffffff');
-  fill.intensity = Math.max(0, num(fill2.intensity, 0.25));
-
-  const noAuxLight = !num(fillLight.intensity, -1) && !num(fill2.intensity, -1) && !num(ambConfig.intensity, -1);
-  if (noAuxLight) {
-    softboxLights.forEach((sl, i) => {
-      if (i === 0) {
-        sl.intensity = totalIntensity;
-      } else {
-        sl.intensity = 0;
-      }
-      sl.castShadow = shadowsEnabled && i === 0;
-    });
-  }
 
   if (!cameraInitialized){
     radius = Math.max(2.5, Math.max(width, height) * 1.35 + depth);
