@@ -60,7 +60,7 @@ export const DEFAULT_CONFIGS = [
         color: "#642", intensity: 3.0, radius: 40,
         circles: { color: "#fff", count: 14, size: 26, spread: 3, seed: 1337 },
       },
-      spotlight: [{x: 0, y: -3, z: 3, color: "#fff", intensity: 1.2, shadowRadius: 5}],
+      spotlight: [{x: 0, y: -2, z: 3, color: "#fff", intensity: 1, shadowRadius: 5}],
       render: {
         pixelRatio: 2.0,
         shadows: true,
@@ -90,8 +90,8 @@ export const DEFAULT_CONFIGS = [
       knobs: [
         { label: "Sugar", x: -1.4, y: 0, radius: 0.3, height: 0.25, segments: 32, flatShading: false,
             material: { color: "#fe5", roughness: 0.15, metalness: 0 }, value: 0.62, topRounding: 0.7,
-            markColor: "#fff", markLength: 0.5, markWidth: 0.2,
-            labelColor: "#f5c", labelSize: 0.18
+            markColor: "#f5c", markLength: 0.5, markWidth: 0.2,
+            labelColor: "#f5c", labelSize: 0.2
         },
         { label: "Acid",   x: -0.5, value: 0.28 },
         { label: "Fat", value: 0.1 },
@@ -101,12 +101,14 @@ export const DEFAULT_CONFIGS = [
         {
           text: "Candy", font: "Brush Script MT", fontsize: 70, fontweight: "500", align: "left",
           x: -1.95, y: 0.7,
-          material: { color: "#f5c", roughness: 0.5, metalness: 0 }
+          material: { color: "#f5c", roughness: 0.4, metalness: 0 }
         }
       ],
       surface: { z: -0.01, material: { color: "#f8d", roughness: 0.4 }},
-      skybox: { color: "#cc6", intensity: 3.0, radius: 40},
-      spotlight: [{ x: 0, y: -2, z: 2, color: "#fcf", intensity: 3.5, shadowRadius: 4}],
+      skybox: { color: "#a65", intensity: 1.0, 
+        circles: { color: "#fff", count: 14, size: 40, spread: 3, seed: 1337 },
+      },
+      spotlight: [{ x: 0, y: -2, z: 3, color: "#fcf", intensity: 1, shadowRadius: 4}],
       render: {
         pixelRatio: 2.0,
         shadows: true,
@@ -130,7 +132,7 @@ export const DEFAULT_CONFIGS = [
     config: {
       constants: { "bodyColor": "#111" },
       body: {
-        width: 4.0, height: 2, depth: 0.6, corner: 0.2, bevel: 0.2, cornerSegments: 1, bevelSegments: 1,
+        width: 4.0, height: 2, depth: 0.6, corner: 0.25, bevel: 0.75, cornerSegments: 1, bevelSegments: 1,
         material: { color: "bodyColor", roughness: 0.5, metalness: 0.3, opacity:1.0, flatShading: true }
       },
       knobs: [
@@ -151,8 +153,8 @@ export const DEFAULT_CONFIGS = [
         }
       ],
       surface: { z: -0.001, material: { color: "#500" }},
-      skybox: { color: "#f8f", intensity: 2.0, radius: 40},
-      spotlight: [{x: 0, y: -2, z: 2, color: "#f0f", intensity: 4.5, shadowRadius: 4}],
+      skybox: { color: "#a5a", intensity: 1.0, radius: 40},
+      spotlight: [{x: 0, y: -2, z: 3, color: "#f0f", intensity: 2.5, shadowRadius: 4}],
       render: {
         pixelRatio: 2.0,
         shadows: true,
@@ -203,9 +205,9 @@ export const DEFAULT_CONFIGS = [
         backgroundColor: "#8d7", material: { roughness: 0.01, metalness: 0.0 }
       },
 
-      surface: {z: -0.001, material: { color: "#5af" }},
+      surface: {z: -0.001, material: { color: "#5af" }, texture: { pattern: "dots", size: 0.5, width: 0.25, color: "#59f"}},
       skybox: { color: "#b8b", intensity: 1.0, radius: 40},
-      spotlight: [{x: 0, y: -4, z: 4, color: "#fff", intensity: 2.5, shadowRadius: 4}],
+      spotlight: [{x: 0, y: -2, z: 3, color: "#fff", intensity: 2, shadowRadius: 5}],
       render: {
         pixelRatio: 2.0,
         shadows: true,

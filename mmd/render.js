@@ -66,7 +66,7 @@ const scene = new THREE.Scene();
   scene.background = new THREE.CanvasTexture(c);
 })();
 
-const camera = new THREE.PerspectiveCamera(45, 1, 1.0, 50);
+const gSceneCam = new THREE.PerspectiveCamera(45, 1, 1.0, 50);
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.shadowMap.enabled = true;
@@ -117,7 +117,7 @@ rig.rotation.x = -Math.PI / 2;
 scene.add(rig);
 
 /* ---------- manual orbit controls ---------- */
-let azimuth = 0, elevation = 1.0 / 3, radius = 8; // straight front, 60° elevation
+let gCamAzimuth = 0, gCamElevation = 0.4, gCamDistance = 10; // straight front, large evelation
 let cameraInitialized = false;
 let dragging = false, lastX = 0, lastY = 0;
 
@@ -204,7 +204,7 @@ function findControlAt(clientX, clientY){
   if (!rect.width || !rect.height) return null;
   controlNdc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
   controlNdc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-  controlRaycaster.setFromCamera(controlNdc, camera);
+  controlRaycaster.setFromCamera(controlNdc, gSceneCam);
   const hits = controlRaycaster.intersectObjects(collectPickableMeshes(), false);
   if (!hits.length) return null;
   const mesh = hits[0].object;
@@ -226,8 +226,8 @@ function sliderTrackScreen(control){
   _trkA.setFromMatrixPosition(g.matrixWorld);
   _trkB.set(0, 1, 0).applyQuaternion(g.getWorldQuaternion(_trkQ));
   _trkB.multiplyScalar(control.travel).add(_trkA);
-  _trkA.project(camera);
-  _trkB.project(camera);
+  _trkA.project(gSceneCam);
+  _trkB.project(gSceneCam);
   return {
     p0x: (_trkA.x * 0.5 + 0.5) * rect.width,
     p0y: (-_trkA.y * 0.5 + 0.5) * rect.height,
@@ -263,11 +263,11 @@ function controlCursor(control){
 }
 
 function updateCamera(){
-  const x = radius * Math.cos(Math.PI * elevation) * Math.sin(Math.PI * azimuth);
-  const y = radius * Math.sin(Math.PI * elevation);
-  const z = radius * Math.cos(Math.PI * elevation) * Math.cos(Math.PI * azimuth);
-  camera.position.set(x, y, z);
-  camera.lookAt(0, 0, 0);
+  const x = gCamDistance * Math.cos(Math.PI * gCamElevation) * Math.sin(Math.PI * gCamAzimuth);
+  const y = gCamDistance * Math.sin(Math.PI * gCamElevation);
+  const z = gCamDistance * Math.cos(Math.PI * gCamElevation) * Math.cos(Math.PI * gCamAzimuth);
+  gSceneCam.position.set(x, y, z);
+  gSceneCam.lookAt(0, 0, 0);
   scheduleRender();
 }
 
@@ -322,8 +322,8 @@ dom.addEventListener('mousemove', e => {
   if (dragging){
     const dx = e.clientX - lastX, dy = e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
-    azimuth -= dx * 0.002;
-    elevation = Math.max(-0.4999, Math.min(0.4999, elevation + dy * 0.002));
+    gCamAzimuth -= dx * 0.002;
+    gCamElevation = Math.max(-0.4999, Math.min(0.4999, gCamElevation + dy * 0.002));
     updateCamera();
     return;
   }
@@ -334,7 +334,7 @@ dom.addEventListener('mousemove', e => {
 });
 dom.addEventListener('wheel', e => {
   e.preventDefault();
-  radius = Math.max(2.5, Math.min(24, radius + e.deltaY * 0.01));
+  gCamDistance = Math.max(2, Math.min(40, gCamDistance + e.deltaY * 0.01));
   updateCamera();
 }, { passive: false });
 
@@ -345,8 +345,8 @@ dom.addEventListener('touchmove', e => {
     const dx = e.touches[0].clientX - touchLast[0];
     const dy = e.touches[0].clientY - touchLast[1];
     touchLast = [e.touches[0].clientX, e.touches[0].clientY];
-    azimuth -= dx * 0.006;
-    elevation += dy * 0.006;
+    gCamAzimuth -= dx * 0.006;
+    gCamElevation += dy * 0.006;
     updateCamera();
   }
 }, {passive:true});
@@ -618,12 +618,12 @@ function makeKnob(k, depth){
       font: `600 ${Math.round(150 * labelSize)}px ui-monospace, monospace`
     });
     const labelGeo = new THREE.PlaneGeometry(5 * labelSize, labelSize);
-    const labelMat = makeMaterial({ roughness: 0.5, metalness: 0.0, opacity: km.opacity }, { map: tex, transparent: true,
+    const labelMat = makeMaterial({ roughness: 0.5, metalness: 0.0}, { map: tex, transparent: true,
     polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
     const labelMesh = new THREE.Mesh(labelGeo, labelMat);
     labelMesh.castShadow = false;
     labelMesh.receiveShadow = true;
-    labelMesh.position.set(0, -radius * 1.1 - .7 * labelSize - .01, depth/2 + 0.006);
+    labelMesh.position.set(0, -radius * 1.1 - .7 * labelSize - .01, depth/2 + 0.008);
     knobGroup.add(labelMesh);
   }
 
@@ -959,7 +959,7 @@ function makeLabel(lbl, depth){
   // Extract font, fontsize, fontweight, color, material properties
   const fontFam = lbl.font || 'ui-monospace, monospace';
   const fontWeight = lbl.fontweight ?? lbl.fontWeight ?? '600';
-  const mat = matProps(lbl, { color: lbl.textColor || '#ffffff', roughness: 0.4, metalness: 0.25 });
+  const mat = matProps(lbl, { color: lbl.textColor || '#ffffff', roughness: 0.4, metalness: 0.0 });
 
   const rawSize = lbl.fontsize ?? lbl.fontSize ?? 28;
   let numFontSize = 28;
@@ -1401,7 +1401,7 @@ function renderFrame(now){
       if (!renderContinuously) fps.textContent = '';
     }
   }
-  renderer.render(scene, camera);
+  renderer.render(scene, gSceneCam);
   if (!renderContinuously && physSettled) return;
   framesSinceFpsUpdate++;
   const elapsed = now - lastFpsUpdate;
@@ -1771,7 +1771,7 @@ function build(config){
   });
 
   if (!cameraInitialized){
-    radius = Math.max(2.5, Math.max(width, height) * 1.35 + depth);
+    gCamDistance = Math.max(2.5, Math.max(width, height) * 1.8 + depth);
     cameraInitialized = true;
   }
   updateCamera();
@@ -1781,8 +1781,8 @@ function build(config){
 function resize(){
   const w = host.clientWidth, h = host.clientHeight;
   renderer.setSize(w, h, false);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
+  gSceneCam.aspect = w / h;
+  gSceneCam.updateProjectionMatrix();
   scheduleRender();
 }
 new ResizeObserver(resize).observe(host);
