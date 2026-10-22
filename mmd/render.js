@@ -64,6 +64,7 @@ const scene = new THREE.Scene();
   g.addColorStop(1, '#0c0d10');
   ctx.fillStyle = g; ctx.fillRect(0,0,8,256);
   scene.background = new THREE.CanvasTexture(c);
+  scene.background.colorSpace = THREE.SRGBColorSpace;
 })();
 
 const gSceneCam = new THREE.PerspectiveCamera(45, 1, 1.0, 50);
@@ -468,6 +469,7 @@ function textTexture(text, {
     ctx.fillText(line, align === 'center' ? width/2 : 8, lh * (i+1));
   });
   const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
   tex.needsUpdate = true;
   return tex;
 }
@@ -764,7 +766,7 @@ function makeButton(btn, depth){
       });
       const plateSize = Math.min(w, len) * 5 * labelSize;
       const plateGeo = new THREE.PlaneGeometry(plateSize, plateSize);
-      const plateMat = makeMaterial(bm, {
+      const plateMat = makeMaterial({ ...bm, color: '#ffffff' }, {
         map: tex, transparent: true,
         polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4
       });
@@ -838,6 +840,7 @@ function makeSliderTrackTexture(){
   }
 
   const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
   tex.needsUpdate = true;
   return tex;
 }
@@ -1020,6 +1023,7 @@ function makeLabel(lbl, depth){
   });
 
   const tex = new THREE.CanvasTexture(drawCanvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
   tex.needsUpdate = true;
 
   // 3D Plane Geometry determined by font size & measured text dimensions
@@ -1048,7 +1052,7 @@ function makeLabel(lbl, depth){
   const alignX = align === 'left' ? w / 2 : align === 'right' ? -w / 2 : 0;
 
   const labelGeo = new THREE.PlaneGeometry(w, h);
-  const labelMat = makeMaterial({ ...mat,
+  const labelMat = makeMaterial({ ...mat, color: '#ffffff',
     map: tex,
     transparent: true,
     depthWrite: false,
