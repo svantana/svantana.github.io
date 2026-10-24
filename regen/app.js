@@ -325,11 +325,11 @@ function initAudio() {
   const master = ctx.createGain();
 
   const compressor = ctx.createDynamicsCompressor();
-  compressor.threshold.value = -14;
-  compressor.knee.value = 16;
-  compressor.ratio.value = 5;
-  compressor.attack.value = 0.003;
-  compressor.release.value = 0.24;
+  compressor.threshold.value = -16;
+  compressor.knee.value = 12;
+  compressor.ratio.value = 20;
+  compressor.attack.value = 0.007;
+  compressor.release.value = 0.150;
 
   const analyser = ctx.createAnalyser();
   analyser.fftSize = 256;
