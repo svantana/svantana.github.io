@@ -49,7 +49,7 @@ export const DEFAULT_CONFIGS = [
         x: 0, y: -0.05, width: 1.6, height: 0.8, bezel: 0.05,
         bezelColor: "#434", roundedness: 0.1,
         text: "you are\nbeautiful", textColor: "#fab",
-        backgroundColor: "#024", material: { roughness: 0.1, metalness: 0.0 }
+        backgroundColor: "#048", material: { roughness: 0.1, metalness: 0.0 }
       },
       surface: {
         z: -0.05,

@@ -3,9 +3,11 @@
 /* ------------------------------------------------------------------ utils */
 
 const STEPS = 16;
+const XY_STEPS = 16;
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+const quantizeXY = (v) => Math.round(clamp(v, 0, 1) * (XY_STEPS - 1)) / (XY_STEPS - 1);
 const midiToFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
 const noteName = (m) => NOTE_NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
 const pct = (v) => Math.round(v * 100) + '%';
@@ -15,6 +17,31 @@ const bipct = (v) => {
 };
 const ms = (v) => Math.round(v) + 'ms';
 const beatClass = (index) => (index % 4 === 0 ? ' beat-mark' : '');
+
+function seedFrom(value) {
+  let hash = 2166136261;
+  const text = String(value);
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function seededRandom(seed) {
+  let value = seedFrom(seed);
+  return () => {
+    value += 0x6D2B79F5;
+    let t = value;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function nextPatternSeed() {
+  return Math.floor(Math.random() * 0xFFFFFFFF).toString(36).toUpperCase();
+}
 
 function fmtHz(hz) {
   return hz >= 1000 ? (hz / 1000).toFixed(hz < 10000 ? 1 : 0) + 'kHz' : Math.round(hz) + 'Hz';
@@ -31,28 +58,11 @@ const KNOBS_303 = [
   { key: 'vol', label: 'VOL', format: pct },
 ];
 
-const KNOBS_808 = {
-  kick: [
-    { key: 'tune', label: 'TUNE', format: (v) => Math.round(38 + v * 42) + 'Hz' },
-    { key: 'decay', label: 'DECAY', format: (v) => ms(170 + v * 750) },
-    { key: 'click', label: 'CLICK', format: pct },
-  ],
-  snare: [
-    { key: 'tune', label: 'TUNE', format: pct },
-    { key: 'tone', label: 'TONE', format: pct },
-    { key: 'decay', label: 'DECAY', format: (v) => ms(80 + v * 380) },
-  ],
-  clap: [
-    { key: 'spread', label: 'SPREAD', format: (v) => ms(4 + v * 22) },
-    { key: 'tone', label: 'TONE', format: pct },
-    { key: 'decay', label: 'DECAY', format: (v) => ms(120 + v * 380) },
-  ],
-  hat: [
-    { key: 'tune', label: 'TUNE', format: pct },
-    { key: 'tone', label: 'TONE', format: pct },
-    { key: 'decay', label: 'DECAY', format: (v) => ms(18 + v * 340) },
-  ],
-};
+const KNOBS_808 = [
+  { key: 'tune', label: 'TUNE', format: pct },
+  { key: 'decay', label: 'DECAY', format: (v) => ms(50 + v * 650) },
+  { key: 'shape', label: 'SHAPE', format: pct },
+];
 
 const DEFAULT_303_NOTE = 36;
 const MINOR_INTERVALS = [0, 2, 3, 5, 7, 8, 10, 12, 14, 15];
@@ -84,11 +94,12 @@ const tracks = [
   {
     id: 'acid-one',
     type: '303',
-    name: 'ACID ONE',
+    name: 'BASS',
     accent: '#ffffff',
     wave: 'sawtooth',
     muted: false,
-    scaleRoot: 33,
+    scaleRoot: 31,
+    randomizer: { density: 0.58, complexity: 0.62, seed: 'ACID1' },
     params: { cutoff: 0.34, resonance: 0.48, envmod: 0.55, decay: 0.4, accent: 0.68, vol: 0.82 },
     steps: steps303([
       [33, 1],
@@ -112,11 +123,12 @@ const tracks = [
   {
     id: 'acid-two',
     type: '303',
-    name: 'ACID TWO',
+    name: 'LEAD',
     accent: '#ffffff',
     wave: 'square',
     muted: false,
-    scaleRoot: 45,
+    scaleRoot: 55,
+    randomizer: { density: 0.48, complexity: 0.42, seed: 'ACID2' },
     params: { cutoff: 0.49, resonance: 0.32, envmod: 0.4, decay: 0.3, accent: 0.5, vol: 0.55 },
     steps: steps303([
       [45, 1],
@@ -143,34 +155,118 @@ const tracks = [
     name: 'DRUMS',
     accent: '#ffffff',
     muted: false,
+    randomizer: { density: 0.7, complexity: 0.56, seed: 'DRUMS' },
     voices: [
       {
         id: 'kick',
         name: 'KICK',
-        params: { tune: 0.42, decay: 0.5, click: 0.34, vol: 0.92 },
+        params: { tune: 0.42, decay: 0.5, shape: 0.34, vol: 0.92 },
         steps: steps808([0, 3, 6, 10, 12]),
       },
       {
         id: 'snare',
         name: 'SNARE',
-        params: { tune: 0.45, tone: 0.55, decay: 0.36, vol: 0.7 },
+        params: { tune: 0.45, decay: 0.36, shape: 0.55, vol: 0.7 },
         steps: steps808([4, 12]),
       },
       {
-        id: 'clap',
-        name: 'CLAP',
-        params: { spread: 0.38, tone: 0.45, decay: 0.3, vol: 0.6 },
-        steps: steps808([4, 12]),
+        id: 'tom',
+        name: 'TOM',
+        params: { tune: 0.34, decay: 0.38, shape: 0.48, vol: 0.62 },
+        steps: steps808([6, 14]),
       },
       {
         id: 'hat',
         name: 'HI-HAT',
-        params: { tune: 0.5, tone: 0.45, decay: 0.18, vol: 0.52 },
+        params: { tune: 0.5, decay: 0.18, shape: 0.45, vol: 0.52 },
         steps: steps808([0, 2, 4, 6, 8, 10, 12, 14]),
       },
     ],
   },
 ];
+
+/* --------------------------------------------------------- pattern engines */
+
+function generateMelodicPattern(track, seed, density, complexity) {
+  const random = seededRandom(seed + ':' + track.id);
+  const scale = minorScaleNotes(track.scaleRoot);
+  const result = Array.from({ length: STEPS }, (_, index) => ({
+    on: false,
+    note: scale[0],
+    accent: false,
+    slide: false,
+  }));
+  const probability = 0.1 + density * 0.78;
+  let degree = Math.floor(random() * Math.min(4, scale.length));
+
+  result.forEach((step, index) => {
+    const beat = index % 4 === 0;
+    const offbeat = index % 2 === 1;
+    const rhythmicLift = beat ? 0.22 : (offbeat ? complexity * 0.13 : 0);
+    step.on = random() < clamp(probability + rhythmicLift - complexity * (beat ? 0 : 0.06), 0.08, 0.96);
+    if (!step.on) return;
+
+    const motion = random() < 0.25 + complexity * 0.62;
+    if (motion) {
+      const jump = random() < complexity * 0.33 ? (random() < 0.5 ? 2 : -2) : (random() < 0.5 ? 1 : -1);
+      degree = clamp(degree + jump, 0, scale.length - 1);
+    }
+    step.note = scale[degree];
+    step.accent = random() < 0.12 + complexity * 0.38 + (beat ? 0.16 : 0);
+    step.slide = index > 0 && result[index - 1].on && random() < complexity * 0.46;
+  });
+
+  if (!result.some((step) => step.on)) {
+    result[0] = { on: true, note: scale[0], accent: true, slide: false };
+  }
+  return result;
+}
+
+function generateDrumPattern(seed, density, complexity) {
+  const random = seededRandom(seed + ':drums');
+  const empty = () => Array.from({ length: STEPS }, () => ({ on: false, note: 36, slide: false }));
+  const kick = empty();
+  const snare = empty();
+  const tom = empty();
+  const hat = empty();
+  const hit = (row, step) => { row[step % STEPS].on = true; };
+
+  hit(kick, 0);
+  if (density > 0.24 || random() < density) hit(kick, 8);
+  if (density > 0.55 && random() < density) hit(kick, 12);
+  if (complexity > 0.3 && random() < complexity) hit(kick, random() < 0.5 ? 3 : 6);
+  if (complexity > 0.68 && random() < complexity) hit(kick, random() < 0.5 ? 10 : 14);
+
+  [4, 12].forEach((step) => {
+    if (random() < 0.5 + density * 0.5) hit(snare, step);
+    if (random() < density * 0.5) hit(tom, step + (random() < 0.5 ? 2 : 0));
+  });
+  if (complexity > 0.5 && random() < complexity) hit(snare, random() < 0.5 ? 7 : 15);
+  if (complexity > 0.36 && random() < complexity) hit(tom, random() < 0.5 ? 6 : 14);
+  if (complexity > 0.74 && random() < complexity) hit(tom, random() < 0.5 ? 11 : 15);
+
+  for (let step = 0; step < STEPS; step += 2) {
+    if (random() < 0.18 + density * 0.78) hit(hat, step);
+  }
+  if (complexity > 0.34) {
+    for (let step = 1; step < STEPS; step += 2) {
+      if (random() < (complexity - 0.28) * (0.24 + density * 0.58)) hit(hat, step);
+    }
+  }
+  if (!hat.some((step) => step.on)) hit(hat, 0);
+  return { kick, snare, tom, hat };
+}
+
+function applyGeneratedPattern(track) {
+  const { density, complexity, seed } = track.randomizer;
+  if (track.type === '303') {
+    track.steps = generateMelodicPattern(track, seed, density, complexity);
+  } else {
+    const pattern = generateDrumPattern(seed, density, complexity);
+    track.voices.forEach((voice) => { voice.steps = pattern[voice.id]; });
+  }
+  for (let i = 0; i < STEPS; i++) updateStepView(track, i);
+}
 
 /* ------------------------------------------------------------------ state */
 
@@ -388,7 +484,7 @@ function triggerKick(p, time) {
   osc.start(time);
   osc.stop(time + decay + 0.02);
 
-  if (p.click > 0.01) {
+  if (p.shape > 0.01) {
     const src = ctx.createBufferSource();
     src.buffer = audio.noise;
     const hp = ctx.createBiquadFilter();
@@ -396,7 +492,7 @@ function triggerKick(p, time) {
     hp.frequency.value = 1800;
     const clickAmp = ctx.createGain();
     clickAmp.gain.setValueAtTime(0.0001, time);
-    clickAmp.gain.exponentialRampToValueAtTime(0.3 * p.click * vol, time + 0.002);
+    clickAmp.gain.exponentialRampToValueAtTime(0.3 * p.shape * vol, time + 0.002);
     clickAmp.gain.exponentialRampToValueAtTime(0.0001, time + 0.035);
 
     src.connect(hp);
@@ -417,7 +513,7 @@ function triggerSnare(p, time) {
   src.buffer = audio.noise;
   const bp = ctx.createBiquadFilter();
   bp.type = 'bandpass';
-  bp.frequency.value = 1100 + p.tone * 2800;
+  bp.frequency.value = 1100 + p.shape * 2800;
   bp.Q.value = 0.75;
   const noiseAmp = ctx.createGain();
   noiseAmp.gain.setValueAtTime(0.0001, time);
@@ -447,40 +543,36 @@ function triggerSnare(p, time) {
   });
 }
 
-function triggerClap(p, time) {
+function triggerTom(p, time) {
   const ctx = audio.ctx;
-  const vol = p.vol * 0.7;
-  const spread = 0.004 + p.spread * 0.022;
-  const tail = 0.1 + p.decay * 0.38;
-  const peak = 1.25 * vol;
-
-  const src = ctx.createBufferSource();
-  src.buffer = audio.noise;
-
-  const bp = ctx.createBiquadFilter();
-  bp.type = 'bandpass';
-  bp.frequency.value = 850 + p.tone * 2400;
-  bp.Q.value = 1.15;
-
+  const vol = p.vol * 0.62;
+  const tune = 70 + p.tune * 150;
+  const decay = 0.09 + p.decay * 0.56;
+  const stopAt = time + decay + 0.05;
   const amp = ctx.createGain();
   amp.gain.setValueAtTime(0.0001, time);
-
-  for (let i = 0; i < 4; i++) {
-    const t0 = time + i * spread;
-    amp.gain.setValueAtTime(0.0001, t0);
-    amp.gain.linearRampToValueAtTime(peak * (i === 3 ? 0.92 : 0.66), t0 + 0.002);
-    amp.gain.exponentialRampToValueAtTime(0.0001, t0 + spread * 0.82 + 0.006);
-  }
-
-  const tailStart = time + spread * 4 + 0.008;
-  amp.gain.setValueAtTime(peak * 0.82, tailStart);
-  amp.gain.exponentialRampToValueAtTime(0.0001, tailStart + tail);
-
-  src.connect(bp);
-  bp.connect(amp);
+  amp.gain.exponentialRampToValueAtTime(0.95 * vol, time + 0.003);
+  amp.gain.exponentialRampToValueAtTime(0.0001, time + decay);
   amp.connect(audio.master);
-  src.start(time);
-  src.stop(tailStart + tail + 0.03);
+
+  [
+    { ratio: 1, level: 1, type: 'sine' },
+    { ratio: 2.03, level: 0.14 + p.shape * 0.28, type: 'triangle' },
+  ].forEach(({ ratio, level, type }) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    const baseFrequency = tune * ratio;
+    osc.frequency.setValueAtTime(baseFrequency * (1 + p.shape * 0.38), time);
+    if (p.shape > 0) {
+      osc.frequency.exponentialRampToValueAtTime(baseFrequency, time + 0.006 + p.shape * 0.019);
+    }
+    gain.gain.value = level;
+    osc.connect(gain);
+    gain.connect(amp);
+    osc.start(time);
+    osc.stop(stopAt);
+  });
 }
 
 function triggerHat(p, time) {
@@ -516,7 +608,7 @@ function triggerHat(p, time) {
 
   const bp = ctx.createBiquadFilter();
   bp.type = 'bandpass';
-  bp.frequency.value = 8000 + p.tone * 3000;
+  bp.frequency.value = 8000 + p.shape * 3000;
   bp.Q.value = 0.6;
 
   const hp = ctx.createBiquadFilter();
@@ -539,7 +631,7 @@ function trigger808(voice, time) {
   if (!audio.ctx) return;
   if (voice.id === 'kick') triggerKick(p, time);
   else if (voice.id === 'snare') triggerSnare(p, time);
-  else if (voice.id === 'clap') triggerClap(p, time);
+  else if (voice.id === 'tom') triggerTom(p, time);
   else if (voice.id === 'hat') triggerHat(p, time);
 }
 
@@ -678,7 +770,7 @@ const bpmUp = document.getElementById('bpmUp');
 const bpmDown = document.getElementById('bpmDown');
 
 function createKnob(options) {
-  const { label, value, defaultValue, accent = '#ffffff', format, onInput, size = '' } = options;
+  const { label, value, defaultValue, accent = '#ffffff', format, onInput, size = '', showLabel = true } = options;
   const initial = clamp(Number.isFinite(value) ? value : 0, 0, 1);
   const resetValue = clamp(Number.isFinite(defaultValue) ? defaultValue : initial, 0, 1);
 
@@ -688,9 +780,9 @@ function createKnob(options) {
     '<div class="knob ' + size + '" tabindex="0" role="slider" aria-label="' + label +
     '" aria-valuemin="0" aria-valuemax="100">' +
     '<div class="knob-cap"></div>' +
+    '<span class="knob-value"></span>' +
     '</div>' +
-    '<span class="knob-label">' + label + '</span>' +
-    '<span class="knob-value"></span>';
+    (showLabel ? '<span class="knob-label">' + label + '</span>' : '');
 
   const knob = wrap.querySelector('.knob');
   const cap = wrap.querySelector('.knob-cap');
@@ -826,8 +918,8 @@ function previewDrum(voice) {
 }
 
 function setupDrumCell(track, voice, index, cell) {
-  const step = voice.steps[index];
   cell.addEventListener('click', () => {
+    const step = voice.steps[index];
     step.on = !step.on;
     updateStepView(track, index);
     if (step.on) previewDrum(voice);
@@ -914,6 +1006,12 @@ function buildTrack(track, index) {
     const controls = document.createElement('div');
     controls.className = 'drum-controls';
 
+    const columnHeader = document.createElement('div');
+    columnHeader.className = 'drum-control-header';
+    columnHeader.innerHTML =
+      '<span></span><div><b>TUNE</b><b>DECAY</b><b>SHAPE</b></div>';
+    controls.appendChild(columnHeader);
+
     track.voices.forEach((voice) => {
       const controlRow = document.createElement('div');
       controlRow.className = 'drum-control-row';
@@ -924,13 +1022,14 @@ function buildTrack(track, index) {
 
       const knobRow = document.createElement('div');
       knobRow.className = 'knob-row';
-      KNOBS_808[voice.id].forEach((def) => {
+      KNOBS_808.forEach((def) => {
         knobRow.appendChild(createKnob({
           label: def.label,
           value: voice.params[def.key],
           defaultValue: voice.params[def.key],
           accent: track.accent,
           format: def.format,
+          showLabel: false,
           onInput: (v) => { voice.params[def.key] = v; },
         }));
       });
@@ -1009,7 +1108,8 @@ function buildTrack(track, index) {
       accent.setAttribute('aria-label', track.name + ' accent step ' + (i + 1));
       accent.setAttribute('aria-pressed', String(!!step.accent));
       accent.addEventListener('click', () => {
-        step.accent = !step.accent;
+        const current = track.steps[i];
+        current.accent = !current.accent;
         updateStepView(track, i);
       });
       accentRow.appendChild(accent);
@@ -1030,7 +1130,8 @@ function buildTrack(track, index) {
       slide.setAttribute('aria-label', track.name + ' slide step ' + (i + 1));
       slide.setAttribute('aria-pressed', String(!!step.slide));
       slide.addEventListener('click', () => {
-        step.slide = !step.slide;
+        const current = track.steps[i];
+        current.slide = !current.slide;
         updateStepView(track, i);
       });
       slideRow.appendChild(slide);
@@ -1081,12 +1182,107 @@ function buildTrack(track, index) {
     });
   }
 
+  section.appendChild(buildPatternRandomizer(track));
   return section;
 }
 
 function renderTracks() {
   tracksEl.innerHTML = '';
   tracks.forEach((track, index) => tracksEl.appendChild(buildTrack(track, index)));
+}
+
+function createXYControl(track, onChange) {
+  const control = document.createElement('div');
+  control.className = 'xy-control';
+  control.tabIndex = 0;
+  control.setAttribute('role', 'application');
+  control.setAttribute('aria-label', track.name + ' pattern control. Horizontal density, vertical complexity.');
+  control.innerHTML =
+    '<span class="xy-axis xy-axis-y">COMPLEXITY</span>' +
+    '<span class="xy-axis xy-axis-x">DENSITY</span>' +
+    '<span class="xy-crosshair" aria-hidden="true"></span>';
+  const dot = control.querySelector('.xy-crosshair');
+  let dragging = false;
+  let pointerId = null;
+
+  function draw(patternChanged = false) {
+    const p = track.randomizer;
+    p.density = quantizeXY(p.density);
+    p.complexity = quantizeXY(p.complexity);
+    dot.style.left = ((p.density * (XY_STEPS - 1) + 0.5) / XY_STEPS * 100) + '%';
+    dot.style.bottom = ((p.complexity * (XY_STEPS - 1) + 0.5) / XY_STEPS * 100) + '%';
+    control.setAttribute('aria-valuetext', 'Density ' + Math.round(p.density * 100) + ' percent, complexity ' + Math.round(p.complexity * 100) + ' percent');
+    onChange(patternChanged);
+  }
+
+  function setFromPointer(event) {
+    const rect = control.getBoundingClientRect();
+    track.randomizer.density = quantizeXY((event.clientX - rect.left) / rect.width);
+    track.randomizer.complexity = quantizeXY(1 - (event.clientY - rect.top) / rect.height);
+    draw(true);
+  }
+
+  control.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    dragging = true;
+    pointerId = event.pointerId;
+    control.setPointerCapture(pointerId);
+    control.classList.add('is-dragging');
+    setFromPointer(event);
+  });
+  control.addEventListener('pointermove', (event) => {
+    if (dragging && event.pointerId === pointerId) setFromPointer(event);
+  });
+  function endDrag(event) {
+    if (!dragging) return;
+    dragging = false;
+    control.classList.remove('is-dragging');
+    if (pointerId !== null && control.hasPointerCapture(pointerId)) control.releasePointerCapture(pointerId);
+    pointerId = null;
+  }
+  control.addEventListener('pointerup', endDrag);
+  control.addEventListener('pointercancel', endDrag);
+  control.addEventListener('keydown', (event) => {
+    const amount = event.shiftKey ? 0.02 : 0.06;
+    let changed = true;
+    if (event.key === 'ArrowLeft') track.randomizer.density -= amount;
+    else if (event.key === 'ArrowRight') track.randomizer.density += amount;
+    else if (event.key === 'ArrowDown') track.randomizer.complexity -= amount;
+    else if (event.key === 'ArrowUp') track.randomizer.complexity += amount;
+    else changed = false;
+    if (changed) {
+      event.preventDefault();
+      track.randomizer.density = quantizeXY(track.randomizer.density);
+      track.randomizer.complexity = quantizeXY(track.randomizer.complexity);
+      draw(true);
+    }
+  });
+  draw();
+  return control;
+}
+
+function buildPatternRandomizer(track) {
+  const panel = document.createElement('section');
+  panel.className = 'randomizer-panel';
+  panel.setAttribute('aria-label', track.name + ' pattern randomizer');
+  panel.appendChild(createXYControl(track, (patternChanged) => {
+    if (patternChanged) applyGeneratedPattern(track);
+  }));
+
+  const randomize = document.createElement('button');
+  randomize.type = 'button';
+  randomize.className = 'randomize-btn';
+  randomize.textContent = 'RANDOMIZE';
+  randomize.addEventListener('click', () => {
+    track.randomizer.seed = nextPatternSeed();
+    applyGeneratedPattern(track);
+    randomize.classList.remove('is-flashing');
+    void randomize.offsetWidth;
+    randomize.classList.add('is-flashing');
+  });
+  panel.appendChild(randomize);
+  return panel;
 }
 
 /* ------------------------------------------------------------ top controls */
