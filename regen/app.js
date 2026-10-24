@@ -255,46 +255,19 @@ function initAudio() {
 
 /* --------------------------------------------------------------- synthesis */
 
-function trigger303(track, step, previous, time, stepDur) {
+function get303Voice(track) {
+  if (track.voice) return track.voice;
   const ctx = audio.ctx;
-  if (!ctx) return;
-
-  const p = track.params;
-  const freq = midiToFreq(step.note);
-  const accent = step.accent;
-  const peak = 0.3 * p.vol * (accent ? 1.5 : 0.92);
-  const gate = Math.max(0.055, stepDur * (step.slide ? 1.55 : 0.86));
-  const decay = 0.045 + p.decay * 0.5;
-  const baseCutoff = 90 * Math.pow(2, p.cutoff * 6.4);
-  const accentAmt = accent ? 0.55 + p.accent * 1.15 : 0.72;
-  const envAmount = (p.envmod - 0.5) * 2;
-  const envStart = clamp(baseCutoff * Math.pow(2, envAmount * 4.5 * accentAmt), 30, 15000);
+  if (!ctx || !audio.master) return null;
 
   const osc = ctx.createOscillator();
   osc.type = track.wave;
 
-  if (step.slide && previous && previous.on) {
-    osc.frequency.setValueAtTime(midiToFreq(previous.note), time);
-    osc.frequency.exponentialRampToValueAtTime(freq, time + Math.min(0.09, stepDur * 0.55));
-  } else {
-    osc.frequency.setValueAtTime(freq, time);
-  }
-
   const filter = ctx.createBiquadFilter();
   filter.type = 'lowpass';
-  filter.Q.value = 0.6 + p.resonance * 19;
-  filter.frequency.setValueAtTime(envStart, time);
-  filter.frequency.exponentialRampToValueAtTime(baseCutoff, time + 0.035 + p.decay * 0.35);
 
   const amp = ctx.createGain();
-  const decayEnd = time + gate;
-  amp.gain.setValueAtTime(0.0001, time);
-  amp.gain.exponentialRampToValueAtTime(peak, time + 0.004);
-  amp.gain.exponentialRampToValueAtTime(
-    Math.max(peak * 0.34, 0.0002),
-    time + Math.min(decay, gate)
-  );
-  amp.gain.exponentialRampToValueAtTime(0.0001, decayEnd + 0.035);
+  amp.gain.value = 0.0001;
 
   const shaper = ctx.createWaveShaper();
   shaper.curve = getDistCurve();
@@ -304,9 +277,94 @@ function trigger303(track, step, previous, time, stepDur) {
   filter.connect(amp);
   amp.connect(shaper);
   shaper.connect(audio.master);
+  osc.start();
 
-  osc.start(time);
-  osc.stop(decayEnd + 0.05);
+  track.voice = { osc, filter, amp, shaper, gateUntil: 0 };
+  return track.voice;
+}
+
+function holdParam(param, time) {
+  if (param.cancelAndHoldAtTime) param.cancelAndHoldAtTime(time);
+  else param.cancelScheduledValues(time);
+}
+
+function release303(track) {
+  const voice = track.voice;
+  if (!voice || !audio.ctx) return;
+  const now = audio.ctx.currentTime;
+  holdParam(voice.amp.gain, now);
+  voice.amp.gain.setTargetAtTime(0.0001, now, 0.01);
+  voice.gateUntil = 0;
+}
+
+function silence303(track) {
+  const voice = track.voice;
+  if (!voice || !audio.ctx) return;
+  const now = audio.ctx.currentTime;
+  holdParam(voice.amp.gain, now);
+  voice.amp.gain.setValueAtTime(0.0001, now);
+  voice.gateUntil = 0;
+}
+
+function trigger303(track, step, previous, next, time, stepDur, preview = false) {
+  const ctx = audio.ctx;
+  if (!ctx) return;
+  const voice = get303Voice(track);
+  if (!voice) return;
+
+  const p = track.params;
+  const osc = voice.osc;
+  const filter = voice.filter;
+  const amp = voice.amp;
+  const freq = midiToFreq(step.note);
+  const accent = step.accent;
+  const peak = 0.3 * p.vol * (accent ? 1.5 : 0.92);
+  const sustained = !preview && next && next.on && next.slide;
+  const gate = Math.max(0.055, stepDur * (sustained ? 1.75 : 0.86));
+  const decay = 0.045 + p.decay * 0.5;
+  const baseCutoff = 90 * Math.pow(2, p.cutoff * 6.4);
+  const accentAmt = accent ? 0.55 + p.accent * 1.15 : 0.72;
+  const envAmount = (p.envmod - 0.5) * 2;
+  const envStart = clamp(baseCutoff * Math.pow(2, envAmount * 4.5 * accentAmt), 30, 15000);
+  const legato = !preview && step.slide && previous && previous.on && voice.gateUntil > time;
+  const glide = legato;
+
+  osc.type = track.wave;
+  osc.frequency.cancelScheduledValues(time);
+  if (glide) {
+    osc.frequency.setValueAtTime(midiToFreq(previous.note), time);
+    osc.frequency.exponentialRampToValueAtTime(freq, time + Math.min(0.09, stepDur * 0.55));
+  } else {
+    osc.frequency.setValueAtTime(freq, time);
+  }
+
+  if (!legato) {
+    amp.gain.cancelScheduledValues(time);
+    filter.frequency.cancelScheduledValues(time);
+  }
+
+  if (!legato) {
+    filter.Q.setValueAtTime(0.6 + p.resonance * 19, time);
+    filter.frequency.setValueAtTime(envStart, time);
+    filter.frequency.exponentialRampToValueAtTime(baseCutoff, time + 0.035 + p.decay * 0.35);
+  }
+
+  const sustain = Math.max(peak * 0.34, 0.0002);
+  const releaseAt = time + gate;
+  const releaseEnd = releaseAt + 0.035;
+
+  if (legato) {
+    holdParam(amp.gain, time);
+    amp.gain.exponentialRampToValueAtTime(sustain, time + 0.02);
+  } else {
+    amp.gain.setValueAtTime(0.0001, time);
+    amp.gain.exponentialRampToValueAtTime(peak, time + 0.004);
+    amp.gain.exponentialRampToValueAtTime(sustain, time + Math.min(decay, gate));
+  }
+  amp.gain.setValueAtTime(sustain, releaseAt);
+  amp.gain.exponentialRampToValueAtTime(0.0001, releaseEnd);
+
+  if (!preview) voice.gateUntil = releaseEnd;
 }
 
 function triggerKick(p, time) {
@@ -499,7 +557,8 @@ function scheduleStep(index, time) {
       const step = track.steps[index];
       if (!step.on) return;
       const previous = track.steps[(index + STEPS - 1) % STEPS];
-      trigger303(track, step, previous, time, dur);
+      const next = track.steps[(index + 1) % STEPS];
+      trigger303(track, step, previous, next, time, dur);
     } else {
       track.voices.forEach((voice) => {
         const step = voice.steps[index];
@@ -596,6 +655,9 @@ async function togglePlay() {
         state.timer = null;
       }
       updatePlayButton();
+      tracks.forEach((track) => {
+        if (track.type === '303') silence303(track);
+      });
       try {
         await ctx.suspend();
       } catch (err) {
@@ -753,8 +815,8 @@ function updateStepView(track, index) {
 
 function preview303(track, step) {
   const ctx = initAudio();
-  if (!ctx || ctx.state !== 'running') return;
-  trigger303(track, step, null, ctx.currentTime + 0.01, 0.24);
+  if (!ctx || ctx.state !== 'running' || state.playing) return;
+  trigger303(track, step, null, null, ctx.currentTime + 0.01, 0.24, true);
 }
 
 function previewDrum(voice) {
@@ -801,6 +863,7 @@ function buildTrack(track, index) {
       button.setAttribute('aria-label', label + ' wave');
       button.addEventListener('click', () => {
         track.wave = kind;
+        if (track.voice) track.voice.osc.type = kind;
         waves.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b === button));
       });
       waves.appendChild(button);
@@ -819,6 +882,7 @@ function buildTrack(track, index) {
     section.classList.toggle('muted', track.muted);
     mute.classList.toggle('active', track.muted);
     mute.setAttribute('aria-pressed', String(track.muted));
+    if (track.muted) release303(track);
   });
   tools.appendChild(mute);
   head.appendChild(tools);
