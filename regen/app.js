@@ -275,7 +275,7 @@ const state = {
   started: false,
   bpm: 124,
   swing: 0.12,
-  master: 0.82,
+  master: 0.5,
   nextStep: 0,
   nextNoteTime: 0,
   displayStep: -1,
@@ -323,7 +323,6 @@ function initAudio() {
 
   const ctx = new AudioCtor();
   const master = ctx.createGain();
-  master.gain.value = state.master;
 
   const compressor = ctx.createDynamicsCompressor();
   compressor.threshold.value = -14;
@@ -1310,7 +1309,7 @@ function buildTopControls() {
     onInput: (v) => {
       state.master = v;
       if (audio.master && audio.ctx) {
-        audio.master.gain.setTargetAtTime(v, audio.ctx.currentTime, 0.03);
+        audio.master.gain.setTargetAtTime(16 * v * v * v, audio.ctx.currentTime, 0.03);
       }
     },
   }));
