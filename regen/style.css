@@ -492,6 +492,7 @@ kbd {
   align-items: center;
   gap: 7px;
   min-width: 0;
+  height: 18px;
 }
 
 .track-index {
@@ -690,7 +691,7 @@ kbd {
 .seq-row.hits { height: 44px; }
 
 .track[data-track="drums"] .track-panel { padding-bottom: 0; }
-.track[data-track="drums"] .seq-grid { padding-top: 40px; }
+.track[data-track="drums"] .seq-grid { padding-top: 57px; }
 .track[data-track="drums"] .seq-row.hits { flex: 0 0 64px; height: 64px; }
 
 .pitch-row { flex: 1 1 0; min-height: 16px; }
@@ -824,6 +825,7 @@ kbd {
 @media (max-width: 1080px) {
   .track { grid-template-columns: 1fr; }
   .track-panel { padding-right: 18px; }
+  .track[data-track="drums"] .seq-grid { padding-top: 0; }
   .knob-row { justify-content: flex-start; gap: 18px; }
   .footbar { flex-direction: column; gap: 4px; }
 }
