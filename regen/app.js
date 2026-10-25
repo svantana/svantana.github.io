@@ -92,15 +92,15 @@ function steps808(hits) {
 
 const tracks = [
   {
-    id: 'acid-one',
+    id: 'bass',
     type: '303',
     name: 'BASS',
     accent: '#ffffff',
-    wave: 'sawtooth',
+    wave: 'square',
     muted: false,
     scaleRoot: 31,
     randomizer: { density: 0.58, complexity: 0.62, seed: 'ACID1' },
-    params: { cutoff: 0.34, resonance: 0.48, envmod: 0.55, decay: 0.4, accent: 0.68, vol: 0.82 },
+    params: { cutoff: 0.2, resonance: 0.4, envmod: 0.55, decay: 0.3, accent: 0.4, vol: 0.5 },
     steps: steps303([
       [33, 1],
       null,
@@ -121,15 +121,15 @@ const tracks = [
     ]),
   },
   {
-    id: 'acid-two',
+    id: 'lead',
     type: '303',
     name: 'LEAD',
     accent: '#ffffff',
-    wave: 'square',
+    wave: 'sawtooth',
     muted: false,
     scaleRoot: 55,
     randomizer: { density: 0.48, complexity: 0.42, seed: 'ACID2' },
-    params: { cutoff: 0.49, resonance: 0.32, envmod: 0.4, decay: 0.3, accent: 0.5, vol: 0.55 },
+    params: { cutoff: 0.3, resonance: 0.3, envmod: 0.7, decay: 0.2, accent: 0.3, vol: 0.4 },
     steps: steps303([
       [45, 1],
       null,
@@ -160,25 +160,25 @@ const tracks = [
       {
         id: 'kick',
         name: 'KICK',
-        params: { tune: 0.42, decay: 0.5, shape: 0.34, vol: 0.92 },
+        params: { tune: 0.42, decay: 0.5, shape: 0.34, vol: 1.5 },
         steps: steps808([0, 3, 6, 10, 12]),
       },
       {
         id: 'snare',
         name: 'SNARE',
-        params: { tune: 0.45, decay: 0.36, shape: 0.55, vol: 0.7 },
+        params: { tune: 0.45, decay: 0.36, shape: 0.55, vol: 1.0 },
         steps: steps808([4, 12]),
       },
       {
         id: 'tom',
         name: 'TOM',
-        params: { tune: 0.34, decay: 0.38, shape: 0.48, vol: 0.62 },
+        params: { tune: 0.34, decay: 0.38, shape: 0.48, vol: 0.8 },
         steps: steps808([6, 14]),
       },
       {
         id: 'hat',
-        name: 'HI-HAT',
-        params: { tune: 0.5, decay: 0.18, shape: 0.45, vol: 0.52 },
+        name: 'HIHAT',
+        params: { tune: 0.5, decay: 0.18, shape: 0.45, vol: 0.3 },
         steps: steps808([0, 2, 4, 6, 8, 10, 12, 14]),
       },
     ],
@@ -329,10 +329,10 @@ function initAudio() {
   compressor.knee.value = 12;
   compressor.ratio.value = 20;
   compressor.attack.value = 0.007;
-  compressor.release.value = 0.150;
+  compressor.release.value = 0.100;
 
   const analyser = ctx.createAnalyser();
-  analyser.fftSize = 256;
+  analyser.fftSize = 1024;
   analyser.smoothingTimeConstant = 0.5;
 
   master.connect(compressor);
@@ -410,17 +410,19 @@ function trigger303(track, step, previous, next, time, stepDur, preview = false)
   const p = track.params;
   const osc = voice.osc;
   const filter = voice.filter;
+  const Q = 0.5 + p.resonance * (4 + 20 * p.resonance);
+  const qAmp = .25 + 1 / (1 + Q);
   const amp = voice.amp;
   const freq = midiToFreq(step.note);
   const accent = step.accent;
-  const peak = 0.3 * p.vol * (accent ? 1.5 : 0.92);
+  const peak = 1e-8 + 0.5 * p.vol * p.vol * (accent ? 1.5 : 0.92) * qAmp;
   const sustained = !preview && next && next.on && next.slide;
   const gate = Math.max(0.055, stepDur * (sustained ? 1.75 : 0.86));
   const decay = 0.045 + p.decay * 0.5;
-  const baseCutoff = 90 * Math.pow(2, p.cutoff * 6.4);
   const accentAmt = accent ? 0.55 + p.accent * 1.15 : 0.72;
   const envAmount = (p.envmod - 0.5) * 2;
-  const envStart = clamp(baseCutoff * Math.pow(2, envAmount * 4.5 * accentAmt), 30, 15000);
+  const baseCutoff = 90 * Math.pow(2, p.cutoff * 6.4 - 2 * envAmount);
+  const envStart = clamp(baseCutoff * Math.pow(2, envAmount * 4 * accentAmt), 30, 15000);
   const legato = !preview && step.slide && previous && previous.on && voice.gateUntil > time;
   const glide = legato;
 
@@ -437,9 +439,9 @@ function trigger303(track, step, previous, next, time, stepDur, preview = false)
     amp.gain.cancelScheduledValues(time);
     filter.frequency.cancelScheduledValues(time);
   }
+  filter.Q.setValueAtTime(Q, time);
 
   if (!legato) {
-    filter.Q.setValueAtTime(0.6 + p.resonance * 19, time);
     filter.frequency.setValueAtTime(envStart, time);
     filter.frequency.exponentialRampToValueAtTime(baseCutoff, time + 0.035 + p.decay * 0.35);
   }

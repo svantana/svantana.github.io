@@ -387,17 +387,16 @@ kbd {
 .tracks {
   display: flex;
   flex-direction: column;
-  gap: 11px;
-  margin-top: 14px;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .randomizer-panel {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 12px;
-  padding: 10px;
-  border: 1px solid var(--line);
+  gap: 8px;
+  padding: 4px 6px;
   background: var(--black);
 }
 
@@ -448,7 +447,7 @@ kbd {
 }
 
 .randomize-btn {
-  min-height: 27px;
+  min-height: 24px;
   border-color: var(--white);
   color: var(--white);
   font-family: var(--mono);
@@ -462,8 +461,8 @@ kbd {
 
 .track {
   display: grid;
-  grid-template-columns: minmax(280px, 300px) minmax(0, 1fr) 214px;
-  gap: 10px;
+  grid-template-columns: minmax(280px, 300px) minmax(0, 1fr) 180px;
+  gap: 8px;
 }
 
 .track-panel {
@@ -609,7 +608,7 @@ kbd {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 64px;
+  height: 48px;
   padding: 0;
   border-top: 1px solid var(--line-soft);
 }
@@ -688,11 +687,11 @@ kbd {
 
 .seq-row.notes { height: 47px; }
 .seq-row.flags { flex: 0 0 12px; height: 12px; margin-top: 4px; }
-.seq-row.hits { height: 44px; }
+.seq-row.hits { height: 48px; }
 
 .track[data-track="drums"] .track-panel { padding-bottom: 0; }
 .track[data-track="drums"] .seq-grid { padding-top: 57px; }
-.track[data-track="drums"] .seq-row.hits { flex: 0 0 64px; height: 64px; }
+.track[data-track="drums"] .seq-row.hits { flex: 0 0 48px; height: 48px; }
 
 .pitch-row { flex: 1 1 0; min-height: 16px; }
 
