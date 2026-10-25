@@ -410,7 +410,7 @@ function trigger303(track, step, previous, next, time, stepDur, preview = false)
   const p = track.params;
   const osc = voice.osc;
   const filter = voice.filter;
-  const Q = 0.5 + p.resonance * (4 + 20 * p.resonance);
+  const Q = 0.1 + p.resonance * (4 + 20 * p.resonance);
   const qAmp = .25 + 1 / (1 + Q);
   const amp = voice.amp;
   const freq = midiToFreq(step.note);
@@ -923,7 +923,7 @@ function setupDrumCell(track, voice, index, cell) {
     const step = voice.steps[index];
     step.on = !step.on;
     updateStepView(track, index);
-    if (step.on) previewDrum(voice);
+    //if (step.on) previewDrum(voice);
   });
 }
 
