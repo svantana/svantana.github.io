@@ -1,0 +1,57 @@
+
+import("stdfaust.lib");
+
+declare name "Acid 303";
+declare version "1.1";
+declare options "[midi:on][nvoices:1]";
+
+// MIDI voice controls
+freq = hslider("freq", 110, 20, 2000, 0.01);
+gain = hslider("gain", 0.7, 0, 1, 0.01);
+gate = button("gate");
+
+// Front panel
+waveType  = hslider("Waveform", 0, 0, 1, .001);
+cutoff    = hslider("Filter Cutoff [unit:Hz]", 700, 40, 12000, 1);
+resonance = hslider("Filter Resonance", 0.72, 0, 1, 0.001);
+envmod    = hslider("Filter Env Mod", 0.65, 0, 1, 0.001);
+decay     = hslider("Filter Decay [unit:s]", 0.25, 0.03, 2, 0.001);
+accent    = hslider("Accent", 0.3, 0, 1, 0.001);
+volume    = hslider("Volume", 0.5, 0, 1, 0.001);
+
+// ============ Envelopes
+// Short attack and release for the amplifier.
+ampEnv = en.adsr(0.002, 0.03, 0.85, 0.04, gate);
+
+// Pluck-like filter envelope.
+// Zero sustain creates the falling acid sweep.
+filterEnv = en.adsr(0.001, decay, 0, 0.001, gate);
+
+// Oscillator
+saw = os.sawtooth(freq);
+square = os.square(freq);
+osc = (1-waveType) * saw + waveType * square;
+
+// ============= Filter modulation
+// Accent increases filter envelope depth.
+envDepth = envmod * (1 + 1.5 * accent);
+
+// Exponential sweep, with cutoff constrained below Nyquist.
+sweptCutoff = min(18000, max(40, cutoff * exp(4 * envDepth * filterEnv)));
+
+// Resonance mapped to a useful range.
+q = 0.7 + 12 * resonance;
+
+// Resonant low-pass filter.
+// The third argument is the filter's peak gain parameter.
+filter = fi.resonlp(sweptCutoff, q, 1);
+
+// Output
+accentGain = 1 + 0.7 * accent;
+voice = osc
+    : filter
+    : *(ampEnv)
+    : *(gain * volume * accentGain);
+
+// Stereo output
+process = voice <: _, _;
