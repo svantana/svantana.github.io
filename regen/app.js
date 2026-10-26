@@ -64,11 +64,42 @@ const KNOBS_808 = [
   { key: 'shape', label: 'SHAPE', format: pct },
 ];
 
-const DEFAULT_303_NOTE = 36;
-const MINOR_INTERVALS = [0, 2, 3, 5, 7, 8, 10, 12, 14, 15];
+const NOTES_PER_OCTAVE = 7;
+const MINOR_SCALE = [0, 2, 3, 5, 7, 8, 10];
+const MIN_SCALE_NOTE = -3;
+const MAX_SCALE_NOTE = 8;
+const PITCH_ROW_COUNT = MAX_SCALE_NOTE - MIN_SCALE_NOTE + 1;
+const DEFAULT_303_SCALE_INDEX = 0;
 
-function minorScaleNotes(root) {
-  return MINOR_INTERVALS.map((interval) => root + interval);
+function getTrackTransposition(track) {
+  if (!track || !track.params) return 0;
+  if (typeof track.params.transposition === 'number') return track.params.transposition;
+  if (typeof track.params.transpose === 'number') return track.params.transpose;
+  return 0;
+}
+
+function scaleIndexToMidi(index, root, scale = MINOR_SCALE) {
+  const octave = Math.floor(index / NOTES_PER_OCTAVE);
+  const degree = ((index % NOTES_PER_OCTAVE) + NOTES_PER_OCTAVE) % NOTES_PER_OCTAVE;
+  return root + octave * 12 + scale[degree];
+}
+
+function getStepMidi(track, step) {
+  const transpose = getTrackTransposition(track) + (state.transpose || 0);
+  return scaleIndexToMidi(step.note, track.scaleRoot, track.scale || MINOR_SCALE) + transpose;
+}
+
+function getTrackScaleMidi(track, index) {
+  const transpose = getTrackTransposition(track) + (state.transpose || 0);
+  return scaleIndexToMidi(index, track.scaleRoot, track.scale || MINOR_SCALE) + transpose;
+}
+
+function minorScaleNotes(root, scale = MINOR_SCALE, min = MIN_SCALE_NOTE, max = MAX_SCALE_NOTE) {
+  const result = [];
+  for (let i = min; i <= max; i++) {
+    result.push(scaleIndexToMidi(i, root, scale));
+  }
+  return result;
 }
 
 function steps303(entries) {
@@ -76,7 +107,7 @@ function steps303(entries) {
     const entry = entries[i];
     return entry
       ? { on: true, note: entry[0], accent: !!entry[1], slide: !!entry[2] }
-      : { on: false, note: DEFAULT_303_NOTE, accent: false, slide: false };
+      : { on: false, note: DEFAULT_303_SCALE_INDEX, accent: false, slide: false };
   });
 }
 
@@ -100,24 +131,34 @@ const tracks = [
     muted: false,
     scaleRoot: 31,
     randomizer: { density: 0.58, complexity: 0.62, seed: 'ACID1' },
-    params: { cutoff: 0.2, resonance: 0.4, envmod: 0.55, decay: 0.3, accent: 0.4, vol: 0.5 },
+    params: {
+      cutoff: 0.2,
+      resonance: 0.4,
+      envmod: 0.55,
+      decay: 0.3,
+      accent: 0.4,
+      vol: 0.5,
+      transposition: 0,
+      get transpose() { return this.transposition; },
+      set transpose(v) { this.transposition = v; },
+    },
     steps: steps303([
-      [33, 1],
+      [0, 1],
       null,
-      [33],
-      [36, 0, 1],
-      [40, 1],
+      [0],
+      [2, 0, 1],
+      [4, 1],
       null,
-      [33],
-      [43, 0, 1],
-      [45, 1],
+      [0],
+      [6, 0, 1],
+      [7, 1],
       null,
-      [43],
-      [40, 0, 1],
-      [36],
-      [33, 0, 1],
+      [6],
+      [4, 0, 1],
+      [2],
+      [0, 0, 1],
       null,
-      [35, 1],
+      [1, 1],
     ]),
   },
   {
@@ -127,26 +168,36 @@ const tracks = [
     accent: '#ffffff',
     wave: 'sawtooth',
     muted: false,
-    scaleRoot: 55,
+    scaleRoot: 31,
     randomizer: { density: 0.48, complexity: 0.42, seed: 'ACID2' },
-    params: { cutoff: 0.3, resonance: 0.3, envmod: 0.7, decay: 0.2, accent: 0.3, vol: 0.4 },
+    params: {
+      cutoff: 0.3,
+      resonance: 0.3,
+      envmod: 0.7,
+      decay: 0.2,
+      accent: 0.3,
+      vol: 0.4,
+      transposition: 24,
+      get transpose() { return this.transposition; },
+      set transpose(v) { this.transposition = v; },
+    },
     steps: steps303([
-      [45, 1],
+      [0, 1],
       null,
-      [48],
-      [52, 0, 1],
-      [55, 1],
+      [2],
+      [4, 0, 1],
+      [6, 1],
       null,
-      [53, 0, 1],
-      [52],
-      [50, 1],
+      [5, 0, 1],
+      [4],
+      [3, 1],
       null,
-      [48, 0, 1],
-      [45],
-      [55, 1],
-      [52, 0, 1],
+      [2, 0, 1],
+      [0],
+      [6, 1],
+      [4, 0, 1],
       null,
-      [45],
+      [0],
     ]),
   },
   {
@@ -189,36 +240,69 @@ const tracks = [
 
 function generateMelodicPattern(track, seed, density, complexity) {
   const random = seededRandom(seed + ':' + track.id);
-  const scale = minorScaleNotes(track.scaleRoot);
-  const result = Array.from({ length: STEPS }, (_, index) => ({
+
+  // ---- 1. Decide exact note count from density -------------------------
+  const noteCount = Math.max(1, Math.round(1 + density * (STEPS - 1)));
+
+  // ---- 2. Place notes ---------------------------------------------------
+  // At complexity 0: evenly spaced (Bresenham / equal-division).
+  // At complexity 1: freely random.
+  // We blend between the two by perturbing ideal positions.
+  const positions = new Set();
+
+  // Ideal even-spacing positions (fractional)
+  const idealPositions = Array.from({ length: noteCount }, (_, k) =>
+    (k * STEPS) / noteCount
+  );
+
+  for (let k = 0; k < noteCount; k++) {
+    const ideal = idealPositions[k];
+    // Max jitter: half a step-gap at full complexity
+    const halfGap = STEPS / (2 * noteCount);
+    const jitter = (random() - 0.5) * 2 * halfGap * complexity;
+    let pos = Math.round(ideal + jitter);
+    pos = ((pos % STEPS) + STEPS) % STEPS;
+    // Resolve collision: scan forward for a free slot
+    while (positions.has(pos)) {
+      pos = (pos + 1) % STEPS;
+    }
+    positions.add(pos);
+  }
+
+  // ---- 3. Build result with melody walk --------------------------------
+  const result = Array.from({ length: STEPS }, () => ({
     on: false,
-    note: scale[0],
+    note: DEFAULT_303_SCALE_INDEX,
     accent: false,
     slide: false,
   }));
-  const probability = 0.1 + density * 0.78;
-  let degree = Math.floor(random() * Math.min(4, scale.length));
 
-  result.forEach((step, index) => {
-    const beat = index % 4 === 0;
-    const offbeat = index % 2 === 1;
-    const rhythmicLift = beat ? 0.22 : (offbeat ? complexity * 0.13 : 0);
-    step.on = random() < clamp(probability + rhythmicLift - complexity * (beat ? 0 : 0.06), 0.08, 0.96);
-    if (!step.on) return;
+  let degree = Math.floor(random() * 4);
+  const sorted = Array.from(positions).sort((a, b) => a - b);
 
+  sorted.forEach((pos) => {
+    const beat = pos % 4 === 0;
     const motion = random() < 0.25 + complexity * 0.62;
     if (motion) {
-      const jump = random() < complexity * 0.33 ? (random() < 0.5 ? 2 : -2) : (random() < 0.5 ? 1 : -1);
-      degree = clamp(degree + jump, 0, scale.length - 1);
+      const jump = random() < complexity * 0.33
+        ? (random() < 0.5 ? 2 : -2)
+        : (random() < 0.5 ? 1 : -1);
+      degree = clamp(degree + jump, MIN_SCALE_NOTE, MAX_SCALE_NOTE);
     }
-    step.note = scale[degree];
-    step.accent = random() < 0.12 + complexity * 0.38 + (beat ? 0.16 : 0);
-    step.slide = index > 0 && result[index - 1].on && random() < complexity * 0.46;
+    result[pos].on = true;
+    result[pos].note = degree;
+    result[pos].accent = random() < 0.12 + complexity * 0.38 + (beat ? 0.16 : 0);
   });
 
-  if (!result.some((step) => step.on)) {
-    result[0] = { on: true, note: scale[0], accent: true, slide: false };
-  }
+  // ---- 4. Slide: only between consecutive active steps -----------------
+  sorted.forEach((pos, i) => {
+    if (i === 0) return;
+    const prev = sorted[i - 1];
+    if (prev === pos - 1 && random() < complexity * 0.46) {
+      result[pos].slide = true;
+    }
+  });
+
   return result;
 }
 
@@ -276,6 +360,7 @@ const state = {
   bpm: 124,
   swing: 0.12,
   master: 0.5,
+  transpose: 0,
   nextStep: 0,
   nextNoteTime: 0,
   displayStep: -1,
@@ -413,7 +498,7 @@ function trigger303(track, step, previous, next, time, stepDur, preview = false)
   const Q = 0.1 + p.resonance * (4 + 20 * p.resonance);
   const qAmp = .25 + 1 / (1 + Q);
   const amp = voice.amp;
-  const freq = midiToFreq(step.note);
+  const freq = midiToFreq(getStepMidi(track, step));
   const accent = step.accent;
   const peak = 1e-8 + 0.5 * p.vol * p.vol * (accent ? 1.5 : 0.92) * qAmp;
   const sustained = !preview && next && next.on && next.slide;
@@ -429,7 +514,7 @@ function trigger303(track, step, previous, next, time, stepDur, preview = false)
   osc.type = track.wave;
   osc.frequency.cancelScheduledValues(time);
   if (glide) {
-    osc.frequency.setValueAtTime(midiToFreq(previous.note), time);
+    osc.frequency.setValueAtTime(midiToFreq(getStepMidi(track, previous)), time);
     osc.frequency.exponentialRampToValueAtTime(freq, time + Math.min(0.09, stepDur * 0.55));
   } else {
     osc.frequency.setValueAtTime(freq, time);
@@ -880,13 +965,15 @@ function updateStepView(track, index) {
 
     const activeNote = step.on ? step.note : null;
     view.pitchCells[index].forEach((cell) => {
-      const note = Number(cell.dataset.note);
-      const active = activeNote !== null && note === activeNote;
+      const noteIndex = Number(cell.dataset.note);
+      const active = activeNote !== null && noteIndex === activeNote;
       cell.classList.toggle('on', active);
+      const midi = getTrackScaleMidi(track, noteIndex);
       cell.setAttribute(
         'aria-label',
-        track.name + ', step ' + (index + 1) + ', ' + noteName(note) + (active ? ', active' : '')
+        track.name + ', step ' + (index + 1) + ', ' + noteName(midi) + (active ? ', active' : '')
       );
+      cell.title = 'Step ' + (index + 1) + ' · ' + noteName(midi);
     });
 
     view.slideCells[index].classList.toggle('on', !!step.slide);
@@ -904,6 +991,27 @@ function updateStepView(track, index) {
       );
     });
   }
+}
+
+function updateTrackScaleView(track) {
+  if (track.type !== '303' || !track.view) return;
+  if (track.view.pitchRows) {
+    track.view.pitchRows.forEach(({ rowElement, labelElement, noteIndex }) => {
+      const midi = getTrackScaleMidi(track, noteIndex);
+      labelElement.textContent = noteName(midi);
+      const isRoot = ((noteIndex % NOTES_PER_OCTAVE) + NOTES_PER_OCTAVE) % NOTES_PER_OCTAVE === 0;
+      rowElement.classList.toggle('root', isRoot);
+    });
+  }
+  for (let i = 0; i < STEPS; i++) {
+    updateStepView(track, i);
+  }
+}
+
+function setTrackScale(track, newRoot, newScale) {
+  if (newRoot !== undefined) track.scaleRoot = newRoot;
+  if (newScale !== undefined) track.scale = newScale;
+  updateTrackScaleView(track);
 }
 
 function preview303(track, step) {
@@ -1060,32 +1168,35 @@ function buildTrack(track, index) {
   };
 
   if (track.type === '303') {
-    const scaleNotes = minorScaleNotes(track.scaleRoot);
+    view.pitchRows = [];
 
-    for (let row = scaleNotes.length - 1; row >= 0; row--) {
-      const note = scaleNotes[row];
+    for (let row = MAX_SCALE_NOTE; row >= MIN_SCALE_NOTE; row--) {
+      const isRoot = ((row % NOTES_PER_OCTAVE) + NOTES_PER_OCTAVE) % NOTES_PER_OCTAVE === 0;
       const pitchRow = document.createElement('div');
-      pitchRow.className = 'seq-row pitch-row' + (note % 12 === track.scaleRoot % 12 ? ' root' : '');
+      pitchRow.className = 'seq-row pitch-row' + (isRoot ? ' root' : '');
 
+      const midi = getTrackScaleMidi(track, row);
       const label = document.createElement('span');
       label.className = 'seq-label';
-      label.textContent = noteName(note);
+      label.textContent = noteName(midi);
       pitchRow.appendChild(label);
+
+      view.pitchRows.push({ rowElement: pitchRow, labelElement: label, noteIndex: row });
 
       for (let i = 0; i < STEPS; i++) {
         const cell = document.createElement('button');
         cell.type = 'button';
         cell.className = 'step-cell pitch-cell' + beatClass(i);
         cell.dataset.step = String(i);
-        cell.dataset.note = String(note);
-        cell.title = 'Step ' + (i + 1) + ' · ' + noteName(note);
+        cell.dataset.note = String(row);
+        cell.title = 'Step ' + (i + 1) + ' · ' + noteName(midi);
         cell.addEventListener('click', () => {
           const current = track.steps[i];
-          if (current.on && current.note === note) {
+          if (current.on && current.note === row) {
             current.on = false;
           } else {
             current.on = true;
-            current.note = note;
+            current.note = row;
           }
           updateStepView(track, i);
           if (current.on) preview303(track, current);
@@ -1289,6 +1400,23 @@ function buildPatternRandomizer(track) {
 /* ------------------------------------------------------------ top controls */
 
 function buildTopControls() {
+  const transposeMount = document.getElementById('transposeKnob');
+  transposeMount.appendChild(createKnob({
+    label: 'TRANSPOSE',
+    value: 0.5,
+    defaultValue: 0.5,
+    accent: '#ffffff',
+    size: 'knob-sm',
+    format: (v) => {
+      const st = Math.round((v - 0.5) * 48);
+      return (st > 0 ? '+' : '') + st + 'st';
+    },
+    onInput: (v) => {
+      state.transpose = Math.round((v - 0.5) * 48);
+      tracks.forEach((track) => { if (track.type === '303') updateTrackScaleView(track); });
+    },
+  }));
+
   const swingMount = document.getElementById('swingKnob');
   swingMount.appendChild(createKnob({
     label: 'SWING',

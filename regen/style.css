@@ -693,7 +693,7 @@ kbd {
 .track[data-track="drums"] .seq-grid { padding-top: 57px; }
 .track[data-track="drums"] .seq-row.hits { flex: 0 0 48px; height: 48px; }
 
-.pitch-row { flex: 1 1 0; min-height: 16px; }
+.pitch-row { flex: 1 1 0; min-height: 14px; }
 
 .seq-label {
   display: flex;
@@ -737,6 +737,7 @@ kbd {
   border-top: 1px solid var(--line-mid);
 }
 
+.pitch-row.root .step-cell:not(.on),
 .step-cell.beat-mark:not(.on),
 .flag-cell.beat-mark:not(.on) {
   background: var(--cell-shade);
