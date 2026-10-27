@@ -201,7 +201,6 @@ function buildGui(json) {
       (it.items || []).forEach(i => c.appendChild(make(i)));
       g.appendChild(c); return g;
     }
-    if (poly && /^(freq|key|vel|velocity|gate)$/.test((it.address || "").split("/").pop())) return document.createDocumentFragment();
     const w = document.createElement("div"); w.className = "w" + (t.startsWith("v") ? " v" : "");
     const addr = it.address, step = +it.step || 0.01;
     const dec = Math.max(0, Math.min(4, (String(step).split(".")[1] || "").length));
@@ -218,11 +217,7 @@ function buildGui(json) {
       const r = document.createElement("input"); r.type = "range";
       r.min = it.min; r.max = it.max; r.step = step; r.value = it.init;
       const v = document.createElement("span"); v.className = "val"; v.textContent = (+it.init).toFixed(dec);
-      const isGain = poly && addr.split("/").pop() === "gain";
-      const setVel = () => { if (isGain) vel = Math.max(1, Math.min(127, Math.round(+r.max > 0 ? (+r.value - +r.min) / (+r.max - +r.min) * 127 : 100))); };
-      r.oninput = () => { v.textContent = (+r.value).toFixed(dec); node?.setParamValue(addr, +r.value); setVel(); };
-      setVel();
-      node?.setParamValue(addr, +it.init);
+      r.oninput = () => { v.textContent = (+r.value).toFixed(dec); node?.setParamValue(addr, +r.value); };
       const l = document.createElement("span"); l.textContent = label;
       w.append(l, r, v);
     } else if (t === "hbargraph" || t === "vbargraph") {
@@ -292,7 +287,8 @@ function findParams(json) {          // mono only: locate the freq / gate contro
   })(json.ui);
   return out;
 }
-let poly = false, vel = 100;   // key-on velocity (in poly mode the gain slider sets it)
+let poly = false;
+const vel = 100;   // fixed key-on velocity, like a plain on-screen keyboard
 function noteOn(n) {
   stack.push(n);
   if (!node) return;
