@@ -107,3 +107,25 @@ $("#code").addEventListener("keydown", e => {
 });
 
 startScope($("#scope"), getAnalyser, getNode);
+
+async function loadPresets() {
+  const sel = $("#preset");
+  if (!sel) return;
+  const presets = ["acid.txt", "polysynth.txt"];
+  for (const p of presets) {
+    const opt = document.createElement("option");
+    opt.value = p;
+    opt.textContent = p.replace(/\.txt$/, "");
+    sel.appendChild(opt);
+  }
+  sel.onchange = async () => {
+    try {
+      const res = await fetch(`devices/${sel.value}`);
+      if (res.ok) {
+        const txt = await res.text();
+        $("#code").value = txt;
+      }
+    } catch {}
+  };
+}
+loadPresets();
