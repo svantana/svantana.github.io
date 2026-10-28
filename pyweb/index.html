@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Python Playground</title>
+<style>
+:root {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  --bg: #ffffff; --surface: #f6f7f9; --border: #d8dce2; --text: #1f2430; --muted: #6b7280;
+  --gutter-text: #9aa1ad; --accent: #2f6fed; --accent-text: #ffffff; --err: #c62828; --ok: #2e7d32;
+  --tk-kw: #8250df; --tk-str: #0a7a3d; --tk-num: #b35900; --tk-com: #8b94a3; --tk-bi: #0b6fb8;
+  --tk-def: #b3234f; --tk-deco: #9a6700; --caret: #1f2430;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14161b; --surface: #1b1e25; --border: #2d323c; --text: #d7dce5; --muted: #8b93a1;
+    --gutter-text: #566070; --accent: #4c8dff; --accent-text: #0b1020; --err: #ff7b72; --ok: #6fd48a;
+    --tk-kw: #c792ea; --tk-str: #9ece6a; --tk-num: #ffa657; --tk-com: #6b7587; --tk-bi: #79c0ff;
+    --tk-def: #ff8fb1; --tk-deco: #e3b341; --caret: #d7dce5;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14161b; --surface: #1b1e25; --border: #2d323c; --text: #d7dce5; --muted: #8b93a1;
+  --gutter-text: #566070; --accent: #4c8dff; --accent-text: #0b1020; --err: #ff7b72; --ok: #6fd48a;
+  --tk-kw: #c792ea; --tk-str: #9ece6a; --tk-num: #ffa657; --tk-com: #6b7587; --tk-bi: #79c0ff;
+  --tk-def: #ff8fb1; --tk-deco: #e3b341; --caret: #d7dce5;
+  color-scheme: dark;
+}
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+header {
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+header h1 { font-size: 15px; font-weight: 600; margin: 0; flex: 1; }
+#status { font-size: 12px; color: var(--muted); }
+button#run {
+  background: var(--accent); color: var(--accent-text); border: 0; border-radius: 6px;
+  padding: 7px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+button#run:disabled { opacity: .5; cursor: default; }
+main { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; }
+.pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.pane + .pane { border-left: 1px solid var(--border); }
+.label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+  padding: 6px 12px; background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.editor { flex: 1; min-height: 0; display: flex; position: relative; }
+#gutter {
+  width: 48px; flex: none; overflow: hidden; text-align: right; color: var(--gutter-text);
+  background: var(--surface); border-right: 1px solid var(--border);
+  white-space: pre; padding: 12px 8px 40px 0; box-sizing: border-box; user-select: none;
+}
+.code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 13px; line-height: 20px; tab-size: 4;
+}
+#gutter, #hl, #src { font: inherit; }
+.stack { position: relative; flex: 1; min-width: 0; }
+#hl, #src {
+  position: absolute; inset: 0; margin: 0; border: 0; box-sizing: border-box;
+  padding: 12px 24px 40px 12px; white-space: pre; tab-size: 4;
+  font-family: inherit; font-size: inherit; line-height: inherit; letter-spacing: 0;
+}
+#hl { overflow: hidden; pointer-events: none; color: var(--text); }
+#src {
+  overflow: auto; background: transparent; color: transparent; caret-color: var(--caret);
+  resize: none; outline: none; -webkit-text-fill-color: transparent;
+}
+#src::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); -webkit-text-fill-color: transparent; }
+.k { color: var(--tk-kw); } .s { color: var(--tk-str); } .n { color: var(--tk-num); }
+.c { color: var(--tk-com); font-style: italic; } .b { color: var(--tk-bi); }
+.d { color: var(--tk-def); } .a { color: var(--tk-deco); }
+#out {
+  flex: 1; min-height: 0; margin: 0; padding: 12px; overflow: auto; white-space: pre-wrap;
+  word-break: break-word; font-size: 13px; line-height: 20px;
+}
+#out .err { color: var(--err); }
+#out .hint { color: var(--muted); }
+@media (max-width: 700px) {
+  main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  .pane + .pane { border-left: 0; border-top: 1px solid var(--border); }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Python Playground</h1>
+  <span id="status">Loading runtime…</span>
+  <button id="run" disabled title="Ctrl/Cmd + Enter">▶ Compile &amp; Run</button>
+</header>
+<main>
+  <section class="pane">
+    <div class="label">main.py</div>
+    <div class="editor code">
+      <div id="gutter">1</div>
+      <div class="stack">
+        <pre id="hl" aria-hidden="true"></pre>
+        <textarea id="src" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="Python code"></textarea>
+      </div>
+    </div>
+  </section>
+  <section class="pane">
+    <div class="label">Output</div>
+    <pre id="out" class="code"><span class="hint">Press Compile &amp; Run to see output here.</span></pre>
+  </section>
+</main>
+
+<!-- Tiny built-in json module (Brython's own stdlib bundle is several MB) -->
+<script type="text/plain" id="py-json">
+class JSONDecodeError(ValueError):
+    pass
+
+_ESC = {'"': '"', '\\': '\\', '/': '/', 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t'}
+
+def _quote(s, ensure_ascii):
+    out = ['"']
+    for ch in s:
+        o = ord(ch)
+        if ch == '"': out.append('\\"')
+        elif ch == '\\': out.append('\\\\')
+        elif ch == '\n': out.append('\\n')
+        elif ch == '\r': out.append('\\r')
+        elif ch == '\t': out.append('\\t')
+        elif ch == '\b': out.append('\\b')
+        elif ch == '\f': out.append('\\f')
+        elif o < 32 or (ensure_ascii and o > 126):
+            if o > 0xFFFF:
+                o -= 0x10000
+                out.append('\\u%04x\\u%04x' % (0xD800 + (o >> 10), 0xDC00 + (o & 0x3FF)))
+            else:
+                out.append('\\u%04x' % o)
+        else: out.append(ch)
+    out.append('"')
+    return ''.join(out)
+
+def _enc(o, indent, level, ikw, sort_keys, ensure_ascii, seps, default):
+    item_sep, key_sep = seps
+    if o is None: return 'null'
+    if o is True: return 'true'
+    if o is False: return 'false'
+    if isinstance(o, str): return _quote(o, ensure_ascii)
+    if isinstance(o, int): return str(int(o))
+    if isinstance(o, float):
+        if o != o: return 'NaN'
+        if o == float('inf'): return 'Infinity'
+        if o == float('-inf'): return '-Infinity'
+        return repr(o)
+    if isinstance(o, (list, tuple)):
+        if not o: return '[]'
+        parts = [_enc(v, indent, level + 1, ikw, sort_keys, ensure_ascii, seps, default) for v in o]
+        if indent is None:
+            return '[' + item_sep.join(parts) + ']'
+        pad = '\n' + ikw * (level + 1)
+        return '[' + pad + (item_sep + pad).join(parts) + '\n' + ikw * level + ']'
+    if isinstance(o, dict):
+        if not o: return '{}'
+        keys = list(o.keys())
+        if sort_keys: keys.sort()
+        parts = []
+        for k in keys:
+            if isinstance(k, str): ks = k
+            elif k is True: ks = 'true'
+            elif k is False: ks = 'false'
+            elif k is None: ks = 'null'
+            elif isinstance(k, (int, float)): ks = str(k)
+            else: raise TypeError('keys must be str, int, float, bool or None, not ' + type(k).__name__)
+            parts.append(_quote(ks, ensure_ascii) + key_sep + _enc(o[k], indent, level + 1, ikw, sort_keys, ensure_ascii, seps, default))
+        if indent is None:
+            return '{' + item_sep.join(parts) + '}'
+        pad = '\n' + ikw * (level + 1)
+        return '{' + pad + (item_sep + pad).join(parts) + '\n' + ikw * level + '}'
+    if default is not None:
+        return _enc(default(o), indent, level, ikw, sort_keys, ensure_ascii, seps, default)
+    raise TypeError('Object of type ' + type(o).__name__ + ' is not JSON serializable')
+
+def dumps(obj, *, skipkeys=False, ensure_ascii=True, check_circular=True, allow_nan=True,
+          cls=None, indent=None, separators=None, default=None, sort_keys=False, **kw):
+    if isinstance(indent, int): ikw = ' ' * indent
+    elif isinstance(indent, str): ikw = indent
+    else: ikw = ''
+    if separators is None:
+        separators = (',', ': ') if indent is not None else (', ', ': ')
+    return _enc(obj, indent, 0, ikw, sort_keys, ensure_ascii, separators, default)
+
+class _P:
+    def __init__(self, s, hooks):
+        self.s = s; self.i = 0; self.hooks = hooks
+    def err(self, msg):
+        line = self.s.count('\n', 0, self.i) + 1
+        col = self.i - (self.s.rfind('\n', 0, self.i) + 1) + 1
+        raise JSONDecodeError('%s: line %d column %d (char %d)' % (msg, line, col, self.i))
+    def ws(self):
+        s = self.s; n = len(s)
+        while self.i < n and s[self.i] in ' \t\n\r': self.i += 1
+    def value(self):
+        self.ws()
+        s = self.s
+        if self.i >= len(s): self.err('Expecting value')
+        c = s[self.i]
+        if c == '{': return self.obj()
+        if c == '[': return self.arr()
+        if c == '"': return self.string()
+        for lit, val in (('true', True), ('false', False), ('null', None), ('NaN', float('nan')), ('Infinity', float('inf')), ('-Infinity', float('-inf'))):
+            if s.startswith(lit, self.i):
+                self.i += len(lit); return val
+        j = self.i
+        n = len(s)
+        if j < n and s[j] == '-': j += 1
+        while j < n and s[j].isdigit(): j += 1
+        isf = False
+        if j < n and s[j] == '.':
+            isf = True; j += 1
+            while j < n and s[j].isdigit(): j += 1
+        if j < n and s[j] in 'eE':
+            isf = True; j += 1
+            if j < n and s[j] in '+-': j += 1
+            while j < n and s[j].isdigit(): j += 1
+        tok = s[self.i:j]
+        if tok in ('', '-'): self.err('Expecting value')
+        self.i = j
+        return float(tok) if isf else int(tok)
+    def string(self):
+        s = self.s; self.i += 1; out = []
+        while True:
+            if self.i >= len(s): self.err('Unterminated string starting at')
+            c = s[self.i]
+            if c == '"':
+                self.i += 1; return ''.join(out)
+            if c == '\\':
+                self.i += 1
+                e = s[self.i:self.i + 1]
+                if e == 'u':
+                    cp = int(s[self.i + 1:self.i + 5], 16); self.i += 5
+                    if 0xD800 <= cp < 0xDC00 and s.startswith('\\u', self.i):
+                        lo = int(s[self.i + 2:self.i + 6], 16)
+                        if 0xDC00 <= lo < 0xE000:
+                            cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00); self.i += 6
+                    out.append(chr(cp))
+                elif e in _ESC:
+                    out.append(_ESC[e]); self.i += 1
+                else: self.err('Invalid \\escape')
+            elif ord(c) < 32: self.err('Invalid control character at')
+            else:
+                out.append(c); self.i += 1
+    def arr(self):
+        self.i += 1; res = []; self.ws()
+        if self.s[self.i:self.i + 1] == ']':
+            self.i += 1; return res
+        while True:
+            res.append(self.value()); self.ws()
+            c = self.s[self.i:self.i + 1]
+            self.i += 1
+            if c == ']': return res
+            if c != ',':
+                self.i -= 1; self.err("Expecting ',' delimiter")
+    def obj(self):
+        self.i += 1; res = {}; self.ws()
+        if self.s[self.i:self.i + 1] == '}':
+            self.i += 1; return self.hooks(res)
+        while True:
+            self.ws()
+            if self.s[self.i:self.i + 1] != '"': self.err('Expecting property name enclosed in double quotes')
+            k = self.string(); self.ws()
+            if self.s[self.i:self.i + 1] != ':': self.err("Expecting ':' delimiter")
+            self.i += 1
+            res[k] = self.value(); self.ws()
+            c = self.s[self.i:self.i + 1]
+            self.i += 1
+            if c == '}': return self.hooks(res)
+            if c != ',':
+                self.i -= 1; self.err("Expecting ',' delimiter")
+
+def loads(s, *, cls=None, object_hook=None, parse_float=None, parse_int=None, parse_constant=None, object_pairs_hook=None, **kw):
+    if isinstance(s, (bytes, bytearray)): s = s.decode('utf-8')
+    hooks = object_hook if object_hook is not None else (lambda d: d)
+    p = _P(s, hooks)
+    v = p.value(); p.ws()
+    if p.i != len(s): p.err('Extra data')
+    return v
+
+def dump(obj, fp, **kw):
+    fp.write(dumps(obj, **kw))
+
+def load(fp, **kw):
+    return loads(fp.read(), **kw)
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/brython/3.12.4/brython.min.js"></script>
+<script>
+(function () {
+  var src = document.getElementById('src');
+  var hl = document.getElementById('hl');
+  var gutter = document.getElementById('gutter');
+  var out = document.getElementById('out');
+  var runBtn = document.getElementById('run');
+  var statusEl = document.getElementById('status');
+
+  var SAMPLE = [
+    '# Try editing me, then press Ctrl/Cmd + Enter',
+    'def fib(n):',
+    '    a, b = 0, 1',
+    '    for _ in range(n):',
+    '        yield a',
+    '        a, b = b, a + b',
+    '',
+    'print("Fibonacci:", list(fib(12)))',
+    '',
+    'class Greeter:',
+    '    def __init__(self, name):',
+    '        self.name = name',
+    '',
+    '    def hello(self):',
+    '        return f"Hello, {self.name}!"',
+    '',
+    'print(Greeter("world").hello())',
+    ''
+  ].join('\n');
+
+  // ---------- syntax highlighting (tiny hand-written tokenizer) ----------
+  var KW = new Set('False None True and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield match case'.split(' '));
+  var BI = new Set('abs all any bin bool bytes callable chr dict dir divmod enumerate filter float format frozenset getattr hasattr hash hex id input int isinstance issubclass iter len list map max min next object oct open ord pow print range repr reversed round set setattr slice sorted str sum super tuple type vars zip self cls Exception ValueError TypeError KeyError IndexError'.split(' '));
+  var TOKEN = /(#[^\n]*)|([rRbBfFuU]{0,2}(?:"""[\s\S]*?(?:"""|$)|'''[\s\S]*?(?:'''|$)|"(?:\\.|[^"\\\n])*(?:"|$)|'(?:\\.|[^'\\\n])*(?:'|$)))|(@[A-Za-z_][\w.]*)|(\b(?:0[xX][\da-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|\d[\d_]*\.?[\d_]*(?:[eE][+-]?\d+)?j?|\.\d[\d_]*(?:[eE][+-]?\d+)?j?)\b)|([A-Za-z_]\w*)/g;
+
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+  function highlight(code) {
+    var res = '', last = 0, m, prevWord = '';
+    TOKEN.lastIndex = 0;
+    while ((m = TOKEN.exec(code))) {
+      res += esc(code.slice(last, m.index));
+      var t = m[0], cls = null;
+      if (m[1]) cls = 'c';
+      else if (m[2]) cls = 's';
+      else if (m[3]) cls = 'a';
+      else if (m[4]) cls = 'n';
+      else if (m[5]) {
+        if (prevWord === 'def' || prevWord === 'class') cls = 'd';
+        else if (KW.has(t)) cls = 'k';
+        else if (BI.has(t)) cls = 'b';
+        prevWord = t;
+      }
+      if (!m[5]) prevWord = '';
+      res += cls ? '<span class="' + cls + '">' + esc(t) + '</span>' : esc(t);
+      last = m.index + t.length;
+      if (t.length === 0) TOKEN.lastIndex++;
+    }
+    return res + esc(code.slice(last));
+  }
+
+  function render() {
+    var v = src.value;
+    hl.innerHTML = highlight(v) + '\n ';
+    var n = v.split('\n').length, g = '';
+    for (var i = 1; i <= n; i++) g += i + '\n';
+    gutter.textContent = g;
+    syncScroll();
+  }
+  function syncScroll() {
+    hl.scrollTop = src.scrollTop; hl.scrollLeft = src.scrollLeft;
+    gutter.scrollTop = src.scrollTop;
+  }
+
+  src.addEventListener('input', render);
+  src.addEventListener('scroll', syncScroll);
+
+  function insert(text) {
+    var s = src.selectionStart, e = src.selectionEnd;
+    src.setRangeText(text, s, e, 'end');
+    render();
+  }
+
+  src.addEventListener('keydown', function (ev) {
+    if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') { ev.preventDefault(); run(); return; }
+    if (ev.key === 'Tab') {
+      ev.preventDefault();
+      var s = src.selectionStart, e = src.selectionEnd, v = src.value;
+      var ls = v.lastIndexOf('\n', s - 1) + 1;
+      if (ev.shiftKey || s !== e) {
+        // indent / dedent the selected lines
+        var le = v.indexOf('\n', e); if (le === -1) le = v.length;
+        var lines = v.slice(ls, le).split('\n');
+        var delta0 = 0, deltaAll = 0;
+        lines = lines.map(function (l, i) {
+          var nl;
+          if (ev.shiftKey) {
+            var rm = (l.match(/^ {1,4}/) || [''])[0].length;
+            nl = l.slice(rm); if (i === 0) delta0 = -rm; deltaAll -= rm;
+          } else { nl = '    ' + l; if (i === 0) delta0 = 4; deltaAll += 4; }
+          return nl;
+        });
+        src.setRangeText(lines.join('\n'), ls, le, 'preserve');
+        src.selectionStart = Math.max(ls, s + delta0);
+        src.selectionEnd = e + deltaAll;
+      } else {
+        insert('    ');
+        return;
+      }
+      render();
+      return;
+    }
+    if (ev.key === 'Enter' && !ev.ctrlKey && !ev.metaKey && !ev.shiftKey) {
+      ev.preventDefault();
+      var pos = src.selectionStart, val = src.value;
+      var lineStart = val.lastIndexOf('\n', pos - 1) + 1;
+      var before = val.slice(lineStart, pos);
+      var indent = (before.match(/^[ \t]*/) || [''])[0];
+      if (/:\s*(#.*)?$/.test(before)) indent += '    ';
+      insert('\n' + indent);
+    }
+  });
+
+  // ---------- Python runtime (Brython: pure-JS, small download) ----------
+  function append(text, cls) {
+    var first = out.firstElementChild;
+    if (first && first.classList.contains('hint')) out.textContent = '';
+    var span = document.createElement('span');
+    if (cls) span.className = cls;
+    span.textContent = text;
+    out.appendChild(span);
+    out.scrollTop = out.scrollHeight;
+  }
+
+  // NOTE: no `import sys` here: that would make Brython fetch its stdlib over the
+  // network, which the hosted page blocks. Output is hooked from JS instead.
+  var PRELUDE = [
+    'from browser import window',
+    'def _run(code):',
+    '    try:',
+    '        exec(compile(code, "main.py", "exec"), {"__name__": "__main__"})',
+    '        return True',
+    '    except BaseException as e:',
+    '        info = getattr(e, "info", None)',
+    '        msg = str(e)',
+    '        if "JSObject" in msg or "NetworkError" in msg:',
+    '            window.__pyErr("ImportError: this module is not available (only core Python and json are bundled)\\n")',
+    '        elif info:',
+    '            window.__pyErr(str(info) + "\\n")',
+    '        else:',
+    '            window.__pyErr(e.__class__.__name__ + ": " + msg + "\\n")',
+    '        return False',
+    'window.__pyRun = _run'
+  ].join('\n');
+
+  var ready = false;
+  window.__pyOut = function (s) { append(s); };
+  window.__pyErr = function (s) { append(s, 'err'); };
+
+  function execPython(code, name) {
+    return __BRYTHON__.runPythonSource(code, name);
+  }
+
+  function describe(e) {
+    try {
+      return String((e && (e.message || (e.args && e.args[0]))) || (e && e.__class__ && e.__class__.__name__) || e);
+    } catch (x) { return 'unknown error'; }
+  }
+
+  function hookStreams() {
+    var S = __BRYTHON__.imported._sys || __BRYTHON__.imported.sys;
+    if (!S) throw new Error('Brython sys module not found');
+    S.stdout = { write: function (s) { window.__pyOut(String(s)); return String(s).length; }, flush: function () {} };
+    S.stderr = { write: function (s) { window.__pyErr(String(s)); return String(s).length; }, flush: function () {} };
+  }
+
+  function init() {
+    try {
+      brython({ indexedDB: false });
+      // Register bundled pure-Python modules so `import json` needs no network.
+      __BRYTHON__.update_VFS({ json: ['.py', document.getElementById('py-json').textContent, []] });
+      __BRYTHON__.use_VFS = true;
+      hookStreams();
+      execPython(PRELUDE, '__prelude__');
+      if (typeof window.__pyRun !== 'function') throw new Error('runtime setup failed');
+      ready = true;
+      runBtn.disabled = false;
+      statusEl.textContent = 'Ready';
+    } catch (e) {
+      statusEl.textContent = 'Runtime failed to start';
+      out.textContent = '';
+      append('Could not start the Python runtime: ' + describe(e) + '\n', 'err');
+    }
+  }
+
+  function run() {
+    if (!ready) return;
+    out.textContent = '';
+    var t0 = performance.now(), ok = true;
+    statusEl.textContent = 'Running…';
+    try {
+      ok = window.__pyRun(src.value) !== false;
+    } catch (e) {
+      ok = false;
+      append(describe(e) + '\n', 'err');
+    }
+    var ms = Math.round(performance.now() - t0);
+    if (!out.textContent) append('(no output)', 'hint');
+    statusEl.textContent = (ok ? 'Finished' : 'Failed') + ' in ' + ms + ' ms';
+  }
+
+  runBtn.addEventListener('click', run);
+  src.value = SAMPLE;
+  render();
+
+  if (typeof brython === 'function' && typeof __BRYTHON__ !== 'undefined') init();
+  else {
+    statusEl.textContent = 'Runtime could not be loaded';
+    append('The Brython script failed to load from cdnjs.\n', 'err');
+  }
+})();
+</script>
+</body>
+</html>
