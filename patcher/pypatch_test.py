@@ -4,7 +4,7 @@ import pypatch
 dsp = pypatch.Graph()
 midi = dsp.midi()
 osc = dsp.node("oscSaw", {"note": midi.note})
-envAmp = dsp.node("envADSR", {"gate":midi.gate, "attack":0.01, "decay":0.2, "sustain":0.7, "release":0.4})
+envAmp = dsp.node("envADSR", {"gate":midi.gate, "a":0.01, "d":0.2, "s":0.7, "r":0.4})
 
 bass = dsp.node("oscSin", {"note": 48})
 
@@ -22,5 +22,6 @@ json_str = dsp.get_json()
 print("json:")
 print(json_str)
 
+# check that json parses
 import json
 json_obj = json.loads(json_str)

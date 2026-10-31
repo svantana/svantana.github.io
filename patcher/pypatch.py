@@ -1,4 +1,5 @@
 # pypatch.py - DSP graph builder
+# generates an audio processing graph in python. inputs are either constants or references to earlier output buffers
 
 class Node:
     def __init__(self, graph, nodeType, index, input):
@@ -30,7 +31,7 @@ class Node:
 # some special convenience nodes
 class Midi(Node):
     def __init__(self, graph, index, input):
-        super(Midi, self).__init__("midiIn", graph, index, input)
+        super(Midi, self).__init__(graph, "midiIn", index, input)
         self.gate = "midi.gate"
         self.note = "midi.note"
         self.velocity = "midi.velocity"
@@ -82,5 +83,5 @@ class Graph:
                 print(p)
                 continue
             s += '\t\t{"type": "'+p.type+'", "input": ' + str(p.input).replace("'",'"') + '},\n'
-        s += "\t]\n}\n"
+        s = s[:-2] + "\n\t]\n}\n"
         return s
