@@ -62,6 +62,7 @@ export const DEFAULT_CONFIGS = [
       },
       spotlight: [{x: 0, y: -2, z: 3, color: "#fff", intensity: 1, shadowRadius: 5}],
       render: {
+        material: "standard",
         pixelRatio: 2.0,
         shadows: true,
         shadowMapSize: 2048,
@@ -110,6 +111,7 @@ export const DEFAULT_CONFIGS = [
       },
       spotlight: [{ x: 0, y: -2, z: 3, color: "#fcf", intensity: 1, shadowRadius: 4}],
       render: {
+        material: "standard",
         pixelRatio: 2.0,
         shadows: true,
         shadowMapSize: 2048,
@@ -156,6 +158,7 @@ export const DEFAULT_CONFIGS = [
       skybox: { color: "#a5a", intensity: 1.0, radius: 40},
       spotlight: [{x: 0, y: -2, z: 3, color: "#f0f", intensity: 2.5, shadowRadius: 4}],
       render: {
+        material: "standard",
         pixelRatio: 2.0,
         shadows: true,
         shadowMapSize: 2048,
@@ -209,6 +212,7 @@ export const DEFAULT_CONFIGS = [
       skybox: { color: "#b8b", intensity: 1.0, radius: 40},
       spotlight: [{x: 0, y: -2, z: 3, color: "#fff", intensity: 2, shadowRadius: 5}],
       render: {
+        material: "standard",
         pixelRatio: 2.0,
         shadows: true,
         shadowMapSize: 2048,

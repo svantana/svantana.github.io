@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { OutlineEffect } from 'three/addons/effects/OutlineEffect.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
 /* ============================= Physics (cannon-es) ============================= */
@@ -73,6 +74,14 @@ renderer.setPixelRatio(window.devicePixelRatio);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap; // alt VSMShadowMap, PCFShadowMap, PCFSoftShadowMap
 host.appendChild(renderer.domElement);
+// OutlineEffect wraps this renderer and is used only for the toon material.
+// It leaves the canvas and renderer state shared with the other modes.
+const toonOutlineEffect = new OutlineEffect(renderer, {
+  defaultThickness: 0.003,
+  defaultColor: [0, 0, 0],
+  defaultAlpha: 0.8,
+  defaultKeepAlive: true,
+});
 
 // Lights are driven entirely by config.spotlight (an array). The pool grows
 // on demand and is reused across rebuilds.
@@ -133,9 +142,10 @@ const SLIDER_MIN_PIXEL_LENGTH = 6;
 let activeConfig = null;
 let activeControl = null; // control currently being dragged or held
 let hoveredControl = null;
-// Debug view mode for the instrument only (floor/sky untouched):
-// 'standard' | 'wireframe' | 'normals'. Survives rebuilds; set from the UI.
+// Render material for the instrument only (floor/sky untouched). A value from
+// config.render.material is used until the material dropdown is explicitly set.
 let viewMode = 'standard';
+let viewModeOverriddenByUI = false;
 let normalMaterial = null; // shared MeshNormalMaterial singleton
 const controlPress = { startX: 0, startY: 0, startValue: 0 };
 
@@ -1405,7 +1415,8 @@ function renderFrame(now){
       if (!renderContinuously) fps.textContent = '';
     }
   }
-  renderer.render(scene, gSceneCam);
+  if (viewMode === 'toon') toonOutlineEffect.render(scene, gSceneCam);
+  else renderer.render(scene, gSceneCam);
   if (!renderContinuously && physSettled) return;
   framesSinceFpsUpdate++;
   const elapsed = now - lastFpsUpdate;
@@ -1449,7 +1460,35 @@ function setRenderMode(continuous){
   }
 }
 
-const VIEW_MODES = ['standard', 'wireframe', 'normals'];
+const VIEW_MODES = ['standard', 'normal', 'toon', 'wireframe'];
+
+function normalizeViewMode(mode){
+  // Retain the former plural spelling for existing saved dropdown values.
+  return mode === 'normals' ? 'normal' : mode;
+}
+
+function makeToonMaterial(source){
+  const toon = new THREE.MeshToonMaterial({
+    color: source.color ? source.color.clone() : 0xffffff,
+    map: source.map || null,
+    alphaMap: source.alphaMap || null,
+    // The LCD uses an emissive canvas texture. Preserve it so its dark
+    // background and colored glyphs aren't replaced by solid-white emission.
+    emissiveMap: source.emissiveMap || null,
+    emissiveIntensity: source.emissiveIntensity ?? 1,
+    transparent: !!source.transparent,
+    opacity: source.opacity ?? 1,
+    side: source.side,
+    depthTest: source.depthTest,
+    depthWrite: source.depthWrite,
+    vertexColors: source.vertexColors,
+    fog: source.fog,
+    flatShading: source.flatShading,
+    toneMapped: source.toneMapped,
+  });
+  if (source.emissive) toon.emissive.copy(source.emissive);
+  return toon;
+}
 
 // Applies the current view mode to every mesh of the instrument. Original
 // materials are stashed on first swap so 'standard' restores the exact same
@@ -1466,6 +1505,10 @@ function applyViewMode(){
       if (object.userData.savedMaterial){
         object.material = object.userData.savedMaterial;
         delete object.userData.savedMaterial;
+      }
+      if (object.userData.toonMaterials){
+        object.userData.toonMaterials.forEach(m => m.dispose());
+        delete object.userData.toonMaterials;
       }
       const mats = Array.isArray(object.material) ? object.material : [object.material];
       mats.forEach(m => {
@@ -1486,20 +1529,32 @@ function applyViewMode(){
           if (m.userData.origWireframe === undefined) m.userData.origWireframe = !!m.wireframe;
           m.wireframe = true;
         });
-      } else { // normals
+      } else if (viewMode === 'normal') {
         normalMaterial.wireframe = false;
         delete normalMaterial.userData.origWireframe;
         object.material = normalMaterial;
+      } else { // toon
+        if (!object.userData.toonMaterials){
+          const originals = Array.isArray(object.userData.savedMaterial)
+            ? object.userData.savedMaterial
+            : [object.userData.savedMaterial];
+          object.userData.toonMaterials = originals.map(makeToonMaterial);
+        }
+        object.material = Array.isArray(object.userData.savedMaterial)
+          ? object.userData.toonMaterials
+          : object.userData.toonMaterials[0];
       }
     }
   });
   scheduleRender();
 }
 
-// Switches the instrument's debug view. Unknown modes are ignored; the mode
-// persists across build() calls (which rebuild all materials from scratch).
-function setViewMode(mode){
+// Switches the instrument material. An explicit UI selection takes precedence
+// over config.render.material and persists across build() calls.
+function setViewMode(mode, fromUI = false){
+  mode = normalizeViewMode(mode);
   if (!VIEW_MODES.includes(mode)) return;
+  if (fromUI) viewModeOverriddenByUI = true;
   if (mode === viewMode && rig.children.length) return; // already applied
   viewMode = mode;
   applyViewMode();
@@ -1510,6 +1565,10 @@ function build(config){
   while (rig.children.length) rig.remove(rig.children[0]);
 
   const render = config.render || {};
+  if (!viewModeOverriddenByUI){
+    const configuredMode = normalizeViewMode(render.material);
+    viewMode = VIEW_MODES.includes(configuredMode) ? configuredMode : 'standard';
+  }
   const pixelRatio = Math.max(0.5, Math.min(2, num(render.pixelRatio, 1.5)));
   const shadowsEnabled = render.shadows !== false;
   const detailShadows = render.detailShadows === true;

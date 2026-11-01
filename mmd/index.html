@@ -273,10 +273,11 @@
         <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
       </div>
       <div class="editor-footer ok" id="footer"><span class="footer-status" id="footerText">No errors.</span>
-        <select id="viewMode" class="view-select" title="Debug view: standard / wireframe / normals as RGB">
+        <select id="viewMode" class="view-select" title="Render material: standard / normal / toon / wireframe">
           <option value="standard">standard</option>
+          <option value="normal">normal</option>
+          <option value="toon">toon</option>
           <option value="wireframe">wireframe</option>
-          <option value="normals">normals</option>
         </select>
       </div>
       <details class="schema-note">
@@ -295,7 +296,7 @@
            <b>surface</b>: z (height at which the surface plane is drawn, default 0; physics always uses z=0 as its boundary), material: { color, roughness, metalness, opacity }, texture: { pattern: grid|dots|checker|stripes, size (world units per tile, default 2), width (line/dot/stripe thickness in world units, default 0.06), offset: [x,y], color (grid lines), background (cells, defaults to the material color), enabled }<br/>
            <b>skybox</b>: enabled (default true), color (single flat color, default "#14161c"), circles: { count (default 5), color (default "#ffffff"), size (soft falloff radius in px, default 16), spread (scatter factor, default 1; 0 stacks all circles at the zenith), seed (layout seed, default 1337) }, radius (default 40), intensity (scales the skylight on PBR materials, default 1 — try 2–4 for a dark sky) — the texture also feeds scene.environment, so PBR materials reflect the sky<br/>
            <b>spotlight[]</b>: array of lights — x, y, z, color, intensity, shadowRadius (blur/softness, default 8), shadowBias, shadowNormalBias, shadowMapSize, castShadow (default true)<br/><br/>
-           <b>render</b>: pixelRatio (0.5–2), shadows, shadowMapSize, softboxShadowCount (how many spotlights cast shadows), detailShadows, continuous, showFps<br/>
+           <b>render</b>: material (standard|normal|toon|wireframe; overridden by the material dropdown), pixelRatio (0.5–2), shadows, shadowMapSize, softboxShadowCount (how many spotlights cast shadows), detailShadows, continuous, showFps<br/>
            <b>physics</b>: enabled, dropHeight, tilt {x,y,z} (drop tilt in radians), restitution (bounciness 0–1), friction, gravity (vector {x,y,z} in m/s², or a scalar for the y component)<br/>
            <b>constants</b>: { name: value, ... } — any string value anywhere in the config that exactly matches a name is replaced with its value (any JSON type, any depth)<br/><br/>
           In knobs[]/buttons[]/sliders[]/labels[]: entry 0 should set every field it needs.
@@ -338,6 +339,8 @@ const viewSelect = document.getElementById('viewMode');
 const configSelect = document.getElementById('configSelect');
 const app = document.getElementById('app');
 const editorToggle = document.getElementById('editorToggle');
+const renderMaterials = ['standard', 'normal', 'toon', 'wireframe'];
+let materialDropdownOverridden = false;
 
 /* ---------- Collapsible editor ---------- */
 function setEditorOpen(open, persist){
@@ -437,6 +440,14 @@ function applyEditor(){
     return;
   }
   try{
+    // Until the dropdown is explicitly changed, mirror the config-controlled
+    // material in it. build() applies the same value to the instrument.
+    const configuredMaterial = parsed.render?.material === 'normals'
+      ? 'normal'
+      : parsed.render?.material;
+    if (!materialDropdownOverridden && renderMaterials.includes(configuredMaterial)) {
+      viewSelect.value = configuredMaterial;
+    }
     build(parsed);
     footerText.textContent = 'No errors.';
     footer.className = 'editor-footer ok';
@@ -525,20 +536,26 @@ editorPanel.addEventListener('touchstart', startResize, { passive: false });
 window.addEventListener('touchmove', handleResize, { passive: false });
 window.addEventListener('touchend', stopResize);
 
-/* ---------- debug view mode (standard / wireframe / normals) ---------- */
-function applyViewSelect(persist){
-  setViewMode(viewSelect.value);
+/* ---------- render material (standard / normal / toon / wireframe) ---------- */
+function applyViewSelect(persist, fromUser = false){
+  setViewMode(viewSelect.value, fromUser);
   if (persist) localStorage.setItem('mmd_view_mode', viewSelect.value);
 }
-viewSelect.addEventListener('change', () => applyViewSelect(true));
+viewSelect.addEventListener('change', () => {
+  materialDropdownOverridden = true;
+  applyViewSelect(true, true);
+});
 {
   const savedView = localStorage.getItem('mmd_view_mode');
-  if (savedView === 'wireframe' || savedView === 'normals') viewSelect.value = savedView;
+  if ([...renderMaterials, 'normals'].includes(savedView)) {
+    viewSelect.value = savedView === 'normals' ? 'normal' : savedView;
+    materialDropdownOverridden = true;
+    applyViewSelect(false, true);
+  }
 }
 
 /* ---------- init ---------- */
 loadSelectedConfig();
-applyViewSelect(false);
 </script>
 </body>
 </html>
