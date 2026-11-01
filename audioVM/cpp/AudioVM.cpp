@@ -176,10 +176,11 @@ public: void process(Buffer *i, Buffer *o) { o[0] = i[0] / i[1]; }
 // some basic ops to get started
 class OscSin : public Operator {
 public:
-    enum In { FreqHz, NumInputs };
-    int getNumPorts(Port::Dir dir) override { return (dir == Port::Out) ? 1 : NumInputs; }
+    enum In  { FreqHz, NumInputs };
+    enum Out { Output, NumOutputs };
+    int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? NumInputs : NumOutputs; }
     std::string getPortName(Port::Dir dir, int index) override {
-        return (dir == Port::In && index == FreqHz) ? "note" : "(unknown)";
+        return (dir == Port::In && index == FreqHz) ? "note" : "output";
     }
     void process(Buffer *i, Buffer *o, int N) override {
         o->numSamples = N;
@@ -199,7 +200,7 @@ public:
     enum Out { Output, NumOutputs };
     int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? NumInputs : NumOutputs; }
     std::string getPortName(Port::Dir dir, int index) override {
-        return (dir == Port::In && index == FreqHz) ? "note" : "(unknown)";
+        return (dir == Port::In && index == FreqHz) ? "note" : "output";
     }
     int isFullRatePort(Port::Dir dir, int index) override {
         return (dir==Port::Out && index==Output);
@@ -222,7 +223,7 @@ public:
     enum Out { Output, NumOutputs };
     std::string getPortName(Port::Dir dir, int index) override {
         cStr i[]={"input","frequency","resonance"};
-        cStr o[]={"Out"};
+        cStr o[]={"output"};
         return (dir==Port::In) ? i[index] : o[index];
     }
     int isFullRatePort(Port::Dir dir, int index) override {
@@ -237,7 +238,7 @@ public:
         cK = f * (3.1415f - 1.4f * f);
         float d = 1 - i[Resonance][0][0];
         cDamp = 4 * d * d;
-        float *x = i[Input][0], *y = o[Port::Out][0];
+        float *x = i[Input][0], *y = o[Output][0];
         for (int n = 0; n < N; n++) {
             float hp = x[n] - sL - cDamp * sB;
             sB += cK * hp;
@@ -266,7 +267,7 @@ public:
     enum Phase {A, D, S, R};
     void process(Buffer *i, Buffer *o, int N) override {
         float dt = N / mSamplerate;
-        bool on = i[Gate][0][0] > .5f;
+        bool on = i[Gate].value() > .5f;
         if (on && mPhase >= R) {
             mPhase = 0.f;
         }
@@ -278,13 +279,13 @@ public:
         float sustain = i[Sustain][0][0];
         switch (P) {
             case A: {
-                float dur = std::max(1e-9f, i[Attack][0][0]);
+                float dur = std::max(1e-9f, i[Attack].value());
                 mPhase = std::min((float)D, mPhase + dt / dur);
                 mVal = mPhase;
                 break;
             }
             case D: {
-                float dur = std::max(1e-9f, i[Decay][0][0]);
+                float dur = std::max(1e-9f, i[Decay].value());
                 mPhase = std::min((float)S, mPhase + dt / dur);
                 float p = mPhase - D;
                 mVal = (1-p) + p * sustain;
@@ -295,14 +296,14 @@ public:
                 break;
             }
             case R: {
-                float dur = std::max(1e-9f, i[Decay][0][0]);
+                float dur = std::max(1e-9f, i[Decay].value());
                 mPhase = mPhase + dt / dur;
                 mVal = mReleaseVal * (R+1 - mPhase);
             }
             default:
                 mVal = 0.f;
         }
-        o[Output][0][0] = mVal;
+        o[Output].value() = mVal;
     }
 private:
     float mPhase = R+1, mVal = 0.f, mReleaseVal = 0.f;
@@ -357,6 +358,7 @@ int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
     OpPtr op = makeOpWithId(operatorId);
     Entry &entry = mProgram.list.emplace_back();
     entry.mIndex = opCount * OpSpacing;
+    entry.mType = operatorId;
     entry.op = std::move(op);
     entry.op->mSamplerate = mSamplerate;
     entry.op->init();
@@ -366,10 +368,19 @@ int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
     return entry.mIndex;
 }
 int Processor::addControl(std::string name, float value) {
-    
+    const int controlId = addOperator("control");
+    auto* control = dynamic_cast<Control*>(mProgram.list.back().op.get());
+    assert(control != nullptr);
+    control->mName = std::move(name);
+    control->mValue = value;
+    return controlId;
 }
 int Processor::addConstant(float value) {
-    
+    const int constantId = addOperator("const");
+    auto* constant = dynamic_cast<ConstOp*>(mProgram.list.back().op.get());
+    assert(constant != nullptr);
+    constant->mValue = value;
+    return constantId;
 }
 
 bool Processor::compileProgram() {
@@ -409,6 +420,9 @@ bool Processor::compileProgram() {
                 }
                 if (auto *op = dynamic_cast<Control*>(E.op.get())) {
                     mProgram.mControlIds.push_back(n);
+                }
+                if (auto *op = dynamic_cast<MidiIn*>(E.op.get())) {
+                    mProgram.mMidiInId = n;
                 }
             }
             
@@ -490,15 +504,12 @@ void Processor::loadFromJSON(std::string jsonString) {
             const int numInputPorts = prototype->getNumPorts(Port::In);
             std::vector<int> inputs;
             const auto makeConstant = [&](double number) {
-                const int constantId = addOperator("const");
-                auto* constant = dynamic_cast<ConstOp*>(mProgram.list.back().op.get());
-                if (constant == nullptr) {
-                    throw std::runtime_error(context + "operator type 'const' is not a constant");
-                }
-                constant->mValue = static_cast<float>(number);
-                return constantId;
+                return addConstant(static_cast<float>(number));
             };
             const auto resolveInputId = [&](const picojson::value& input) {
+                if (input.is<picojson::null>()) {
+                    return -1;
+                }
                 if (input.is<double>()) {
                     return makeConstant(input.get<double>());
                 }
@@ -517,12 +528,13 @@ void Processor::loadFromJSON(std::string jsonString) {
             if (inputIt != object.end()) {
                 if (type == "const" && inputIt->second.is<double>()) {
                     prototype.reset();
-                    const int opId = addOperator(type);
-                    auto* constant = dynamic_cast<ConstOp*>(mProgram.list.back().op.get());
-                    if (constant == nullptr) {
-                        throw std::runtime_error(context + "operator type 'const' is not a constant");
-                    }
-                    constant->mValue = static_cast<float>(inputIt->second.get<double>());
+                    const int opId = addConstant(static_cast<float>(inputIt->second.get<double>()));
+                    mProgram.list.back().mId = id;
+                    mCompiler.mIdToIndex.emplace(id, opId);
+                    continue;
+                } else if (type == "control" && inputIt->second.is<double>()) {
+                    prototype.reset();
+                    const int opId = addControl(id, static_cast<float>(inputIt->second.get<double>()));
                     mProgram.list.back().mId = id;
                     mCompiler.mIdToIndex.emplace(id, opId);
                     continue;
@@ -568,7 +580,143 @@ void Processor::loadFromJSON(std::string jsonString) {
         mCompiler = std::move(previousCompiler);
         throw;
     }
+}
+std::string Processor::getOpListAsJSON() {
+    picojson::object root;
+    root["version"] = picojson::value(1.0);
+    picojson::array operators;
 
+    // IDs are normally supplied by JSON.  Operators introduced internally
+    // for numeric literals do not have one, so assign stable export-only IDs.
+    std::map<int, std::string> sourceIds;
+    std::map<std::string, bool> usedIds;
+    for (const Entry& entry : mProgram.list) {
+        if (dynamic_cast<const MidiIn*>(entry.op.get()) == nullptr && !entry.mId.empty()) {
+            usedIds.emplace(entry.mId, true);
+        }
+    }
+    int generatedId = 0;
+    for (const Entry& entry : mProgram.list) {
+        if (dynamic_cast<const MidiIn*>(entry.op.get()) != nullptr) {
+            sourceIds.emplace(entry.mIndex + MidiIn::Gate, "midi.gate");
+            sourceIds.emplace(entry.mIndex + MidiIn::Note, "midi.note");
+            sourceIds.emplace(entry.mIndex + MidiIn::Velocity, "midi.velocity");
+            continue;
+        }
+        std::string id = entry.mId;
+        if (id.empty()) {
+            do {
+                id = entry.mType + std::to_string(++generatedId);
+            } while (usedIds.count(id) != 0);
+            usedIds.emplace(id, true);
+        }
+        sourceIds.emplace(entry.mIndex, id);
+    }
+
+    for (const Entry& entry : mProgram.list) {
+        // MIDI is represented by audioVM.py as the implicit midi.* sources.
+        if (dynamic_cast<const MidiIn*>(entry.op.get()) != nullptr) {
+            continue;
+        }
+
+        picojson::object node;
+        const auto id = sourceIds.find(entry.mIndex);
+        assert(id != sourceIds.end());
+        node["type"] = picojson::value(entry.mType);
+        node["id"] = picojson::value(id->second);
+
+        if (const auto* constant = dynamic_cast<const ConstOp*>(entry.op.get())) {
+            node["input"] = picojson::value(static_cast<double>(constant->mValue));
+        } else if (const auto* control = dynamic_cast<const Control*>(entry.op.get())) {
+            node["input"] = picojson::value(static_cast<double>(control->mValue));
+        } else if (entry.op->getNumPorts(Port::In) > 0) {
+            picojson::array inputs;
+            const int numInputs = entry.op->getNumPorts(Port::In);
+            for (int input = 0; input < numInputs; ++input) {
+                const int sourceId = input < static_cast<int>(entry.mInputIds.size())
+                    ? entry.mInputIds[input] : -1;
+                const auto source = sourceIds.find(sourceId);
+                inputs.emplace_back(source == sourceIds.end()
+                    ? picojson::value()
+                    : picojson::value(source->second));
+            }
+            node["input"] = picojson::value(inputs);
+        }
+        operators.emplace_back(node);
+    }
+
+    root["program"] = picojson::value(operators);
+    return picojson::value(root).serialize(true);
+}
+
+std::string Processor::getOpDefinitionsJSON() const {
+    // mOpCreators is unordered; sort IDs so the exported definitions are
+    // stable, making them suitable for UI caching and file comparisons.
+    std::vector<std::string> operatorIds;
+    operatorIds.reserve(mOpCreators.size());
+    for (const auto& creator : mOpCreators) {
+        operatorIds.push_back(creator.first);
+    }
+    std::sort(operatorIds.begin(), operatorIds.end());
+
+    picojson::array operators;
+    for (const std::string& operatorId : operatorIds) {
+        OpPtr op = makeOpWithId(operatorId);
+        picojson::object definition;
+        definition["id"] = picojson::value(operatorId);
+
+        const auto makePorts = [&](Port::Dir direction) {
+            picojson::array ports;
+            const int count = op->getNumPorts(direction);
+            for (int index = 0; index < count; ++index) {
+                picojson::object port;
+                //port["index"] = picojson::value(static_cast<double>(index));
+                port["name"] = picojson::value(op->getPortName(direction, index));
+                // Preserve -1 (automatic/unknown), 0 (control-rate), and 1
+                // (audio-rate) instead of reducing the registered metadata to
+                // a boolean.
+                port["rate"] = picojson::value(
+                    static_cast<double>(op->isFullRatePort(direction, index)));
+                ports.emplace_back(port);
+            }
+            return ports;
+        };
+
+        picojson::array inputs = makePorts(Port::In);
+        picojson::array outputs = makePorts(Port::Out);
+        definition["inputs"] = picojson::value(inputs);
+        definition["outputs"] = picojson::value(outputs);
+        operators.emplace_back(definition);
+    }
+
+    picojson::object root;
+    root["operators"] = picojson::value(operators);
+    return picojson::value(root).serialize(true);
+}
+
+const int kMidiNoteOn = 0x90, kMidiNoteOff = 0x80;
+
+void Processor::midi(char b0, char b1, char b2) {
+    if (mProgram.mMidiInId < 0) {
+        return; // no midi
+    }
+    Entry &E = mProgram.list[mProgram.mMidiInId];
+    auto &O = E.mOutputs;
+    //O[MidiIn::Channel].value() = b0 & 0x0f; // TODO: handle channel
+    int msg = b0 & 0xf0;
+    switch (msg) {
+        case kMidiNoteOn: {
+            O[MidiIn::Gate].value() = 1.f;
+            O[MidiIn::Note].value() = b1;
+            O[MidiIn::Velocity].value() = b2;
+            break;
+        }
+        case kMidiNoteOff: {
+            O[MidiIn::Gate].value() = 0.f;
+            O[MidiIn::Note].value() = b1;
+            break;
+        }
+    };
 }
     
 void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
@@ -627,27 +775,35 @@ void Processor::setControlValue(int controlIndex, float value) {
 // test
 static inline int testAudioVM() {
     Processor vm;
+    std::string opDefJson = vm.getOpDefinitionsJSON();
+    printf("%s", opDefJson.c_str());
     const int numChannels = 2, vmBlockSize = 32;
     vm.setup(44100.f, numChannels, numChannels, vmBlockSize);
-#if 0
+#if 1
     cStr json = "{\"version\": 1,\"polyphony\":1,\"program\": [{\"type\": \"const\", \"id\": \"const1\", \"input\": 12},{\"type\": \"sub\", \"id\": \"sub1\", \"input\": [\"midi.note\", \"const1\"]},{\"type\": \"oscSin\", \"id\": \"oscSin1\", \"input\": {\"note\": \"sub1\"}},{\"type\": \"oscSaw\", \"id\": \"oscSaw1\", \"input\": {\"note\": \"midi.note\"}},{\"type\": \"envADSR\", \"id\": \"envADSR1\", \"input\": {\"gate\": \"midi.gate\", \"a\": 0.01, \"d\": 0.3, \"s\": 0.5, \"r\": 0.2}},{\"type\": \"envADSR\", \"id\": \"envADSR2\", \"input\": {\"gate\": \"midi.gate\", \"a\": 0.05, \"d\": 1.5, \"s\": 0.0, \"r\": 0.3}},{\"type\": \"const\", \"id\": \"const2\", \"input\": 0.5},{\"type\": \"mul\", \"id\": \"mul1\", \"input\": [\"oscSin1\", \"const2\"]},{\"type\": \"add\", \"id\": \"add1\", \"input\": [\"oscSaw1\", \"mul1\"]},{\"type\": \"mul\", \"id\": \"mul2\", \"input\": [\"add1\", \"envADSR1\"]},{\"type\": \"const\", \"id\": \"const3\", \"input\": 2500.0},{\"type\": \"mul\", \"id\": \"mul3\", \"input\": [\"envADSR2\", \"const3\"]},{\"type\": \"const\", \"id\": \"const4\", \"input\": 400},{\"type\": \"add\", \"id\": \"add2\", \"input\": [\"const4\", \"mul3\"]},{\"type\": \"filterLP\", \"id\": \"filterLP1\", \"input\": {\"input\": \"mul2\", \"frequency\": \"add2\", \"resonance\": 0.5}},{\"type\": \"audioOut\", \"id\": \"audioOut1\", \"input\": \"filterLP1\"}]}";
     vm.loadFromJSON(json);
 #else
     //int audioIn = proc.addOperator("audioIn");
-    int freqControl = vm.addControl("freq", 200.f);
+    const float kFreq0 = 200.f;
+    int freqControl = vm.addControl("freq", kFreq0);
     int osc1 = vm.addOperator("oscSaw", {freqControl});
     
     int audioOut = vm.addOperator("audioOut", {osc1});
     
     vm.compileProgram();
     
-    vm.getNumControls();
-    vm.setControlValue(0, 55.f);
+    assert(vm.getNumControls() == 1);
+    assert(vm.getControlValue(0) == kFreq0);
+    //vm.setControlValue(0, 55.f);
 #endif
+    std::string ops_json = vm.getOpListAsJSON();
+    printf("%s", ops_json.c_str());
+    
     const int blockSize = 32;
     float tmpBuf[numChannels * blockSize] = {0.f}, *tmpPtrs[numChannels];
     for (int ch = 0; ch < numChannels; ch++) { tmpPtrs[ch] = &tmpBuf[ch * blockSize]; }
     
+    vm.midi(kMidiNoteOn, 60, 100);
     vm.process(tmpPtrs, tmpPtrs, blockSize);
     
     return 0;

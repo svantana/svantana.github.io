@@ -15,6 +15,8 @@ public:
     void setup(float samplerate, int numInputChannels, int numOutputChannels, int blockSize);
     
     void loadFromJSON(std::string jsonString);
+    std::string getOpListAsJSON();
+    std::string getOpDefinitionsJSON() const;
 
     // manual program construction
     void clearProgram();
@@ -23,6 +25,8 @@ public:
     int addConstant(float value);
     bool compileProgram();
     
+    // realtime processing interface
+    void midi(char b0, char b1, char b2);
     /* Accepts arbitrary buffer sizes */
     void process(float *const* inBufs, float **outBufs, int numSamples);
     
@@ -48,6 +52,7 @@ private:
         std::vector<int> mInputIds;
         std::vector<Buffer> mInputs, mOutputs;
         std::string mId;
+        std::string mType;
         int mIndex;
     };
     struct Program {
@@ -56,6 +61,7 @@ private:
         std::vector<Entry> list;
         std::vector<float> mIoBuffer;
         std::vector<int> mAudioInIds, mAudioOutIds, mControlIds;
+        int mMidiInId = -1;
     };
     Program mProgram;
     std::vector<Program> mVoicePrograms;

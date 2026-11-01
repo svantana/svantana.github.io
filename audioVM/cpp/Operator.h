@@ -26,7 +26,7 @@ namespace AudioVM {
         virtual ~Operator() = default;
         virtual int getNumPorts(Port::Dir dir) = 0;
         virtual std::string getPortName(Port::Dir dir, int index) {
-            return "(unknown)";
+            return "";
         }
         virtual int isFullRatePort(Port::Dir dir, int index) { return -1; } // -1 is auto/unknown/not applicable
         virtual void init() {} // do setup here, if needed
