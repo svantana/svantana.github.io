@@ -19,6 +19,8 @@ public:
     // manual program construction
     void clearProgram();
     int addOperator(std::string operatorId, std::vector<int> inputs = {});
+    int addControl(std::string name, float value = 0.f);
+    int addConstant(float value);
     bool compileProgram();
     
     /* Accepts arbitrary buffer sizes */

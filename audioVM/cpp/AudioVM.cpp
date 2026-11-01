@@ -37,6 +37,17 @@ public:
     float mValue;
     std::string mName;
 };
+class ConstOp : public Operator {
+public:
+    ConstOp(std::string name = "const") { mName = name; }
+    int getNumPorts(Port::Dir dir) override {
+        return (dir == Port::In) ? 0 : 1;
+    }
+    int isFullRatePort(Port::Dir dir, int index) override { return false; }
+    void process(Buffer *i, Buffer *o, int N) override { o[0].value() = mValue; }
+    float mValue;
+    std::string mName;
+};
 
 // needed for feedback
 class BufferOperator : public Operator {
@@ -83,6 +94,34 @@ class BinaryOp : public Operator {
     public: int getNumPorts(Port::Dir dir) override {
         return (dir == Port::In) ? 2 : 1;
     }
+};
+
+class MathBinary : public BinaryOp {
+public:
+    int isFullRatePort(Port::Dir dir, int index) override { return true; }
+protected:
+    virtual float apply(float a, float b) const = 0;
+    void process(Buffer *i, Buffer *o, int N) override {
+        const int channels = std::max(i[0].numChannels, i[1].numChannels);
+        for (int ch = 0; ch < channels; ++ch) {
+            const float *a = i[0].dataWrap(ch);
+            const float *b = i[1].dataWrap(ch);
+            float *dst = o[0].dataWrap(ch);
+            for (int n = 0; n < N; ++n) {
+                dst[n] = apply(a[i[0].numSamples == 1 ? 0 : n],
+                               b[i[1].numSamples == 1 ? 0 : n]);
+            }
+        }
+    }
+};
+class MathAdd : public MathBinary {
+    float apply(float a, float b) const override { return a + b; }
+};
+class MathSub : public MathBinary {
+    float apply(float a, float b) const override { return a - b; }
+};
+class MathMul : public MathBinary {
+    float apply(float a, float b) const override { return a * b; }
 };
 
 class MultiplyOperator : public BinaryOp {
@@ -139,6 +178,9 @@ class OscSin : public Operator {
 public:
     enum In { FreqHz, NumInputs };
     int getNumPorts(Port::Dir dir) override { return (dir == Port::Out) ? 1 : NumInputs; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        return (dir == Port::In && index == FreqHz) ? "note" : "(unknown)";
+    }
     void process(Buffer *i, Buffer *o, int N) override {
         o->numSamples = N;
         float phaseStep = i[FreqHz][0][0] / mSamplerate;
@@ -156,6 +198,9 @@ public:
     enum In  { FreqHz, NumInputs };
     enum Out { Output, NumOutputs };
     int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? NumInputs : NumOutputs; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        return (dir == Port::In && index == FreqHz) ? "note" : "(unknown)";
+    }
     int isFullRatePort(Port::Dir dir, int index) override {
         return (dir==Port::Out && index==Output);
     }
@@ -176,7 +221,7 @@ public:
     enum In  { Input, FreqHz, Resonance, NumInputs };
     enum Out { Output, NumOutputs };
     std::string getPortName(Port::Dir dir, int index) override {
-        cStr i[]={"In","Frequency","Resonance"};
+        cStr i[]={"input","frequency","resonance"};
         cStr o[]={"Out"};
         return (dir==Port::In) ? i[index] : o[index];
     }
@@ -208,7 +253,7 @@ public:
     enum In      { Gate , Attack , Decay , Sustain , Release , NumInputs };
     enum Out     { Output , NumOutputs };
     std::string getPortName(Port::Dir t, int n) override {
-        cStr i[]={"gate","attack","decay","sustain","release"};
+        cStr i[]={"gate","a","d","s","r"};
         cStr o[]={"output"};
         return (t == Port::In) ? i[n] : o[n];
     }
@@ -271,10 +316,14 @@ Processor::Processor()
     registerType(kIdAudioOut, [] { return std::make_unique<AudioOut>(); });
     registerType("midiIn", [] { return std::make_unique<MidiIn>(); });
     registerType("control", [] { return std::make_unique<Control>(); });
+    registerType("const", [] { return std::make_unique<ConstOp>(); });
     registerType("buffer", [] { return std::make_unique<BufferOperator>(); });
     registerType("toAudio", [] { return std::make_unique<ControlToAudio>(); });
     // basic math
     registerType("exp", [] { return std::make_unique<MathExp>(); });
+    registerType("add", [] { return std::make_unique<MathAdd>(); });
+    registerType("sub", [] { return std::make_unique<MathSub>(); });
+    registerType("mul", [] { return std::make_unique<MathMul>(); });
     /*
     registerType("log", [] { return std::make_unique<MathLog>(); });
     registerType("cos", [] { return std::make_unique<MathCos>(); });
@@ -303,22 +352,9 @@ void Processor::setup(float samplerate, int numInputChannels, int numOutputChann
 void Processor::clearProgram() {
     mProgram.list.clear();
 }
-int Processor::addOperator(std::string operatorId, std::vector<int> inputs) {
+int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
     int opCount = (int)mProgram.list.size();
     OpPtr op = makeOpWithId(operatorId);
-    if (auto* bin = dynamic_cast<BinaryOp*>(op.get())) {
-        // check if we need to convert an input
-        int sizes[2], maxSize = 0;
-        for (int i = 0; i < 2; i++) {
-            sizes[i] = mProgram.list[inputs[i]/OpSpacing].mOutputs[inputs[i]%OpSpacing].numSamples;
-            maxSize = std::max(maxSize, sizes[i]);
-        }
-        for (int i = 0; i < 2; i++) {
-            if (sizes[i] < maxSize) { // TODO: check if conversion already exists
-                inputs[i] = addOperator("toAudio", {inputs[i]});
-            }
-        }
-    }
     Entry &entry = mProgram.list.emplace_back();
     entry.mIndex = opCount * OpSpacing;
     entry.op = std::move(op);
@@ -326,9 +362,16 @@ int Processor::addOperator(std::string operatorId, std::vector<int> inputs) {
     entry.op->init();
     
     // setup inputs and outputs
-    entry.mInputIds = inputs;
+    entry.mInputIds = inputIds;
     return entry.mIndex;
 }
+int Processor::addControl(std::string name, float value) {
+    
+}
+int Processor::addConstant(float value) {
+    
+}
+
 bool Processor::compileProgram() {
     assert(mBlockSize > 0);
     mProgram.mAudioOutIds.resize(0);
@@ -376,12 +419,155 @@ bool Processor::compileProgram() {
         }
     }
     
+    return true;
 }
 
 void Processor::loadFromJSON(std::string jsonString) {
     picojson::value value;
-    std::string err;
-    picojson::parse(value, jsonString);
+    const std::string parseError = picojson::parse(value, jsonString);
+    if (!parseError.empty()) {
+        throw std::runtime_error("Invalid program JSON: " + parseError);
+    }
+    if (!value.is<picojson::object>()) {
+        throw std::runtime_error("Invalid program JSON: root must be an object");
+    }
+
+    const picojson::object& root = value.get<picojson::object>();
+    const auto programIt = root.find("program");
+    if (programIt == root.end() || !programIt->second.is<picojson::array>()) {
+        throw std::runtime_error("Invalid program JSON: missing array property 'program'");
+    }
+
+    const picojson::array& program = programIt->second.get<picojson::array>();
+
+    // Construct the new graph separately from the active one.  A failed load
+    // must not leave the processor with a half-built program.
+    Program previousProgram = std::move(mProgram);
+    Compiler previousCompiler = std::move(mCompiler);
+    mProgram = Program();
+    mProgram.list.reserve(program.size());
+    mCompiler = Compiler();
+
+    try {
+        // audioVM.py exposes these as implicit sources rather than program
+        // entries.  Store their individual output-port IDs in the same lookup
+        // table used by regular operator IDs.
+        const int midiInId = addOperator("midiIn");
+        mCompiler.mIdToIndex.emplace("midi.gate", midiInId + MidiIn::Gate);
+        mCompiler.mIdToIndex.emplace("midi.note", midiInId + MidiIn::Note);
+        mCompiler.mIdToIndex.emplace("midi.velocity", midiInId + MidiIn::Velocity);
+
+        for (size_t index = 0; index < program.size(); ++index) {
+            const picojson::value& node = program[index];
+            const std::string context = "Invalid program JSON at program[" + std::to_string(index) + "]: ";
+            if (!node.is<picojson::object>()) {
+                throw std::runtime_error(context + "operator must be an object");
+            }
+
+            const picojson::object& object = node.get<picojson::object>();
+            const auto typeIt = object.find("type");
+            const auto idIt = object.find("id");
+            if (typeIt == object.end() || !typeIt->second.is<std::string>()) {
+                throw std::runtime_error(context + "missing string property 'type'");
+            }
+            if (idIt == object.end() || !idIt->second.is<std::string>()) {
+                throw std::runtime_error(context + "missing string property 'id'");
+            }
+
+            const std::string& type = typeIt->second.get<std::string>();
+            const std::string& id = idIt->second.get<std::string>();
+            if (id.empty()) {
+                throw std::runtime_error(context + "property 'id' cannot be empty");
+            }
+            if (mCompiler.mIdToIndex.count(id) != 0) {
+                throw std::runtime_error(context + "duplicate operator id '" + id + "'");
+            }
+
+            // The Python builder permits positional inputs (a string or array)
+            // and named inputs (a dictionary).  Use a prototype to translate
+            // dictionary keys into the destination operator's input indices.
+            OpPtr prototype = makeOpWithId(type);
+            const int numInputPorts = prototype->getNumPorts(Port::In);
+            std::vector<int> inputs;
+            const auto makeConstant = [&](double number) {
+                const int constantId = addOperator("const");
+                auto* constant = dynamic_cast<ConstOp*>(mProgram.list.back().op.get());
+                if (constant == nullptr) {
+                    throw std::runtime_error(context + "operator type 'const' is not a constant");
+                }
+                constant->mValue = static_cast<float>(number);
+                return constantId;
+            };
+            const auto resolveInputId = [&](const picojson::value& input) {
+                if (input.is<double>()) {
+                    return makeConstant(input.get<double>());
+                }
+                if (input.is<std::string>()) {
+                    const std::string& inputName = input.get<std::string>();
+                    const auto source = mCompiler.mIdToIndex.find(inputName);
+                    if (source == mCompiler.mIdToIndex.end()) {
+                        throw std::runtime_error(context + "unknown or forward input id '" + inputName + "'");
+                    }
+                    return source->second;
+                }
+                throw std::runtime_error(context + "input values must be operator ids or numbers");
+            };
+
+            const auto inputIt = object.find("input");
+            if (inputIt != object.end()) {
+                if (type == "const" && inputIt->second.is<double>()) {
+                    prototype.reset();
+                    const int opId = addOperator(type);
+                    auto* constant = dynamic_cast<ConstOp*>(mProgram.list.back().op.get());
+                    if (constant == nullptr) {
+                        throw std::runtime_error(context + "operator type 'const' is not a constant");
+                    }
+                    constant->mValue = static_cast<float>(inputIt->second.get<double>());
+                    mProgram.list.back().mId = id;
+                    mCompiler.mIdToIndex.emplace(id, opId);
+                    continue;
+                } else if (inputIt->second.is<std::string>() || inputIt->second.is<double>()) {
+                    inputs.push_back(resolveInputId(inputIt->second));
+                } else if (inputIt->second.is<picojson::array>()) {
+                    for (const picojson::value& input : inputIt->second.get<picojson::array>()) {
+                        inputs.push_back(resolveInputId(input));
+                    }
+                } else if (inputIt->second.is<picojson::object>()) {
+                    inputs.assign(numInputPorts, -1);
+                    for (const auto& namedInput : inputIt->second.get<picojson::object>()) {
+                        int inputIndex = -1;
+                        for (int port = 0; port < numInputPorts; ++port) {
+                            if (prototype->getPortName(Port::In, port) == namedInput.first) {
+                                inputIndex = port;
+                                break;
+                            }
+                        }
+                        if (inputIndex < 0) {
+                            throw std::runtime_error(context + "operator '" + type +
+                                "' has no input named '" + namedInput.first + "'");
+                        }
+                        inputs[inputIndex] = resolveInputId(namedInput.second);
+                    }
+                } else {
+                    throw std::runtime_error(context +
+                        "property 'input' must be an operator id, array of ids, or object keyed by input name");
+                }
+            }
+            if (inputs.size() > static_cast<size_t>(numInputPorts)) {
+                throw std::runtime_error(context + "has more inputs than operator '" + type + "' accepts");
+            }
+
+            const int opId = addOperator(type, std::move(inputs));
+            Entry& entry = mProgram.list.back();
+            entry.mId = id;
+            mCompiler.mIdToIndex.emplace(id, opId);
+        }
+        compileProgram();
+    } catch (...) {
+        mProgram = std::move(previousProgram);
+        mCompiler = std::move(previousCompiler);
+        throw;
+    }
 
 }
     
@@ -443,10 +629,13 @@ static inline int testAudioVM() {
     Processor vm;
     const int numChannels = 2, vmBlockSize = 32;
     vm.setup(44100.f, numChannels, numChannels, vmBlockSize);
-    
+#if 0
+    cStr json = "{\"version\": 1,\"polyphony\":1,\"program\": [{\"type\": \"const\", \"id\": \"const1\", \"input\": 12},{\"type\": \"sub\", \"id\": \"sub1\", \"input\": [\"midi.note\", \"const1\"]},{\"type\": \"oscSin\", \"id\": \"oscSin1\", \"input\": {\"note\": \"sub1\"}},{\"type\": \"oscSaw\", \"id\": \"oscSaw1\", \"input\": {\"note\": \"midi.note\"}},{\"type\": \"envADSR\", \"id\": \"envADSR1\", \"input\": {\"gate\": \"midi.gate\", \"a\": 0.01, \"d\": 0.3, \"s\": 0.5, \"r\": 0.2}},{\"type\": \"envADSR\", \"id\": \"envADSR2\", \"input\": {\"gate\": \"midi.gate\", \"a\": 0.05, \"d\": 1.5, \"s\": 0.0, \"r\": 0.3}},{\"type\": \"const\", \"id\": \"const2\", \"input\": 0.5},{\"type\": \"mul\", \"id\": \"mul1\", \"input\": [\"oscSin1\", \"const2\"]},{\"type\": \"add\", \"id\": \"add1\", \"input\": [\"oscSaw1\", \"mul1\"]},{\"type\": \"mul\", \"id\": \"mul2\", \"input\": [\"add1\", \"envADSR1\"]},{\"type\": \"const\", \"id\": \"const3\", \"input\": 2500.0},{\"type\": \"mul\", \"id\": \"mul3\", \"input\": [\"envADSR2\", \"const3\"]},{\"type\": \"const\", \"id\": \"const4\", \"input\": 400},{\"type\": \"add\", \"id\": \"add2\", \"input\": [\"const4\", \"mul3\"]},{\"type\": \"filterLP\", \"id\": \"filterLP1\", \"input\": {\"input\": \"mul2\", \"frequency\": \"add2\", \"resonance\": 0.5}},{\"type\": \"audioOut\", \"id\": \"audioOut1\", \"input\": \"filterLP1\"}]}";
+    vm.loadFromJSON(json);
+#else
     //int audioIn = proc.addOperator("audioIn");
-    int pitchControl = vm.addOperator("control");
-    int osc1 = vm.addOperator("oscSaw", {pitchControl});
+    int freqControl = vm.addControl("freq", 200.f);
+    int osc1 = vm.addOperator("oscSaw", {freqControl});
     
     int audioOut = vm.addOperator("audioOut", {osc1});
     
@@ -454,7 +643,7 @@ static inline int testAudioVM() {
     
     vm.getNumControls();
     vm.setControlValue(0, 55.f);
-    
+#endif
     const int blockSize = 32;
     float tmpBuf[numChannels * blockSize] = {0.f}, *tmpPtrs[numChannels];
     for (int ch = 0; ch < numChannels; ch++) { tmpPtrs[ch] = &tmpBuf[ch * blockSize]; }

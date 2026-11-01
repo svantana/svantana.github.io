@@ -23,6 +23,7 @@ namespace AudioVM {
         enum Dir {In, Out};
     };
     struct Operator {
+        virtual ~Operator() = default;
         virtual int getNumPorts(Port::Dir dir) = 0;
         virtual std::string getPortName(Port::Dir dir, int index) {
             return "(unknown)";
