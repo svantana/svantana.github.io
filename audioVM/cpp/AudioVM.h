@@ -7,28 +7,34 @@
 
 namespace AudioVM {
 
+typedef std::unique_ptr<Operator> OpPtr;
+
 class Processor {
 public:
     Processor();
-    void setup(float samplerate, int numInputChannels, int numOutputChannels);
+    void setup(float samplerate, int numInputChannels, int numOutputChannels, int blockSize);
     
     void loadFromJSON(std::string jsonString);
 
     // manual program construction
     void clearProgram();
-    int addOperator(std::string operatorId, int *inputs = nullptr);
+    int addOperator(std::string operatorId, std::vector<int> inputs = {});
     bool compileProgram();
     
     /* Accepts arbitrary buffer sizes */
     void process(float *const* inBufs, float **outBufs, int numSamples);
+    
+    int getNumControls();
+    float getControlValue(int index);
+    void setControlValue(int index, float value);
 
     // use this to register your operator types
-    typedef std::function<std::unique_ptr<Operator>()> OpCreator;
+    typedef std::function<OpPtr()> OpCreator;
     void registerType(const std::string& name, OpCreator creator);
 private:
     std::unordered_map<std::string, OpCreator> mOpCreators;
-    std::unique_ptr<Operator> create(const std::string& name) const;
-    static const int OperatorIndexSpacing = 10;
+    OpPtr makeOpWithId(const std::string& name) const;
+    static const int OpSpacing = 10;
     
     int mBlockSize, mNumInputChannels, mNumOutputChannels;
     float mSamplerate;
@@ -37,14 +43,17 @@ private:
 
     struct Entry {
         std::unique_ptr<Operator> op;
-        std::vector<int> mInputs;
-        std::vector<Buffer> mOutputs;
+        std::vector<int> mInputIds;
+        std::vector<Buffer> mInputs, mOutputs;
         std::string mId;
         int mIndex;
     };
     struct Program {
-        void clearProgram();
+        void clear();
+        bool compile();
         std::vector<Entry> list;
+        std::vector<float> mIoBuffer;
+        std::vector<int> mAudioInIds, mAudioOutIds, mControlIds;
     };
     Program mProgram;
     std::vector<Program> mVoicePrograms;

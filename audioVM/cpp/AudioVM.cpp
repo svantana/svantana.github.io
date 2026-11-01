@@ -1,5 +1,6 @@
 #include "AudioVM.h"
 #include "libs/picojson.h"
+#include <assert.h>
 
 using namespace AudioVM;
 
@@ -8,27 +9,31 @@ typedef const char* cStr;
 // basic operators
 class AudioIn : public Operator {
 public:
-    int getNumPorts(PortDir dir) override { return (dir == Output) ? 1 : 0; }
+    int getNumPorts(Port::Dir dir) override { return (dir == Port::Out) ? 1 : 0; }
+    int isFullRatePort(Port::Dir dir, int index) override { return true; }
     void process(Buffer *i, Buffer *o, int N) override {}
 };
 class AudioOut : public Operator {
 public:
-    int getNumPorts(PortDir dir) override { return (dir == Input) ? 1 : 0; }
+    int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? 1 : 0; }
+    int isFullRatePort(Port::Dir dir, int index) override { return true; }
     void process(Buffer *i, Buffer *o, int N) override {}
 };
 class MidiIn : public Operator {
 public:
     enum Type { Gate, Note, Velocity, NumTypes };
-    int getNumPorts(PortDir dir) override { return (dir == Output) ? NumTypes : 0; }
+    int getNumPorts(Port::Dir dir) override { return (dir == Port::Out) ? NumTypes : 0; }
+    int isFullRatePort(Port::Dir dir, int index) override { return false; }
     void process(Buffer *i, Buffer *o, int N) override {}
 };
 class Control : public Operator {
 public:
     Control(std::string name = "control") { mName = name; }
-    int getNumPorts(PortDir dir) override {
-        return (dir == Input) ? 0 : 1;
+    int getNumPorts(Port::Dir dir) override {
+        return (dir == Port::In) ? 0 : 1;
     }
-    void process(Buffer *i, Buffer *o, int N) override { o[0].value = mValue; }
+    int isFullRatePort(Port::Dir dir, int index) override { return false; }
+    void process(Buffer *i, Buffer *o, int N) override { o[0].value() = mValue; }
     float mValue;
     std::string mName;
 };
@@ -36,14 +41,17 @@ public:
 // needed for feedback
 class BufferOperator : public Operator {
 public:
-    int getNumPorts(PortDir dir) override { return 1; }
+    int getNumPorts(Port::Dir dir) override { return 1; }
+    int isFullRatePort(Port::Dir dir, int index) override { return true; }
     void process(Buffer *i, Buffer *o, int N) override { /*o[0].copy(i[0]);*/ }
 };
 
-class CvToBuffer : public Operator {
+class ControlToAudio : public Operator {
 public:
+    int getNumPorts(Port::Dir dir) override { return 1; }
+    int isFullRatePort(Port::Dir dir, int index) override { return dir; }
     void process(Buffer *i, Buffer *o, int N) override {
-        float v = state, next = i[0].value, step = (next-v) / N;
+        float v = state, next = i[0].value(), step = (next-v) / N;
         float *dst = o[0].data();
         for (int n = 0; n < N; n++) {
             dst[n] = v + step * (n + 1);
@@ -54,29 +62,30 @@ private:
     float state = 0.f;
 };
 
-// math nodes
+// math ops
 class Constant : public Operator {
 public:
-    int getNumPorts(PortDir dir) {
-        return (dir == Output) ? 1 : 0;
+    int getNumPorts(Port::Dir dir) override {
+        return (dir == Port::Out) ? 1 : 0;
     }
-    void process(Buffer *i, Buffer *o, int N) { o[0].value = mValue; }
+    int isFullRatePort(Port::Dir dir, int index) override { return false; }
+    void process(Buffer *i, Buffer *o, int N) override { o[0].value() = mValue; }
 private:
     float mValue;
 };
-class ControlOp1 : public Operator {
+class UnaryOp : public Operator {
 public:
-    int getNumPorts(PortDir dir) override {
+    int getNumPorts(Port::Dir dir) override {
         return 1;
     }
 };
-class ControlOp2 : public Operator {
-    public: int getNumPorts(PortDir dir) override {
-        return (dir == Input) ? 2 : 1;
+class BinaryOp : public Operator {
+    public: int getNumPorts(Port::Dir dir) override {
+        return (dir == Port::In) ? 2 : 1;
     }
 };
 
-class MultiplyOperator : public ControlOp2 {
+class MultiplyOperator : public BinaryOp {
 public:
     void process(Buffer *i, Buffer *o) {
         int numChannels = std::max(i[0].numChannels, i[1].numChannels);
@@ -91,7 +100,7 @@ public:
     }
 };
 
-class MathExp : public ControlOp1 {
+class MathExp : public UnaryOp {
 public:
     void process(Buffer *i, Buffer *o, int N) override {
         for (int ch = 0; ch < i->numChannels; ch++) {
@@ -102,34 +111,34 @@ public:
     }
 };
 /*
-class MathLog : public ControlOp1 {
+class MathLog : public UnaryOp {
 public: void process(Buffer *i, Buffer *o) { o[0] = logf(i[0]); }
 };
-class MathCos : public ControlOp1 {
+class MathCos : public UnaryOp {
 public: void process(Buffer *i, Buffer *o) { o[0] = cosf(i[0]); }
 };
-class MathSin : public ControlOp1 {
+class MathSin : public UnaryOp {
 public: void process(Buffer *i, Buffer *o) { o[0] = sinf(i[0]); }
 };
-class MathAdd : public ControlOp2 {
+class MathAdd : public BinaryOp {
 public: void process(Buffer *i, Buffer *o) { o[0] = i[0] + i[1]; }
 };
-class MathSub : public ControlOp2 {
+class MathSub : public BinaryOp {
 public: void process(Buffer *i, Buffer *o) { o[0] = i[0] - i[1]; }
 };
-class MathMul : public ControlOp2 {
+class MathMul : public BinaryOp {
 public: void process(Buffer *i, Buffer *o) { o[0] = i[0] * i[1]; }
 };
-class MathDiv : public ControlOp2 {
+class MathDiv : public BinaryOp {
 public: void process(Buffer *i, Buffer *o) { o[0] = i[0] / i[1]; }
 };
  */
 
-// some basic nodes to get started
+// some basic ops to get started
 class OscSin : public Operator {
 public:
     enum In { FreqHz, NumInputs };
-    int getNumPorts(PortDir dir) override { return (dir == Output) ? 1 : NumInputs; }
+    int getNumPorts(Port::Dir dir) override { return (dir == Port::Out) ? 1 : NumInputs; }
     void process(Buffer *i, Buffer *o, int N) override {
         o->numSamples = N;
         float phaseStep = i[FreqHz][0][0] / mSamplerate;
@@ -144,8 +153,12 @@ private:
 };
 class OscSaw : public Operator {
 public:
-    enum In { FreqHz, NumInputs };
-    int getNumPorts(PortDir dir) override { return (dir == Output) ? 1 : NumInputs; }
+    enum In  { FreqHz, NumInputs };
+    enum Out { Output, NumOutputs };
+    int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? NumInputs : NumOutputs; }
+    int isFullRatePort(Port::Dir dir, int index) override {
+        return (dir==Port::Out && index==Output);
+    }
     void process(Buffer *i, Buffer *o, int N) override {
         o->numSamples = N;
         float phaseStep = i[FreqHz][0][0] / mSamplerate;
@@ -160,15 +173,18 @@ private:
 };
 class FilterLP : public Operator {
 public:
-    enum In  { In, FreqHz, Resonance, NumInputs };
-    enum Out { Out, NumOutputs };
-    std::string getPortName(PortDir dir, int index) override {
+    enum In  { Input, FreqHz, Resonance, NumInputs };
+    enum Out { Output, NumOutputs };
+    std::string getPortName(Port::Dir dir, int index) override {
         cStr i[]={"In","Frequency","Resonance"};
         cStr o[]={"Out"};
-        return (dir==Operator::Input) ? i[index] : o[index];
+        return (dir==Port::In) ? i[index] : o[index];
     }
-    int getNumPorts(PortDir dir) override {
-        return (dir == Operator::Output) ? NumOutputs : NumInputs;
+    int isFullRatePort(Port::Dir dir, int index) override {
+        return (dir==Port::In && index==Input) || (dir==Port::Out && index==Output);
+    }
+    int getNumPorts(Port::Dir dir) override {
+        return (dir == Port::Out) ? NumOutputs : NumInputs;
     }
     void process(Buffer *i, Buffer *o, int N) override {
         o->numSamples = N;
@@ -176,7 +192,7 @@ public:
         cK = f * (3.1415f - 1.4f * f);
         float d = 1 - i[Resonance][0][0];
         cDamp = 4 * d * d;
-        float *x = i[Input][0], *y = o[Output][0];
+        float *x = i[Input][0], *y = o[Port::Out][0];
         for (int n = 0; n < N; n++) {
             float hp = x[n] - sL - cDamp * sB;
             sB += cK * hp;
@@ -189,10 +205,18 @@ private:
 };
 class EnvADSR : public Operator {
 public:
-    enum In { Gate, Attack, Decay, Sustain, Release, NumInputs };
-    enum Out { Out, NumOutputs };
-    int getNumPorts(PortDir dir) override {
-        return (dir == Output) ? NumOutputs : NumInputs;
+    enum In      { Gate , Attack , Decay , Sustain , Release , NumInputs };
+    enum Out     { Output , NumOutputs };
+    std::string getPortName(Port::Dir t, int n) override {
+        cStr i[]={"gate","attack","decay","sustain","release"};
+        cStr o[]={"output"};
+        return (t == Port::In) ? i[n] : o[n];
+    }
+    int isFullRatePort(Port::Dir dir, int index) override {
+        return (dir==Port::Out && index==Output);
+    }
+    int getNumPorts(Port::Dir dir) override {
+        return (dir == Port::Out) ? NumOutputs : NumInputs;
     }
     enum Phase {A, D, S, R};
     void process(Buffer *i, Buffer *o, int N) override {
@@ -248,6 +272,7 @@ Processor::Processor()
     registerType("midiIn", [] { return std::make_unique<MidiIn>(); });
     registerType("control", [] { return std::make_unique<Control>(); });
     registerType("buffer", [] { return std::make_unique<BufferOperator>(); });
+    registerType("toAudio", [] { return std::make_unique<ControlToAudio>(); });
     // basic math
     registerType("exp", [] { return std::make_unique<MathExp>(); });
     /*
@@ -265,28 +290,91 @@ Processor::Processor()
     registerType("filterLP", [] { return std::make_unique<FilterLP>(); });
     registerType("envADSR" , [] { return std::make_unique<EnvADSR>(); });
 
-
+    mProgram.list.reserve(128);
 }
 
-void Processor::setup(float samplerate, int numInputChannels, int numOutputChannels) {
+void Processor::setup(float samplerate, int numInputChannels, int numOutputChannels, int blockSize) {
     mSamplerate = samplerate;
     mNumInputChannels = numInputChannels;
     mNumOutputChannels = numOutputChannels;
+    mBlockSize = blockSize;
 }
 
 void Processor::clearProgram() {
     mProgram.list.clear();
 }
-int Processor::addOperator(std::string operatorId, int *inputs) {
+int Processor::addOperator(std::string operatorId, std::vector<int> inputs) {
     int opCount = (int)mProgram.list.size();
+    OpPtr op = makeOpWithId(operatorId);
+    if (auto* bin = dynamic_cast<BinaryOp*>(op.get())) {
+        // check if we need to convert an input
+        int sizes[2], maxSize = 0;
+        for (int i = 0; i < 2; i++) {
+            sizes[i] = mProgram.list[inputs[i]/OpSpacing].mOutputs[inputs[i]%OpSpacing].numSamples;
+            maxSize = std::max(maxSize, sizes[i]);
+        }
+        for (int i = 0; i < 2; i++) {
+            if (sizes[i] < maxSize) { // TODO: check if conversion already exists
+                inputs[i] = addOperator("toAudio", {inputs[i]});
+            }
+        }
+    }
     Entry &entry = mProgram.list.emplace_back();
-    entry.mIndex = opCount * OperatorIndexSpacing;
-    entry.op = create(operatorId);
+    entry.mIndex = opCount * OpSpacing;
+    entry.op = std::move(op);
     entry.op->mSamplerate = mSamplerate;
     entry.op->init();
+    
+    // setup inputs and outputs
+    entry.mInputIds = inputs;
     return entry.mIndex;
 }
 bool Processor::compileProgram() {
+    assert(mBlockSize > 0);
+    mProgram.mAudioOutIds.resize(0);
+    mProgram.mAudioInIds.resize(0);
+    mProgram.mControlIds.resize(0);
+    // two pass: first determine amount of memory needed, then allocate, then set pointers
+    for (int pass = 0; pass < 2; pass++) {
+        int pos = 1; // put a zero at the beginning of the buffer as a convenience
+        for (int n = 0; n < (int)mProgram.list.size(); n++) {
+            Entry &E = mProgram.list[n];
+            int numOuts = E.op->getNumPorts(Port::Out);
+            E.mOutputs.resize(numOuts);
+            for (int o = 0; o < numOuts; o++) {
+                int rateType = E.op->isFullRatePort(Port::Out, o);
+                E.mOutputs[o].numSamples = (rateType==1) ? mBlockSize : 1;
+                if (pass == 1) {
+                    E.mOutputs[o].ptr = &mProgram.mIoBuffer[pos];
+                }
+                pos += E.mOutputs[o].size();
+            }
+            if (pass == 1) {
+                int numIns = E.op->getNumPorts(Port::In);
+                E.mInputs.resize(numIns);
+                for (int i = 0; i < numIns; i++) {
+                    int id = (i < E.mInputIds.size()) ? E.mInputIds[i] : -1;
+                    if (id < 0) {
+                        E.mInputs[i] = Buffer(&mProgram.mIoBuffer[0]);
+                        continue;
+                    }
+                    Entry &S = mProgram.list[E.mInputIds[i]/OpSpacing];
+                    E.mInputs[i] = S.mOutputs[E.mInputIds[i]%OpSpacing];
+                }
+                if (auto *op = dynamic_cast<AudioOut*>(E.op.get())) {
+                    mProgram.mAudioOutIds.push_back(E.mInputIds[0]);
+                }
+                if (auto *op = dynamic_cast<Control*>(E.op.get())) {
+                    mProgram.mControlIds.push_back(n);
+                }
+            }
+            
+        }
+        if (pass == 0) { // allocate buffer memory
+            mProgram.mIoBuffer.resize(pos);
+            mProgram.mIoBuffer[0] = 0.f;
+        }
+    }
     
 }
 
@@ -298,15 +386,27 @@ void Processor::loadFromJSON(std::string jsonString) {
 }
     
 void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
-    if (numSamples) {
+    
+    int maxBlockSize = mBlockSize;
+    for (int ioPos = 0; ioPos < numSamples;) {
+        int blockSize = std::min(maxBlockSize, numSamples - ioPos);
         
+        for (int n = 0; n < (int)mProgram.list.size(); n++) {
+            Entry &E = mProgram.list[n];
+            E.op->process(E.mInputs.data(), E.mOutputs.data(), blockSize);
+        }
+        for (int o = 0; o < (int)mProgram.mAudioOutIds.size(); o++) {
+            int id = mProgram.mAudioOutIds[o];
+            for (int ch = 0; ch < mNumOutputChannels; ch++) {
+                const float *src = mProgram.list[id/OpSpacing].mOutputs[id%OpSpacing].dataWrap(ch);
+                float *dst = &outBufs[ch][ioPos];
+                for (int i = 0; i < blockSize; i++) {
+                    dst[i] = src[i];
+                }
+            }
+        }
+        ioPos += blockSize;
     }
-}
-
-
-void Processor::processBlock(float *const* inBufs, float **outBufs) {
-    // iterate through program
-
 }
 
 void Processor::registerType(const std::string& name, OpCreator creator) {
@@ -316,7 +416,7 @@ void Processor::registerType(const std::string& name, OpCreator creator) {
     }
 }
 
-std::unique_ptr<Operator> Processor::create(const std::string& name) const {
+OpPtr Processor::makeOpWithId(const std::string& name) const {
     auto it = mOpCreators.find(name);
     if (it == mOpCreators.end()) {
         throw std::runtime_error("Unknown processor type: " + name);
@@ -324,20 +424,37 @@ std::unique_ptr<Operator> Processor::create(const std::string& name) const {
     return it->second();
 }
 
+int Processor::getNumControls() {
+    return (int)mProgram.mControlIds.size();
+}
+float Processor::getControlValue(int controlIndex) {
+    int opIndex = mProgram.mControlIds[controlIndex];
+    Control *C = dynamic_cast<Control*>(mProgram.list[opIndex].op.get());
+    return C->mValue;
+}
+void Processor::setControlValue(int controlIndex, float value) {
+    int opIndex = mProgram.mControlIds[controlIndex];
+    Control *C = dynamic_cast<Control*>(mProgram.list[opIndex].op.get());
+    C->mValue = value;
+}
+
 // test
 static inline int testAudioVM() {
     Processor vm;
-    const int numChannels = 2;
-    vm.setup(44100.f, numChannels, numChannels);
+    const int numChannels = 2, vmBlockSize = 32;
+    vm.setup(44100.f, numChannels, numChannels, vmBlockSize);
     
     //int audioIn = proc.addOperator("audioIn");
     int pitchControl = vm.addOperator("control");
-    int osc1 = vm.addOperator("oscSaw", &pitchControl);
+    int osc1 = vm.addOperator("oscSaw", {pitchControl});
     
-    int audioOut = vm.addOperator("audioOut");
+    int audioOut = vm.addOperator("audioOut", {osc1});
     
-    //((Control*)vm.getOperator(pitchControl))->mValue = 200.f;
     vm.compileProgram();
+    
+    vm.getNumControls();
+    vm.setControlValue(0, 55.f);
+    
     const int blockSize = 32;
     float tmpBuf[numChannels * blockSize] = {0.f}, *tmpPtrs[numChannels];
     for (int ch = 0; ch < numChannels; ch++) { tmpPtrs[ch] = &tmpBuf[ch * blockSize]; }
@@ -346,4 +463,4 @@ static inline int testAudioVM() {
     
     return 0;
 }
-static int didTestAudioGraph = testAudioVM();
+static int didTestAudioVM = testAudioVM();
