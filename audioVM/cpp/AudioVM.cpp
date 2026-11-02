@@ -207,17 +207,61 @@ public:
     }
     void process(Buffer *i, Buffer *o, int N) override {
         o->numSamples = N;
-        float phaseStep = i[FreqHz][0][0] / mSamplerate;
+        float phaseStep = i[FreqHz].value() / mSamplerate;
+        float *dst = o[Output].data();
         for (int n = 0; n < N; n++) {
             mUnitPhase += phaseStep;
             mUnitPhase -= floorf(mUnitPhase);
-            o->data()[n] = mUnitPhase*2-1;
+            dst[n] = mUnitPhase*2-1;
         }
+    }
+    void init() override {
+        
+    }
+    void reset() override {
+        mUnitPhase = 0.f;
     }
 private:
     float mUnitPhase = 0.f;
 };
+
 class FilterLP : public Operator {
+public:
+    enum In  { Input, FreqHz, Resonance, NumInputs };
+    enum Out { Output, NumOutputs };
+    std::string getName() { return "FilterLP"; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        cStr i[]={"input","frequency","resonance"};
+        cStr o[]={"output"};
+        return (dir==Port::In) ? i[index] : o[index];
+    }
+    int isFullRatePort(Port::Dir dir, int index) override {
+        return (dir==Port::In && index==Input) || (dir==Port::Out && index==Output);
+    }
+    int getNumPorts(Port::Dir dir) override {
+        return (dir == Port::Out) ? NumOutputs : NumInputs;
+    }
+    void process(Buffer *i, Buffer *o, int N) override {
+        o->numSamples = N;
+        float f = std::min(.5f, i[FreqHz].value() / mSamplerate);
+        cK = 2 * f * (3.1415f - 2.15f * 2*f);
+        float d = 1 - i[Resonance].value();
+        cDamp = std::min(2 * d, .99f / cK);
+        float *x = i[Input][0], *y = o[Output][0];
+        for (int n = 0; n < N; n++) {
+            float hp = x[n] - sL - cDamp * sB;
+            sB += cK * hp;
+            sL += cK * sB;
+            y[n] = sL;
+        }
+    }
+    void reset() override {
+        sL = sB = 0.f;
+    }
+private:
+    float sL, sB, cK = 0.f, cDamp = 0.f;
+};
+class FilterSatLP : public Operator {
 public:
     enum In  { Input, FreqHz, Resonance, NumInputs };
     enum Out { Output, NumOutputs };
@@ -234,21 +278,27 @@ public:
     }
     void process(Buffer *i, Buffer *o, int N) override {
         o->numSamples = N;
-        float f = std::min(.5f, i[FreqHz][0][0] / mSamplerate);
-        cK = f * (3.1415f - 1.4f * f);
-        float d = 1 - i[Resonance][0][0];
-        cDamp = 4 * d * d;
+        float f = std::min(.5f, i[FreqHz].value() / mSamplerate);
+        cK = 2 * f * (3.1415f - 2.15f * 2*f);
+        float d = 1 - i[Resonance].value();
+        cDamp = std::min(2 * d, .99f / cK);
         float *x = i[Input][0], *y = o[Output][0];
         for (int n = 0; n < N; n++) {
-            float hp = x[n] - sL - cDamp * sB;
+            float hp = x[n] - satL - cDamp * sB;
             sB += cK * hp;
             sL += cK * sB;
-            y[n] = sL;
+            envL += .2f * (fabsf(sL) - envL);
+            satL = sL * (1 + envL) / (1 + envL * (1 + envL));
+            y[n] = satL;
         }
     }
+    void reset() override {
+        sL = sB = envL = satL = 0.f;
+    }
 private:
-    float sL = 0.f, sB = 0.f, cK = 0.f, cDamp = 0.f;
+    float sL, sB, envL, satL, cK = 0.f, cDamp = 0.f;
 };
+
 class EnvADSR : public Operator {
 public:
     enum In      { Gate , Attack , Decay , Sustain , Release , NumInputs };
@@ -268,7 +318,7 @@ public:
     void process(Buffer *i, Buffer *o, int N) override {
         float dt = N / mSamplerate;
         bool on = i[Gate].value() > .5f;
-        if (on && mPhase >= R) {
+        if (on && mPhase >= R) { // todo: add legato parameter
             mPhase = 0.f;
         }
         if (!on && mPhase < R) {
@@ -696,7 +746,7 @@ std::string Processor::getOpDefinitionsJSON() const {
 
 const int kMidiNoteOn = 0x90, kMidiNoteOff = 0x80;
 
-void Processor::midi(char b0, char b1, char b2) {
+void Processor::midiEvent(char b0, char b1, char b2) {
     if (mProgram.mMidiInId < 0) {
         return; // no midi
     }
@@ -706,14 +756,14 @@ void Processor::midi(char b0, char b1, char b2) {
     int msg = b0 & 0xf0;
     switch (msg) {
         case kMidiNoteOn: {
-            O[MidiIn::Gate].value() = 1.f;
-            O[MidiIn::Note].value() = b1;
-            O[MidiIn::Velocity].value() = b2;
+            O[MidiIn::Gate].set(1.f);
+            O[MidiIn::Note].set(b1);
+            O[MidiIn::Velocity].set(b2);
             break;
         }
         case kMidiNoteOff: {
-            O[MidiIn::Gate].value() = 0.f;
-            O[MidiIn::Note].value() = b1;
+            O[MidiIn::Gate].set(0.f);
+            O[MidiIn::Note].set(b1);
             break;
         }
     };
@@ -803,7 +853,7 @@ static inline int testAudioVM() {
     float tmpBuf[numChannels * blockSize] = {0.f}, *tmpPtrs[numChannels];
     for (int ch = 0; ch < numChannels; ch++) { tmpPtrs[ch] = &tmpBuf[ch * blockSize]; }
     
-    vm.midi(kMidiNoteOn, 60, 100);
+    vm.midiEvent(kMidiNoteOn, 60, 100);
     vm.process(tmpPtrs, tmpPtrs, blockSize);
     
     return 0;

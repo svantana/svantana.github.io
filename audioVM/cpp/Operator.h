@@ -10,6 +10,7 @@ namespace AudioVM {
         int numSamples = 1, numChannels = 1;
         float *ptr;
         float& value() { return *ptr; }
+        void set(float v) { *ptr = v; }
         float *data(int channel = 0) {
             return ptr + numSamples * channel;
         }
@@ -30,6 +31,7 @@ namespace AudioVM {
         }
         virtual int isFullRatePort(Port::Dir dir, int index) { return -1; } // -1 is auto/unknown/not applicable
         virtual void init() {} // do setup here, if needed
+        virtual void reset() {}
         virtual void process(Buffer* inBufs, Buffer* outBufs, int numSamples) = 0;
         float mSamplerate;
     };

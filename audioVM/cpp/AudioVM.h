@@ -26,7 +26,7 @@ public:
     bool compileProgram();
     
     // realtime processing interface
-    void midi(char b0, char b1, char b2);
+    void midiEvent(char b0, char b1, char b2);
     /* Accepts arbitrary buffer sizes */
     void process(float *const* inBufs, float **outBufs, int numSamples);
     
@@ -58,6 +58,7 @@ private:
     struct Program {
         void clear();
         bool compile();
+        void print();
         std::vector<Entry> list;
         std::vector<float> mIoBuffer;
         std::vector<int> mAudioInIds, mAudioOutIds, mControlIds;
