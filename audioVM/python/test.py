@@ -12,13 +12,14 @@ osc = vm.op("oscSaw", {"note": midi.note})
 envAmp    = vm.op("envADSR", {"gate":midi.gate, "a":0.01, "d":0.3, "s":0.5, "r":0.2})
 envFilter = vm.op("envADSR", {"gate":midi.gate, "a":0.05, "d":1.5, "s":0.0, "r":0.3})
 
-oscMix = (osc + subOsc * 0.5) * envAmp 
+oscMix = osc + subOsc * 0.5 
 
 cutoffHz = 400 + envFilter * 2.5e3
 
 filterOut = vm.op("filterLP", {"input": oscMix, "frequency": cutoffHz, "resonance": 0.5})
+envOut = filterOut * envAmp
 
-vm.op("audioOut", filterOut)
+vm.op("audioOut", envOut)
 
 json_str = vm.get_json()
 print("program graph as json:")

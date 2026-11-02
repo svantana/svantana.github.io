@@ -103,13 +103,14 @@ protected:
     virtual float apply(float a, float b) const = 0;
     void process(Buffer *i, Buffer *o, int N) override {
         const int channels = std::max(i[0].numChannels, i[1].numChannels);
+        const int numSamples = i[0].numSamples;
+        assert(i[1].numSamples == numSamples);
         for (int ch = 0; ch < channels; ++ch) {
             const float *a = i[0].dataWrap(ch);
             const float *b = i[1].dataWrap(ch);
             float *dst = o[0].dataWrap(ch);
-            for (int n = 0; n < N; ++n) {
-                dst[n] = apply(a[i[0].numSamples == 1 ? 0 : n],
-                               b[i[1].numSamples == 1 ? 0 : n]);
+            for (int n = 0; n < numSamples; ++n) {
+                dst[n] = apply(a[n], b[n]);
             }
         }
     }
@@ -196,18 +197,21 @@ private:
 };
 class OscSaw : public Operator {
 public:
-    enum In  { FreqHz, NumInputs };
+    enum In  { FreqHz, NoteNumber, NumInputs };
     enum Out { Output, NumOutputs };
     int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? NumInputs : NumOutputs; }
     std::string getPortName(Port::Dir dir, int index) override {
-        return (dir == Port::In && index == FreqHz) ? "note" : "output";
+        cStr i[]={"frequency", "note"};
+        cStr o[]={"output"};
+        return (dir == Port::In) ? i[index] : o[index];
     }
     int isFullRatePort(Port::Dir dir, int index) override {
         return (dir==Port::Out && index==Output);
     }
     void process(Buffer *i, Buffer *o, int N) override {
         o->numSamples = N;
-        float phaseStep = i[FreqHz].value() / mSamplerate;
+        float note = i[NoteNumber].value(), hz = i[FreqHz].value() + ((note > 0) ? 440 * exp2f((note-69)/12) : 0.f);
+        float phaseStep = hz / mSamplerate;
         float *dst = o[Output].data();
         for (int n = 0; n < N; n++) {
             mUnitPhase += phaseStep;
@@ -309,7 +313,7 @@ public:
         return (t == Port::In) ? i[n] : o[n];
     }
     int isFullRatePort(Port::Dir dir, int index) override {
-        return (dir==Port::Out && index==Output);
+        return 0;
     }
     int getNumPorts(Port::Dir dir) override {
         return (dir == Port::Out) ? NumOutputs : NumInputs;
@@ -404,8 +408,41 @@ void Processor::clearProgram() {
     mProgram.list.clear();
 }
 int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
-    int opCount = (int)mProgram.list.size();
     OpPtr op = makeOpWithId(operatorId);
+
+    // Binary operators run at audio rate whenever either operand is audio
+    // rate.  Promote their control-rate operands before creating the binary
+    // entry, while source operator metadata is still available.
+    if (dynamic_cast<BinaryOp*>(op.get()) != nullptr) {
+        std::vector<bool> inputIsFullRate(inputIds.size(), false);
+        bool hasFullRateInput = false;
+        for (size_t input = 0; input < inputIds.size(); ++input) {
+            const int sourceId = inputIds[input];
+            if (sourceId < 0) {
+                continue;
+            }
+            const int sourceIndex = sourceId / OpSpacing;
+            const int sourcePort = sourceId % OpSpacing;
+            if (sourceIndex < 0 || sourceIndex >= static_cast<int>(mProgram.list.size())) {
+                continue;
+            }
+            Operator* source = mProgram.list[sourceIndex].op.get();
+            if (sourcePort >= source->getNumPorts(Port::Out)) {
+                continue;
+            }
+            inputIsFullRate[input] = source->isFullRatePort(Port::Out, sourcePort) == 1;
+            hasFullRateInput = hasFullRateInput || inputIsFullRate[input];
+        }
+        if (hasFullRateInput) {
+            for (size_t input = 0; input < inputIds.size(); ++input) {
+                if (inputIds[input] >= 0 && !inputIsFullRate[input]) {
+                    inputIds[input] = addOperator("toAudio", {inputIds[input]});
+                }
+            }
+        }
+    }
+
+    const int opCount = static_cast<int>(mProgram.list.size());
     Entry &entry = mProgram.list.emplace_back();
     entry.mIndex = opCount * OpSpacing;
     entry.mType = operatorId;
