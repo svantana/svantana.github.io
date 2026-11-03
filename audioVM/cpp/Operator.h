@@ -18,7 +18,7 @@ namespace AudioVM {
             return ptr + numSamples * (channel % numChannels);
         }
         float* operator[](int i) { return data(i); }
-        int size() { return numSamples * numChannels; }
+        int size() const { return numSamples * numChannels; }
     };
     struct Port {
         enum Dir  { In, Out };

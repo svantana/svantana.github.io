@@ -141,7 +141,6 @@ public:
         return (dir==Port::Out && index==Output) ? Port::Full : Port::Block;
     }
     void process(Buffer *i, Buffer *o, int N) override {
-        o->numSamples = N;
         float note = i[NoteNumber].value();
         float hz = convertNoteToHz(note) + i[FreqHz].value();
         float phaseStep = hz / mSamplerate;
@@ -168,7 +167,6 @@ public:
         return (dir==Port::Out && index==Output) ? Port::Full : Port::Block;
     }
     void process(Buffer *i, Buffer *o, int N) override {
-        o->numSamples = N;
         float note = i[NoteNumber].value();
         float hz = convertNoteToHz(note) + i[FreqHz].value();
         float phaseStep = hz / mSamplerate;
@@ -206,7 +204,6 @@ public:
         return (dir == Port::Out) ? NumOutputs : NumInputs;
     }
     void process(Buffer *i, Buffer *o, int N) override {
-        o->numSamples = N;
         float f = std::min(.5f, i[FreqHz].value() / mSamplerate);
         cK = 2 * f * (3.1415f - 2.15f * 2*f);
         float d = 1 - i[Resonance].value();
@@ -241,7 +238,6 @@ public:
         return (dir == Port::Out) ? NumOutputs : NumInputs;
     }
     void process(Buffer *i, Buffer *o, int N) override {
-        o->numSamples = N;
         float f = std::min(.5f, i[FreqHz].value() / mSamplerate);
         cK = 2 * f * (3.1415f - 2.15f * 2*f);
         float d = 1 - i[Resonance].value();
@@ -366,10 +362,12 @@ void Processor::clearProgram() {
 }
 int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
     OpPtr op = makeOpWithId(operatorId);
+    assert(mBlockSize > 0);
 
-    // Binary operators run at audio rate whenever either operand is audio
-    // rate.  Promote their control-rate operands before creating the binary
-    // entry, while source operator metadata is still available.
+    // Output buffer sizes are resolved as each operator is added.  This makes
+    // Port::Keep concrete before binary inputs are normalized, so an audio
+    // rate value propagated through a Keep output is not mistaken for a
+    // control-rate value.
     if (dynamic_cast<BinaryOp*>(op.get()) != nullptr) {
         std::vector<bool> inputIsFullRate(inputIds.size(), false);
         bool hasFullRateInput = false;
@@ -380,14 +378,10 @@ int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
             }
             const int sourceIndex = sourceId / OpSpacing;
             const int sourcePort = sourceId % OpSpacing;
-            if (sourceIndex < 0 || sourceIndex >= static_cast<int>(mProgram.list.size())) {
-                continue;
-            }
-            Operator* source = mProgram.list[sourceIndex].op.get();
-            if (sourcePort >= source->getNumPorts(Port::Out)) {
-                continue;
-            }
-            inputIsFullRate[input] = source->getPortRate(Port::Out, sourcePort) == Port::Full;
+            assert(sourceIndex >= 0 && sourceIndex < static_cast<int>(mProgram.list.size()));
+            const Entry& source = mProgram.list[sourceIndex];
+            assert(sourcePort >= 0 && sourcePort < static_cast<int>(source.mOutputs.size()));
+            inputIsFullRate[input] = source.mOutputs[sourcePort].numSamples == mBlockSize;
             hasFullRateInput = hasFullRateInput || inputIsFullRate[input];
         }
         if (hasFullRateInput) {
@@ -406,9 +400,33 @@ int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
     entry.op = std::move(op);
     entry.op->mSamplerate = mSamplerate;
     entry.op->init();
-    
-    // setup inputs and outputs
     entry.mInputIds = inputIds;
+
+    const int numIns = entry.op->getNumPorts(Port::In);
+    entry.mInputs.resize(numIns);
+    for (int input = 0; input < numIns; ++input) {
+        const int sourceId = input < static_cast<int>(inputIds.size()) ? inputIds[input] : -1;
+        if (sourceId < 0) {
+            entry.mInputs[input] = Buffer(nullptr);
+            continue;
+        }
+        const int sourceIndex = sourceId / OpSpacing;
+        const int sourcePort = sourceId % OpSpacing;
+        assert(sourceIndex >= 0 && sourceIndex < static_cast<int>(mProgram.list.size()));
+        const Entry& source = mProgram.list[sourceIndex];
+        assert(sourcePort >= 0 && sourcePort < static_cast<int>(source.mOutputs.size()));
+        entry.mInputs[input] = source.mOutputs[sourcePort];
+    }
+
+    const int numOuts = entry.op->getNumPorts(Port::Out);
+    entry.mOutputs.resize(numOuts);
+    for (int output = 0; output < numOuts; ++output) {
+        const Port::Rate rate = entry.op->getPortRate(Port::Out, output);
+        const int numSamples = rate == Port::Full ? mBlockSize
+            : rate == Port::Block ? 1
+            : numIns > 0 ? entry.mInputs[0].numSamples : 1;
+        entry.mOutputs[output] = Buffer(nullptr, numSamples);
+    }
     return entry.mIndex;
 }
 int Processor::addControl(std::string name, float value) {
@@ -429,60 +447,45 @@ int Processor::addConstant(float value) {
 
 bool Processor::compileProgram() {
     assert(mBlockSize > 0);
-    mProgram.mAudioOutIds.resize(0);
-    mProgram.mAudioInIds.resize(0);
-    mProgram.mControlIds.resize(0);
-    mProgram.mIoBuffer.resize(1);
-    mProgram.mIoBuffer[0] = 0.f; // hack to keep a zero around
-    // two pass: first determine amount of memory needed, then allocate, then set pointers
-    for (int pass = 0; pass < 2; pass++) {
-        int pos = 1; // put a zero at the beginning of the buffer as a convenience
-        for (int n = 0; n < (int)mProgram.list.size(); n++) {
-            Entry &E = mProgram.list[n];
-            int numIns = E.op->getNumPorts(Port::In);
-            int numOuts = E.op->getNumPorts(Port::Out);
-            E.mInputs.resize(numIns);
-            E.mOutputs.resize(numOuts);
-            for (int i = 0; i < numIns; i++) {
-                int id = (i < E.mInputIds.size()) ? E.mInputIds[i] : -1;
-                if (id < 0) {
-                    E.mInputs[i] = Buffer(&mProgram.mIoBuffer[0]);
-                    continue;
-                }
-                Entry &S = mProgram.list[E.mInputIds[i]/OpSpacing];
-                E.mInputs[i] = S.mOutputs[E.mInputIds[i]%OpSpacing];
-            }
-            for (int o = 0; o < numOuts; o++) {
-                Port::Rate rateType = E.op->getPortRate(Port::Out, o);
-                int N = (rateType==Port::Full) ? mBlockSize : 1;
-                if (rateType==Port::Keep) {
-                    assert(numIns > 0);
-                    N = E.mInputs[0].numSamples;
-                }
-                E.mOutputs[o].numSamples = N;
-                if (pass == 1) {
-                    E.mOutputs[o].ptr = &mProgram.mIoBuffer[pos];
-                }
-                pos += E.mOutputs[o].size();
-            }
-            if (pass == 1) {
-                if (dynamic_cast<AudioOut*>(E.op.get())) {
-                    mProgram.mAudioOutIds.push_back(E.mInputIds[0]);
-                }
-                if (dynamic_cast<Control*>(E.op.get())) {
-                    mProgram.mControlIds.push_back(n);
-                }
-                if (dynamic_cast<MidiIn*>(E.op.get())) {
-                    mProgram.mMidiInId = n;
-                }
-            }
-        }
-        if (pass == 0) { // allocate buffer memory
-            mProgram.mIoBuffer.resize(pos);
-            mProgram.mIoBuffer[0] = 0.f;
+    mProgram.mAudioOutIds.clear();
+    mProgram.mAudioInIds.clear();
+    mProgram.mControlIds.clear();
+    mProgram.mMidiInId = -1;
+
+    int size = 1; // Keep a zero value for unconnected control-rate inputs.
+    for (const Entry& entry : mProgram.list) {
+        for (const Buffer& output : entry.mOutputs) {
+            size += output.size();
         }
     }
-    
+    mProgram.mIoBuffer.assign(size, 0.f);
+
+    int pos = 1;
+    for (int n = 0; n < static_cast<int>(mProgram.list.size()); ++n) {
+        Entry& entry = mProgram.list[n];
+        for (int input = 0; input < static_cast<int>(entry.mInputs.size()); ++input) {
+            const int sourceId = input < static_cast<int>(entry.mInputIds.size()) ? entry.mInputIds[input] : -1;
+            if (sourceId < 0) {
+                entry.mInputs[input].ptr = &mProgram.mIoBuffer[0];
+                continue;
+            }
+            const Entry& source = mProgram.list[sourceId / OpSpacing];
+            entry.mInputs[input].ptr = source.mOutputs[sourceId % OpSpacing].ptr;
+        }
+        for (Buffer& output : entry.mOutputs) {
+            output.ptr = &mProgram.mIoBuffer[pos];
+            pos += output.size();
+        }
+        if (dynamic_cast<AudioOut*>(entry.op.get())) {
+            mProgram.mAudioOutIds.push_back(entry.mInputIds[0]);
+        }
+        if (dynamic_cast<Control*>(entry.op.get())) {
+            mProgram.mControlIds.push_back(n);
+        }
+        if (dynamic_cast<MidiIn*>(entry.op.get())) {
+            mProgram.mMidiInId = n;
+        }
+    }
     return true;
 }
 
