@@ -44,6 +44,7 @@ private:
     
     int mBlockSize, mNumInputChannels, mNumOutputChannels;
     float mSamplerate;
+    int mCurrMidiNote;
     
     void processBlock(float *const* inBufs, float **outBufs);
 

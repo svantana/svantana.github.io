@@ -16,21 +16,21 @@ vm.op("audioOut", amplifier)
 
 export class PythonPatchRunner {
     #pyodide;
+    #preparation;
+
+    async prepare(onStatus = () => {}) {
+        if (!this.#preparation) {
+            this.#preparation = this.#initialize(onStatus).catch(cause => {
+                this.#preparation = undefined;
+                this.#pyodide = undefined;
+                throw cause;
+            });
+        }
+        return this.#preparation;
+    }
 
     async compile(source, onStatus = () => {}) {
-        if (!this.#pyodide) {
-            onStatus('Loading Python runtime…');
-            await this.#loadRuntime();
-            this.#pyodide = await window.loadPyodide({ indexURL: pyodideBase });
-            const audioVMSource = await this.#loadAudioVMSource();
-            this.#pyodide.globals.set('audiovm_source', audioVMSource);
-            await this.#pyodide.runPythonAsync(`
-import sys, types
-audioVM = types.ModuleType("audioVM")
-exec(audiovm_source, audioVM.__dict__)
-sys.modules["audioVM"] = audioVM
-`);
-        }
+        await this.prepare(onStatus);
         this.#pyodide.globals.set('patch_source', source);
         return await this.#pyodide.runPythonAsync(`
 namespace = {}
@@ -40,6 +40,21 @@ if vm is None:
     raise RuntimeError("Your patch must assign its VM instance to a variable named vm.")
 vm.get_json()
 `);
+    }
+
+    async #initialize(onStatus) {
+        onStatus('Loading Python runtime…');
+        await this.#loadRuntime();
+        const pyodide = await window.loadPyodide({ indexURL: pyodideBase });
+        const audioVMSource = await this.#loadAudioVMSource();
+        pyodide.globals.set('audiovm_source', audioVMSource);
+        await pyodide.runPythonAsync(`
+import sys, types
+audioVM = types.ModuleType("audioVM")
+exec(audiovm_source, audioVM.__dict__)
+sys.modules["audioVM"] = audioVM
+`);
+        this.#pyodide = pyodide;
     }
 
     async #loadAudioVMSource() {

@@ -31,6 +31,10 @@
     #program::selection { background:rgba(146,229,177,.32); }
     .editor-toolbar { flex:none; min-height:58px; padding:10px 14px; display:flex; align-items:center; gap:10px; border-top:1px solid var(--border); background:var(--panel); }
     .editor-toolbar button, .editor-toolbar select { flex:none; white-space:nowrap; }
+    #audio-stats { display:flex; align-items:center; gap:5px; min-height:30px; padding:0 7px; border:1px solid var(--border); border-radius:4px; background:#1b1e23; color:var(--muted); font:10px ui-monospace, monospace; white-space:nowrap; }
+    #audio-stats[hidden] { display:none; }
+    #cpu-load { min-width:30px; color:var(--accent); text-align:right; }
+    #audio-format { padding-left:5px; border-left:1px solid var(--border); }
     .token-keyword { color:#c99bff; } .token-string { color:#9ee6b4; } .token-number { color:#f2c17d; }
     .token-comment { color:#737b87; font-style:italic; } .token-builtin { color:#82caff; } .token-function { color:#ffb7cf; }
     #controls { flex:1; padding:12px 14px 28px; overflow:auto; }
@@ -42,17 +46,19 @@
     input[type=range] { width:100%; accent-color:var(--accent); }
     #error { display:none; margin:0; padding:9px 14px; background:#331d20; color:var(--danger); border-top:1px solid #67353a; font:12px/1.4 ui-monospace, monospace; white-space:pre-wrap; }
     #right-panel:focus { outline:2px solid var(--accent); outline-offset:-2px; }
-    .keyboard-panel { flex:none; padding:12px 14px 16px; border-top:1px solid var(--border); background:var(--panel); }
-    .keyboard-head { display:flex; gap:10px; align-items:baseline; margin-bottom:10px; }
-    .keyboard-head strong { font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
-    .keyboard-head span { margin-left:auto; color:var(--muted); font:11px ui-monospace, monospace; }
-    #piano { position:relative; height:130px; display:grid; grid-template-columns:repeat(9, 1fr); border:1px solid #090a0c; border-radius:4px; overflow:visible; background:#e8e9e8; }
+    .keyboard-panel { flex:none; padding:6px 14px 8px; border-top:1px solid var(--border); background:var(--panel); }
+    #piano { position:relative; height:66px; display:grid; border:1px solid #090a0c; border-radius:4px; overflow:visible; background:#e8e9e8; }
     .piano-key { touch-action:none; user-select:none; }
-    .piano-key.white { grid-row:1; min-width:0; border:0; border-right:1px solid #8e9394; border-radius:0; background:#f5f5f1; color:#25282b; padding:0 2px 8px; display:flex; align-items:end; justify-content:center; font:10px ui-monospace, monospace; }
+    .piano-key.white { position:relative; grid-row:1; min-width:0; border:0; border-right:1px solid #8e9394; border-radius:0; background:#f5f5f1; color:transparent; padding:0; font:10px ui-monospace, monospace; }
+    .key-label { position:absolute; right:0; bottom:4px; left:0; text-align:center; }
+    .octave-label { position:absolute; top:4px; right:0; left:0; font-size:9px; font-weight:700; text-align:center; }
     .piano-key.white:last-of-type { border-right:0; }
-    .piano-key.black { position:absolute; z-index:2; top:0; left:calc(var(--after) * (100% / 9) - 4.2%); width:8.4%; height:76px; border:1px solid #050607; border-radius:0 0 4px 4px; background:#171a1e; color:#dfe4e9; padding:0 1px 8px; display:flex; align-items:end; justify-content:center; font:9px ui-monospace, monospace; }
-    .piano-key:hover, .piano-key.active { background:var(--accent); color:#112116; border-color:var(--accent); }
-    .piano-key.black:hover, .piano-key.black.active { background:#76c995; color:#102116; }
+    .piano-key.black { position:absolute; z-index:2; top:0; left:calc(var(--after) * (100% / var(--white-count)) - 7px); width:14px; height:39px; border:1px solid #050607; border-radius:0 0 4px 4px; background:#171a1e; color:transparent; padding:0 1px 4px; display:flex; align-items:end; justify-content:center; font:9px ui-monospace, monospace; }
+    #right-panel:focus-within .piano-key.white { color:#25282b; }
+    #right-panel:focus-within .piano-key.black { color:#dfe4e9; }
+    .piano-key:hover { border-color:var(--accent); }
+    .piano-key.active { background:var(--accent); color:#112116; border-color:var(--accent); }
+    .piano-key.black.active { background:#76c995; color:#102116; }
     @media (max-width:720px) { main { grid-template-columns:1fr; grid-template-rows:minmax(340px, 56vh) auto; } section + section { border:0; border-top:1px solid var(--border); } #controls { min-height:220px; } }
   </style>
 </head>
@@ -71,6 +77,9 @@
         <select id="presets" aria-label="Load preset" disabled><option value="">Presets…</option></select>
         <button id="load" disabled>Load patch</button>
         <button id="play" disabled>Play</button>
+        <div id="audio-stats" hidden role="status" aria-label="Audio engine statistics">
+          <span>CPU</span><span id="cpu-load">0%</span><span id="audio-format"></span>
+        </div>
         <span id="status">Loading AudioVM…</span>
       </div>
     </section>
@@ -79,25 +88,7 @@
       <div id="controls"><p class="empty">Load a patch to generate controls.</p></div>
       <pre id="error" role="alert"></pre>
       <div class="keyboard-panel">
-        <div class="keyboard-head"><strong>Piano</strong><span>awsedftgyhujiklp</span></div>
-        <div id="piano" role="group" aria-label="Piano keyboard">
-          <button class="piano-key white" style="grid-column:1" data-key="a" data-note="60" aria-label="C4, A key">a</button>
-          <button class="piano-key white" style="grid-column:2" data-key="s" data-note="62" aria-label="D4, S key">s</button>
-          <button class="piano-key white" style="grid-column:3" data-key="d" data-note="64" aria-label="E4, D key">d</button>
-          <button class="piano-key white" style="grid-column:4" data-key="f" data-note="65" aria-label="F4, F key">f</button>
-          <button class="piano-key white" style="grid-column:5" data-key="g" data-note="67" aria-label="G4, G key">g</button>
-          <button class="piano-key white" style="grid-column:6" data-key="h" data-note="69" aria-label="A4, H key">h</button>
-          <button class="piano-key white" style="grid-column:7" data-key="j" data-note="71" aria-label="B4, J key">j</button>
-          <button class="piano-key white" style="grid-column:8" data-key="k" data-note="72" aria-label="C5, K key">k</button>
-          <button class="piano-key white" style="grid-column:9" data-key="l" data-note="74" aria-label="D5, L key">l</button>
-          <button class="piano-key black" style="--after:1" data-key="w" data-note="61" aria-label="C sharp 4, W key">w</button>
-          <button class="piano-key black" style="--after:2" data-key="e" data-note="63" aria-label="D sharp 4, E key">e</button>
-          <button class="piano-key black" style="--after:4" data-key="t" data-note="66" aria-label="F sharp 4, T key">t</button>
-          <button class="piano-key black" style="--after:5" data-key="y" data-note="68" aria-label="G sharp 4, Y key">y</button>
-          <button class="piano-key black" style="--after:6" data-key="u" data-note="70" aria-label="A sharp 4, U key">u</button>
-          <button class="piano-key black" style="--after:8" data-key="i" data-note="73" aria-label="C sharp 5, I key">i</button>
-          <button class="piano-key black" style="--after:9" data-key="p" data-note="75" aria-label="D sharp 5, P key">p</button>
-        </div>
+        <div id="piano" role="group" aria-label="Piano keyboard"></div>
       </div>
     </section>
   </main>
@@ -108,6 +99,9 @@
     const editor = document.querySelector('#program');
     const loadButton = document.querySelector('#load');
     const playButton = document.querySelector('#play');
+    const audioStats = document.querySelector('#audio-stats');
+    const cpuLoad = document.querySelector('#cpu-load');
+    const audioFormat = document.querySelector('#audio-format');
     const presetSelect = document.querySelector('#presets');
     const status = document.querySelector('#status');
     const controls = document.querySelector('#controls');
@@ -116,7 +110,9 @@
     const highlight = document.querySelector('#highlight');
     const gutter = document.querySelector('#gutter');
     const rightPanel = document.querySelector('#right-panel');
-    const pianoKeys = new Map([...document.querySelectorAll('.piano-key')].map(key => [key.dataset.key, key]));
+    const piano = document.querySelector('#piano');
+    const keyboardSemitones = new Map(Object.entries({ a:0, w:1, s:2, e:3, d:4, f:5, t:6, g:7, y:8, h:9, u:10, j:11, k:12, o:13, l:14, p:15 }));
+    let pianoKeys = new Map();
     editor.value = starterPatch;
 
     const keywords = new Set(['and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'if', 'import', 'in', 'is', 'lambda', 'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield']);
@@ -164,12 +160,22 @@
     let audioNode;
     let inputPointer = 0;
     let outputPointer = 0;
+    let resourcesReady = false;
+    let presetFilesReady = false;
+    let smoothedCpuLoad = 0;
+    let lastCpuUpdate = 0;
     const blockSize = 512;
     const outputChannels = 2;
-    const activeMidiSources = new Set();
+    const activeMidiSources = new Map();
+    const pointerNotes = new Map();
+    let baseOctave = 4;
 
     const showError = message => { error.textContent = message; error.style.display = 'block'; };
     const clearError = () => { error.textContent = ''; error.style.display = 'none'; };
+    const updateActionAvailability = () => {
+      loadButton.disabled = !resourcesReady;
+      presetSelect.disabled = !resourcesReady || !presetFilesReady;
+    };
     const loadPresets = async () => {
       try {
         const response = await fetch('./presets.json');
@@ -181,7 +187,8 @@
           option.textContent = preset.replace(/\.py$/, '');
           presetSelect.append(option);
         }
-        presetSelect.disabled = presets.length === 0;
+        presetFilesReady = presets.length > 0;
+        updateActionAvailability();
       } catch (cause) {
         console.warn('Could not load presets:', cause);
       }
@@ -234,81 +241,148 @@
     const stop = () => {
       if (audioNode) { audioNode.disconnect(); audioNode = null; }
       if (audioContext) audioContext.suspend();
+      audioStats.hidden = true;
       playButton.textContent = 'Play'; playButton.classList.remove('playing');
     };
     const start = async () => {
       if (!processor) return;
       if (!audioContext) audioContext = new AudioContext();
       await audioContext.resume();
+      smoothedCpuLoad = 0;
+      lastCpuUpdate = 0;
+      cpuLoad.textContent = '0%';
+      audioFormat.textContent = `${(audioContext.sampleRate / 1000).toFixed(1)} kHz · ${(1000 * blockSize / audioContext.sampleRate).toFixed(1)} ms`;
+      audioStats.hidden = false;
       if (!audioNode) {
         audioNode = audioContext.createScriptProcessor(blockSize, 1, outputChannels);
         audioNode.onaudioprocess = event => {
           const frames = event.outputBuffer.length;
+          const callbackStart = performance.now();
           wasm._audiovm_process(processor, inputPointer, outputPointer, frames, 1, outputChannels);
           const samples = new Float32Array(wasm.HEAPU8.buffer, outputPointer, frames * outputChannels);
           for (let channel = 0; channel < outputChannels; channel++) {
             event.outputBuffer.copyToChannel(samples.subarray(channel * frames, (channel + 1) * frames), channel);
+          }
+          const callbackLoad = 100 * (performance.now() - callbackStart) / (frames * 1000 / audioContext.sampleRate);
+          smoothedCpuLoad += 0.15 * (callbackLoad - smoothedCpuLoad);
+          if (callbackStart - lastCpuUpdate >= 250) {
+            const displayLoad = Math.min(100, Math.max(0, smoothedCpuLoad));
+            cpuLoad.textContent = `${displayLoad.toFixed(displayLoad < 10 ? 1 : 0)}%`;
+            lastCpuUpdate = callbackStart;
           }
         };
         audioNode.connect(audioContext.destination);
       }
       playButton.textContent = 'Stop'; playButton.classList.add('playing');
     };
-    const updatePianoKey = key => {
-      const pianoKey = pianoKeys.get(key);
-      if (pianoKey) pianoKey.classList.toggle('active', [...activeMidiSources].some(source => source.endsWith(`:${key}`)));
+    const midiNoteForKey = key => 12 * (baseOctave + 1) + keyboardSemitones.get(key);
+    const updatePianoKey = midi => pianoKeys.get(midi)?.classList.toggle('active', [...activeMidiSources.values()].includes(midi));
+    const renderPiano = () => {
+      const whiteCount = Math.max(17, Math.ceil(piano.clientWidth / 24));
+      const firstC = 12 * baseOctave;
+      const natural = [0, 2, 4, 5, 7, 9, 11];
+      const labels = new Map([...keyboardSemitones].map(([key, semitone]) => [12 * (baseOctave + 1) + semitone, key]));
+      piano.style.gridTemplateColumns = `repeat(${whiteCount}, 1fr)`;
+      piano.style.setProperty('--white-count', whiteCount);
+      piano.replaceChildren(); pianoKeys = new Map();
+      for (let index = 0; index < whiteCount; index++) {
+        const midi = firstC + 12 * Math.floor(index / 7) + natural[index % 7];
+        const octave = Math.floor(midi / 12) - 1;
+        const isC = midi % 12 === 0, key = labels.get(midi);
+        const white = document.createElement('button');
+        white.className = 'piano-key white'; white.style.gridColumn = index + 1; white.dataset.midi = midi;
+        white.setAttribute('aria-label', `${isC ? 'C' + octave : 'MIDI ' + midi}${key ? ', ' + key.toUpperCase() + ' key' : ''}`);
+        white.innerHTML = `${key ? `<span class="key-label">${key}</span>` : ''}${isC ? `<span class="octave-label">C${octave}</span>` : ''}`;
+        piano.append(white); pianoKeys.set(midi, white);
+        const next = firstC + 12 * Math.floor((index + 1) / 7) + natural[(index + 1) % 7];
+        if (next - midi === 2) {
+          const black = document.createElement('button'), blackMidi = midi + 1, blackKey = labels.get(blackMidi);
+          black.className = 'piano-key black'; black.style.setProperty('--after', index + 1); black.dataset.midi = blackMidi;
+          black.setAttribute('aria-label', `MIDI ${blackMidi}${blackKey ? ', ' + blackKey.toUpperCase() + ' key' : ''}`);
+          black.textContent = blackKey || ''; piano.append(black); pianoKeys.set(blackMidi, black);
+        }
+      }
     };
-    const sendNoteOn = (source, key) => {
+    const transposeOctave = amount => {
+      const next = Math.max(0, Math.min(8, baseOctave + amount));
+      if (next === baseOctave) return;
+      releaseAllNotes();
+      baseOctave = next;
+      renderPiano();
+    };
+    renderPiano();
+    new ResizeObserver(renderPiano).observe(piano);
+    const sendNoteOn = (source, midi) => {
       if (activeMidiSources.has(source)) return;
-      const pianoKey = pianoKeys.get(key);
-      if (!pianoKey || !processor) return;
-      activeMidiSources.add(source);
-      wasm._audiovm_midi_event(processor, 0x90, Number(pianoKey.dataset.note), 100);
-      updatePianoKey(key);
+      if (!processor) return;
+      activeMidiSources.set(source, midi);
+      wasm._audiovm_midi_event(processor, 0x90, midi, 100);
+      updatePianoKey(midi);
       start().catch(cause => showError(`Could not start audio: ${cause.message}`));
     };
-    const sendNoteOff = (source, key) => {
-      if (!activeMidiSources.delete(source)) return;
-      const pianoKey = pianoKeys.get(key);
-      if (pianoKey && ![...activeMidiSources].some(active => active.endsWith(`:${key}`))) {
-        wasm._audiovm_midi_event(processor, 0x80, Number(pianoKey.dataset.note), 0);
-      }
-      updatePianoKey(key);
+    const sendNoteOff = source => {
+      const midi = activeMidiSources.get(source);
+      if (midi === undefined) return;
+      activeMidiSources.delete(source);
+      if (![...activeMidiSources.values()].includes(midi)) wasm._audiovm_midi_event(processor, 0x80, midi, 0);
+      updatePianoKey(midi);
     };
     const releaseAllNotes = () => {
-      for (const source of [...activeMidiSources]) {
-        sendNoteOff(source, source.slice(source.lastIndexOf(':') + 1));
-      }
+      for (const source of activeMidiSources.keys()) sendNoteOff(source);
     };
     rightPanel.addEventListener('pointerdown', event => {
       if (!event.target.closest('.piano-key')) rightPanel.focus();
     });
-    pianoKeys.forEach((pianoKey, key) => {
-      pianoKey.addEventListener('pointerdown', event => {
-        event.preventDefault();
-        rightPanel.focus();
-        pianoKey.setPointerCapture(event.pointerId);
-        sendNoteOn(`pointer${event.pointerId}:${key}`, key);
-      });
-      for (const eventName of ['pointerup', 'pointercancel']) {
-        pianoKey.addEventListener(eventName, event => sendNoteOff(`pointer${event.pointerId}:${key}`, key));
-      }
+    piano.addEventListener('pointerdown', event => {
+      const pianoKey = event.target.closest('.piano-key');
+      if (!pianoKey) return;
+      event.preventDefault(); rightPanel.focus(); pianoKey.setPointerCapture(event.pointerId);
+      const midi = Number(pianoKey.dataset.midi);
+      pointerNotes.set(event.pointerId, midi);
+      sendNoteOn(`pointer${event.pointerId}`, midi);
     });
+    piano.addEventListener('pointermove', event => {
+      if (!pointerNotes.has(event.pointerId)) return;
+      const nextMidi = Number(document.elementFromPoint(event.clientX, event.clientY)?.closest('.piano-key')?.dataset.midi);
+      const previousMidi = pointerNotes.get(event.pointerId);
+      if (nextMidi === previousMidi) return;
+      sendNoteOff(`pointer${event.pointerId}`);
+      pointerNotes.set(event.pointerId, Number.isFinite(nextMidi) ? nextMidi : null);
+      if (Number.isFinite(nextMidi)) sendNoteOn(`pointer${event.pointerId}`, nextMidi);
+    });
+    for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+      piano.addEventListener(eventName, event => {
+        if (!pointerNotes.has(event.pointerId)) return;
+        pointerNotes.delete(event.pointerId);
+        sendNoteOff(`pointer${event.pointerId}`);
+      }
+      );
+    }
     rightPanel.addEventListener('keydown', event => {
       const key = event.key.toLowerCase();
-      if (!pianoKeys.has(key) || event.repeat) return;
+      if (key === 'z' || key === 'x') {
+        event.preventDefault();
+        if (!event.repeat) transposeOctave(key === 'z' ? -1 : 1);
+        return;
+      }
+      if (!keyboardSemitones.has(key) || event.repeat) return;
       event.preventDefault();
-      sendNoteOn(`keyboard:${key}`, key);
+      sendNoteOn(`keyboard:${key}`, midiNoteForKey(key));
     });
     rightPanel.addEventListener('keyup', event => {
       const key = event.key.toLowerCase();
-      if (!pianoKeys.has(key)) return;
+      if (!keyboardSemitones.has(key)) return;
       event.preventDefault();
-      sendNoteOff(`keyboard:${key}`, key);
+      sendNoteOff(`keyboard:${key}`);
     });
     window.addEventListener('blur', releaseAllNotes);
     const loadPatch = async () => {
       clearError();
+      if (!resourcesReady) {
+        status.textContent = 'Waiting for AudioVM resources…';
+        try { await runtimeReady; }
+        catch { return; }
+      }
       let parsed;
       try { parsed = JSON.parse(await python.compile(editor.value, message => { status.textContent = message; })); }
       catch (cause) { showError(`Python patch error: ${cause.message}`); status.textContent = 'Python error'; return; }
@@ -352,9 +426,18 @@
     editor.addEventListener('keydown', event => {
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); loadPatch(); }
     });
-    createAudioVM().then(module => {
-      wasm = module; loadButton.disabled = false; status.textContent = 'Ready to load a patch';
-    }).catch(cause => { showError(`AudioVM runtime failed to load: ${cause.message}`); status.textContent = 'Runtime unavailable'; });
+    const runtimeReady = Promise.all([
+      createAudioVM(),
+      python.prepare(message => { status.textContent = message; }),
+    ]).then(([module]) => {
+      wasm = module;
+      resourcesReady = true;
+      updateActionAvailability();
+      status.textContent = 'Ready to load a patch';
+    }).catch(cause => {
+      showError(`AudioVM runtime failed to load: ${cause.message}`);
+      status.textContent = 'Runtime unavailable';
+    });
     loadPresets();
   </script>
 </body>

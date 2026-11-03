@@ -96,11 +96,11 @@ class BinaryOp : public Operator {
     }
 };
 
+template <class Operation>
 class MathBinary : public BinaryOp {
 public:
     int isFullRatePort(Port::Dir dir, int index) override { return true; }
 protected:
-    virtual float apply(float a, float b) const = 0;
     void process(Buffer *i, Buffer *o, int N) override {
         const int channels = std::max(i[0].numChannels, i[1].numChannels);
         const int numSamples = i[0].numSamples;
@@ -110,35 +110,18 @@ protected:
             const float *b = i[1].dataWrap(ch);
             float *dst = o[0].dataWrap(ch);
             for (int n = 0; n < numSamples; ++n) {
-                dst[n] = apply(a[n], b[n]);
+                dst[n] = Operation::apply(a[n], b[n]);
             }
         }
     }
-};
-class MathAdd : public MathBinary {
-    float apply(float a, float b) const override { return a + b; }
-};
-class MathSub : public MathBinary {
-    float apply(float a, float b) const override { return a - b; }
-};
-class MathMul : public MathBinary {
-    float apply(float a, float b) const override { return a * b; }
 };
 
-class MultiplyOperator : public BinaryOp {
-public:
-    void process(Buffer *i, Buffer *o) {
-        int numChannels = std::max(i[0].numChannels, i[1].numChannels);
-        for (int ch = 0; ch < numChannels; ch++) {
-            float *a = i[0].dataWrap(ch);
-            float *b = i[1].dataWrap(ch);
-            float *dst = o[0].dataWrap(ch);
-            for (int n = 0; n < i->numSamples; n++) {
-                dst[n] = a[n] * b[n];
-            }
-        }
-    }
-};
+struct Add { static float apply(float a, float b) { return a + b; } };
+struct Sub { static float apply(float a, float b) { return a - b; } };
+struct Mul { static float apply(float a, float b) { return a * b; } };
+struct Div { static float apply(float a, float b) { return a / b; } };
+struct Pow { static float apply(float a, float b) { return powf(a, b); } };
+struct Mod { static float apply(float a, float b) { return fmodf(a, b); } };
 
 class MathExp : public UnaryOp {
 public:
@@ -150,29 +133,6 @@ public:
         }
     }
 };
-/*
-class MathLog : public UnaryOp {
-public: void process(Buffer *i, Buffer *o) { o[0] = logf(i[0]); }
-};
-class MathCos : public UnaryOp {
-public: void process(Buffer *i, Buffer *o) { o[0] = cosf(i[0]); }
-};
-class MathSin : public UnaryOp {
-public: void process(Buffer *i, Buffer *o) { o[0] = sinf(i[0]); }
-};
-class MathAdd : public BinaryOp {
-public: void process(Buffer *i, Buffer *o) { o[0] = i[0] + i[1]; }
-};
-class MathSub : public BinaryOp {
-public: void process(Buffer *i, Buffer *o) { o[0] = i[0] - i[1]; }
-};
-class MathMul : public BinaryOp {
-public: void process(Buffer *i, Buffer *o) { o[0] = i[0] * i[1]; }
-};
-class MathDiv : public BinaryOp {
-public: void process(Buffer *i, Buffer *o) { o[0] = i[0] / i[1]; }
-};
- */
 
 // some basic ops to get started
 static float convertNoteToHz(float note) {
@@ -359,9 +319,10 @@ public:
                 break;
             }
             case R: {
-                float dur = std::max(1e-9f, i[Decay].value());
+                float dur = std::max(1e-9f, i[Release].value());
                 mPhase = mPhase + dt / dur;
                 mVal = mReleaseVal * (R+1 - mPhase);
+                break;
             }
             default:
                 mVal = 0.f;
@@ -383,21 +344,17 @@ Processor::Processor()
     registerType("const", [] { return std::make_unique<ConstOp>(); });
     registerType("buffer", [] { return std::make_unique<BufferOperator>(); });
     registerType("toAudio", [] { return std::make_unique<ControlToAudio>(); });
-    // basic math
+    // math functions
     registerType("exp", [] { return std::make_unique<MathExp>(); });
-    registerType("add", [] { return std::make_unique<MathAdd>(); });
-    registerType("sub", [] { return std::make_unique<MathSub>(); });
-    registerType("mul", [] { return std::make_unique<MathMul>(); });
-    /*
-    registerType("log", [] { return std::make_unique<MathLog>(); });
-    registerType("cos", [] { return std::make_unique<MathCos>(); });
-    registerType("sin", [] { return std::make_unique<MathSin>(); });
-    registerType("add", [] { return std::make_unique<MathAdd>(); });
-    registerType("sub", [] { return std::make_unique<MathSub>(); });
-    registerType("mul", [] { return std::make_unique<MathMul>(); });
-    registerType("div", [] { return std::make_unique<MathDiv>(); });
-    */
     
+    // binary ops
+    registerType("add", [] { return std::make_unique<MathBinary<Add>>(); });
+    registerType("sub", [] { return std::make_unique<MathBinary<Sub>>(); });
+    registerType("mul", [] { return std::make_unique<MathBinary<Mul>>(); });
+    registerType("div", [] { return std::make_unique<MathBinary<Div>>(); });
+    registerType("pow", [] { return std::make_unique<MathBinary<Pow>>(); });
+    registerType("mod", [] { return std::make_unique<MathBinary<Mod>>(); });
+
     registerType("oscSin"  , [] { return std::make_unique<OscSin>(); });
     registerType("oscSaw"  , [] { return std::make_unique<OscSaw>(); });
     registerType("filterLP", [] { return std::make_unique<FilterLP>(); });
@@ -805,11 +762,13 @@ void Processor::midiEvent(char b0, char b1, char b2) {
             O[MidiIn::Gate].set(1.f);
             O[MidiIn::Note].set(b1);
             O[MidiIn::Velocity].set(b2);
+            mCurrMidiNote = b1; // TODO: polyphony
             break;
         }
         case kMidiNoteOff: {
-            O[MidiIn::Gate].set(0.f);
-            O[MidiIn::Note].set(b1);
+            if (b1 == mCurrMidiNote) {
+                O[MidiIn::Gate].set(0.f);
+            }
             break;
         }
     };
