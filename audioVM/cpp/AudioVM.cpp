@@ -52,9 +52,9 @@ public:
 // needed for feedback
 class BufferOperator : public Operator {
 public:
-    int getNumPorts(Port::Dir dir) override { return 1; }
+    int getNumPorts(Port::Dir dir) override { return Port::Out ? 1 : 0; }
     Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Full; }
-    void process(Buffer *i, Buffer *o, int N) override { /*o[0].copy(i[0]);*/ }
+    void process(Buffer *i, Buffer *o, int N) override {}
 };
 
 class ControlToAudio : public Operator {
@@ -110,6 +110,12 @@ struct Mul { static float apply(float a, float b) { return a * b; } };
 struct Div { static float apply(float a, float b) { return a / b; } };
 struct Pow { static float apply(float a, float b) { return powf(a, b); } };
 struct Mod { static float apply(float a, float b) { return fmodf(a, b); } };
+struct Equal { static float apply(float a, float b) { return a == b ? 1.f : 0.f; } };
+struct NotEqual { static float apply(float a, float b) { return a != b ? 1.f : 0.f; } };
+struct Less { static float apply(float a, float b) { return a < b ? 1.f : 0.f; } };
+struct LessEqual { static float apply(float a, float b) { return a <= b ? 1.f : 0.f; } };
+struct Greater { static float apply(float a, float b) { return a > b ? 1.f : 0.f; } };
+struct GreaterEqual { static float apply(float a, float b) { return a >= b ? 1.f : 0.f; } };
 
 class MathExp : public UnaryOp {
 public:
@@ -341,6 +347,12 @@ Processor::Processor()
     registerType("div", [] { return std::make_unique<MathBinary<Div>>(); });
     registerType("pow", [] { return std::make_unique<MathBinary<Pow>>(); });
     registerType("mod", [] { return std::make_unique<MathBinary<Mod>>(); });
+    registerType("equal", [] { return std::make_unique<MathBinary<Equal>>(); });
+    registerType("notEqual", [] { return std::make_unique<MathBinary<NotEqual>>(); });
+    registerType("less", [] { return std::make_unique<MathBinary<Less>>(); });
+    registerType("lessEqual", [] { return std::make_unique<MathBinary<LessEqual>>(); });
+    registerType("greater", [] { return std::make_unique<MathBinary<Greater>>(); });
+    registerType("greaterEqual", [] { return std::make_unique<MathBinary<GreaterEqual>>(); });
 
     registerType("oscSin"  , [] { return std::make_unique<OscSin>(); });
     registerType("oscSaw"  , [] { return std::make_unique<OscSaw>(); });

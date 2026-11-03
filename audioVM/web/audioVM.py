@@ -35,6 +35,11 @@ class Operator:
     def __pow__  (self, other): return self.vm.binary("pow", self, other)
     def __ipow__ (self, other): return self.vm.binary("pow", self, other)
     def __eq__   (self, other): return self.vm.binary("equal", self, other)
+    def __ne__   (self, other): return self.vm.binary("notEqual", self, other)
+    def __lt__   (self, other): return self.vm.binary("less", self, other)
+    def __le__   (self, other): return self.vm.binary("lessEqual", self, other)
+    def __gt__   (self, other): return self.vm.binary("greater", self, other)
+    def __ge__   (self, other): return self.vm.binary("greaterEqual", self, other)
     def __neg__  (self): return self.vm.unary("neg", self)
 
 class Midi: # convenience class for midi inputs
