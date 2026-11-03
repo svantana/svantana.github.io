@@ -859,7 +859,7 @@ void Processor::setControlValue(int controlIndex, float value) {
     C->mValue = value;
 }
 
-// test
+#if 0 // test
 static inline int testAudioVM() {
     Processor vm;
     std::string opDefJson = vm.getOpDefinitionsJSON();
@@ -896,3 +896,4 @@ static inline int testAudioVM() {
     return 0;
 }
 static int didTestAudioVM = testAudioVM();
+#endif
