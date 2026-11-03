@@ -10,20 +10,20 @@ typedef const char* cStr;
 class AudioIn : public Operator {
 public:
     int getNumPorts(Port::Dir dir) override { return (dir == Port::Out) ? 1 : 0; }
-    int isFullRatePort(Port::Dir dir, int index) override { return true; }
+    Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Full; }
     void process(Buffer *i, Buffer *o, int N) override {}
 };
 class AudioOut : public Operator {
 public:
     int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? 1 : 0; }
-    int isFullRatePort(Port::Dir dir, int index) override { return true; }
+    Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Full; }
     void process(Buffer *i, Buffer *o, int N) override {}
 };
 class MidiIn : public Operator {
 public:
     enum Type { Gate, Note, Velocity, NumTypes };
     int getNumPorts(Port::Dir dir) override { return (dir == Port::Out) ? NumTypes : 0; }
-    int isFullRatePort(Port::Dir dir, int index) override { return false; }
+    Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Block; }
     void process(Buffer *i, Buffer *o, int N) override {}
 };
 class Control : public Operator {
@@ -32,7 +32,7 @@ public:
     int getNumPorts(Port::Dir dir) override {
         return (dir == Port::In) ? 0 : 1;
     }
-    int isFullRatePort(Port::Dir dir, int index) override { return false; }
+    Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Block; }
     void process(Buffer *i, Buffer *o, int N) override { o[0].value() = mValue; }
     float mValue;
     std::string mName;
@@ -43,7 +43,7 @@ public:
     int getNumPorts(Port::Dir dir) override {
         return (dir == Port::In) ? 0 : 1;
     }
-    int isFullRatePort(Port::Dir dir, int index) override { return false; }
+    Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Block; }
     void process(Buffer *i, Buffer *o, int N) override { o[0].value() = mValue; }
     float mValue;
     std::string mName;
@@ -53,14 +53,14 @@ public:
 class BufferOperator : public Operator {
 public:
     int getNumPorts(Port::Dir dir) override { return 1; }
-    int isFullRatePort(Port::Dir dir, int index) override { return true; }
+    Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Full; }
     void process(Buffer *i, Buffer *o, int N) override { /*o[0].copy(i[0]);*/ }
 };
 
 class ControlToAudio : public Operator {
 public:
     int getNumPorts(Port::Dir dir) override { return 1; }
-    int isFullRatePort(Port::Dir dir, int index) override { return dir; }
+    Port::Rate getPortRate(Port::Dir dir, int index) override { return (dir==Port::In) ? Port::Block : Port::Full; }
     void process(Buffer *i, Buffer *o, int N) override {
         float v = state, next = i[0].value(), step = (next-v) / N;
         float *dst = o[0].data();
@@ -74,16 +74,6 @@ private:
 };
 
 // math ops
-class Constant : public Operator {
-public:
-    int getNumPorts(Port::Dir dir) override {
-        return (dir == Port::Out) ? 1 : 0;
-    }
-    int isFullRatePort(Port::Dir dir, int index) override { return false; }
-    void process(Buffer *i, Buffer *o, int N) override { o[0].value() = mValue; }
-private:
-    float mValue;
-};
 class UnaryOp : public Operator {
 public:
     int getNumPorts(Port::Dir dir) override {
@@ -98,13 +88,11 @@ class BinaryOp : public Operator {
 
 template <class Operation>
 class MathBinary : public BinaryOp {
-public:
-    int isFullRatePort(Port::Dir dir, int index) override { return true; }
 protected:
     void process(Buffer *i, Buffer *o, int N) override {
         const int channels = std::max(i[0].numChannels, i[1].numChannels);
-        const int numSamples = i[0].numSamples;
-        assert(i[1].numSamples == numSamples);
+        assert(i[0].numSamples == i[1].numSamples);
+        const int numSamples = std::min(N, i[0].numSamples);
         for (int ch = 0; ch < channels; ++ch) {
             const float *a = i[0].dataWrap(ch);
             const float *b = i[1].dataWrap(ch);
@@ -149,6 +137,9 @@ public:
         cStr o[]={"output"};
         return (dir == Port::In) ? i[index] : o[index];
     }
+    Port::Rate getPortRate(Port::Dir dir, int index) override {
+        return (dir==Port::Out && index==Output) ? Port::Full : Port::Block;
+    }
     void process(Buffer *i, Buffer *o, int N) override {
         o->numSamples = N;
         float note = i[NoteNumber].value();
@@ -173,8 +164,8 @@ public:
         cStr o[]={"output"};
         return (dir == Port::In) ? i[index] : o[index];
     }
-    int isFullRatePort(Port::Dir dir, int index) override {
-        return (dir==Port::Out && index==Output);
+    Port::Rate getPortRate(Port::Dir dir, int index) override {
+        return (dir==Port::Out && index==Output) ? Port::Full : Port::Block;
     }
     void process(Buffer *i, Buffer *o, int N) override {
         o->numSamples = N;
@@ -208,8 +199,8 @@ public:
         cStr o[]={"output"};
         return (dir==Port::In) ? i[index] : o[index];
     }
-    int isFullRatePort(Port::Dir dir, int index) override {
-        return (dir==Port::In && index==Input) || (dir==Port::Out && index==Output);
+    Port::Rate getPortRate(Port::Dir dir, int index) override {
+        return (dir==Port::Out && index==Output) ? Port::Full : Port::Block;
     }
     int getNumPorts(Port::Dir dir) override {
         return (dir == Port::Out) ? NumOutputs : NumInputs;
@@ -243,8 +234,8 @@ public:
         cStr o[]={"output"};
         return (dir==Port::In) ? i[index] : o[index];
     }
-    int isFullRatePort(Port::Dir dir, int index) override {
-        return (dir==Port::In && index==Input) || (dir==Port::Out && index==Output);
+    Port::Rate getPortRate(Port::Dir dir, int index) override {
+        return (dir==Port::Out && index==Output) ? Port::Full : Port::Block;
     }
     int getNumPorts(Port::Dir dir) override {
         return (dir == Port::Out) ? NumOutputs : NumInputs;
@@ -281,8 +272,8 @@ public:
         cStr o[]={"output"};
         return (t == Port::In) ? i[n] : o[n];
     }
-    int isFullRatePort(Port::Dir dir, int index) override {
-        return 0;
+    Port::Rate getPortRate(Port::Dir dir, int index) override {
+        return Port::Block;
     }
     int getNumPorts(Port::Dir dir) override {
         return (dir == Port::Out) ? NumOutputs : NumInputs;
@@ -396,7 +387,7 @@ int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
             if (sourcePort >= source->getNumPorts(Port::Out)) {
                 continue;
             }
-            inputIsFullRate[input] = source->isFullRatePort(Port::Out, sourcePort) == 1;
+            inputIsFullRate[input] = source->getPortRate(Port::Out, sourcePort) == Port::Full;
             hasFullRateInput = hasFullRateInput || inputIsFullRate[input];
         }
         if (hasFullRateInput) {
@@ -441,44 +432,50 @@ bool Processor::compileProgram() {
     mProgram.mAudioOutIds.resize(0);
     mProgram.mAudioInIds.resize(0);
     mProgram.mControlIds.resize(0);
+    mProgram.mIoBuffer.resize(1);
+    mProgram.mIoBuffer[0] = 0.f; // hack to keep a zero around
     // two pass: first determine amount of memory needed, then allocate, then set pointers
     for (int pass = 0; pass < 2; pass++) {
         int pos = 1; // put a zero at the beginning of the buffer as a convenience
         for (int n = 0; n < (int)mProgram.list.size(); n++) {
             Entry &E = mProgram.list[n];
+            int numIns = E.op->getNumPorts(Port::In);
             int numOuts = E.op->getNumPorts(Port::Out);
+            E.mInputs.resize(numIns);
             E.mOutputs.resize(numOuts);
+            for (int i = 0; i < numIns; i++) {
+                int id = (i < E.mInputIds.size()) ? E.mInputIds[i] : -1;
+                if (id < 0) {
+                    E.mInputs[i] = Buffer(&mProgram.mIoBuffer[0]);
+                    continue;
+                }
+                Entry &S = mProgram.list[E.mInputIds[i]/OpSpacing];
+                E.mInputs[i] = S.mOutputs[E.mInputIds[i]%OpSpacing];
+            }
             for (int o = 0; o < numOuts; o++) {
-                int rateType = E.op->isFullRatePort(Port::Out, o);
-                E.mOutputs[o].numSamples = (rateType==1) ? mBlockSize : 1;
+                Port::Rate rateType = E.op->getPortRate(Port::Out, o);
+                int N = (rateType==Port::Full) ? mBlockSize : 1;
+                if (rateType==Port::Keep) {
+                    assert(numIns > 0);
+                    N = E.mInputs[0].numSamples;
+                }
+                E.mOutputs[o].numSamples = N;
                 if (pass == 1) {
                     E.mOutputs[o].ptr = &mProgram.mIoBuffer[pos];
                 }
                 pos += E.mOutputs[o].size();
             }
             if (pass == 1) {
-                int numIns = E.op->getNumPorts(Port::In);
-                E.mInputs.resize(numIns);
-                for (int i = 0; i < numIns; i++) {
-                    int id = (i < E.mInputIds.size()) ? E.mInputIds[i] : -1;
-                    if (id < 0) {
-                        E.mInputs[i] = Buffer(&mProgram.mIoBuffer[0]);
-                        continue;
-                    }
-                    Entry &S = mProgram.list[E.mInputIds[i]/OpSpacing];
-                    E.mInputs[i] = S.mOutputs[E.mInputIds[i]%OpSpacing];
-                }
-                if (auto *op = dynamic_cast<AudioOut*>(E.op.get())) {
+                if (dynamic_cast<AudioOut*>(E.op.get())) {
                     mProgram.mAudioOutIds.push_back(E.mInputIds[0]);
                 }
-                if (auto *op = dynamic_cast<Control*>(E.op.get())) {
+                if (dynamic_cast<Control*>(E.op.get())) {
                     mProgram.mControlIds.push_back(n);
                 }
-                if (auto *op = dynamic_cast<MidiIn*>(E.op.get())) {
+                if (dynamic_cast<MidiIn*>(E.op.get())) {
                     mProgram.mMidiInId = n;
                 }
             }
-            
         }
         if (pass == 0) { // allocate buffer memory
             mProgram.mIoBuffer.resize(pos);
@@ -729,7 +726,7 @@ std::string Processor::getOpDefinitionsJSON() const {
                 // (audio-rate) instead of reducing the registered metadata to
                 // a boolean.
                 port["rate"] = picojson::value(
-                    static_cast<double>(op->isFullRatePort(direction, index)));
+                    static_cast<double>(op->getPortRate(direction, index)));
                 ports.emplace_back(port);
             }
             return ports;

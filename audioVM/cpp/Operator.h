@@ -21,7 +21,8 @@ namespace AudioVM {
         int size() { return numSamples * numChannels; }
     };
     struct Port {
-        enum Dir {In, Out};
+        enum Dir  { In, Out };
+        enum Rate { Block, Full, Keep }; // Keep copies the incoming (first if multiple)
     };
     struct Operator {
         virtual ~Operator() = default;
@@ -29,7 +30,7 @@ namespace AudioVM {
         virtual std::string getPortName(Port::Dir dir, int index) {
             return "";
         }
-        virtual int isFullRatePort(Port::Dir dir, int index) { return -1; } // -1 is auto/unknown/not applicable
+        virtual Port::Rate getPortRate(Port::Dir dir, int index) { return Port::Keep; }
         virtual void init() {} // do setup here, if needed
         virtual void reset() {}
         virtual void process(Buffer* inBufs, Buffer* outBufs, int numSamples) = 0;
