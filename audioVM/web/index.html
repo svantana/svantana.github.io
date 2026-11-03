@@ -453,6 +453,40 @@
       }
     });
     editor.addEventListener('keydown', event => {
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        const indent = '  ';
+        const text = editor.value;
+        const start = editor.selectionStart;
+        const end = editor.selectionEnd;
+
+        if (start === end && !event.shiftKey) {
+          editor.setRangeText(indent, start, end, 'end');
+        } else {
+          const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+          const selection = text.slice(lineStart, end);
+          if (event.shiftKey) {
+            let removedBeforeCursor = 0;
+            let removedTotal = 0;
+            const unindented = selection.replace(/^ {1,2}/gm, (spaces, offset) => {
+              removedTotal += spaces.length;
+              if (offset < start - lineStart) removedBeforeCursor += spaces.length;
+              return '';
+            });
+            editor.value = text.slice(0, lineStart) + unindented + text.slice(end);
+            editor.selectionStart = Math.max(lineStart, start - removedBeforeCursor);
+            editor.selectionEnd = Math.max(editor.selectionStart, end - removedTotal);
+          } else {
+            const indented = selection.replace(/^/gm, indent);
+            const lineCount = selection.split('\n').length;
+            editor.value = text.slice(0, lineStart) + indented + text.slice(end);
+            editor.selectionStart = start + indent.length;
+            editor.selectionEnd = end + indent.length * lineCount;
+          }
+        }
+        updateEditorChrome();
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); loadPatch(); }
     });
     const runtimeReady = Promise.all([

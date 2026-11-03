@@ -3,23 +3,18 @@ import audioVM
 # Example patch
 vm = audioVM.VM()
 midi = vm.midi()
-#noteWrap = midi.note % 12
-#gate0 = (noteWrap == 0)
+noteOct = midi.note % 12
 
-controlCutoff = vm.control("cutoff", 0.5)
+unitPitch = vm.control("pitch", 0.5)
+unitLength = vm.control("length", 0.5)
 
-subOsc = vm.op("oscSin", {"note": midi.note - 12})
-osc = vm.op("oscSaw", {"note": midi.note})
-oscMix = (osc + subOsc) * 0.2
+mix = vm.op("buffer")
+for n in range(4):
+  sin = vm.op("oscSin", {"note": (12 + n * 10) + 24 * unitPitch})
+  env = vm.op("envExp", {"gate": midi.gate * (noteOct==n), "decay": (.1 + unitLength) / (1 + n)})
+  mix += sin * env
 
-envAmp    = vm.op("envADSR", {"gate":midi.gate, "a":0.01, "d":0.3, "s":0.5, "r":0.2})
-envFilter = vm.op("envADSR", {"gate":midi.gate, "a":0.05, "d":1.5, "s":0.0, "r":0.3})
-
-cutoffHz = (0.5 + envFilter) * (controlCutoff * 3e3 + 100)
-filterOut = vm.op("filterLP", {"input": oscMix, "frequency": cutoffHz, "resonance": 0.5})
-envOut = filterOut * envAmp
-
-vm.op("audioOut", envOut)
+vm.op("audioOut", mix)
 
 json_str = vm.get_json()
 print("program graph as json:")

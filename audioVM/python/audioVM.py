@@ -30,6 +30,9 @@ class Operator:
     def __truediv__ (self, other): return self.vm.binary("div", self, other)
     def __rtruediv__(self, other): return self.vm.binary("div", other, self)
     def __itruediv__(self, other): return self.vm.binary("div", self, other)
+    def __floordiv__(self, other): return self.vm.unary("floor", self.vm.binary("div", self, other))
+    def __rfloordiv__(self, other): return self.vm.unary("floor", self.vm.binary("div", other, self))
+    def __ifloordiv__(self, other): return self.vm.unary("floor", self.vm.binary("div", self, other))
     def __mod__  (self, other): return self.vm.binary("mod", self, other)
     def __imod__ (self, other): return self.vm.binary("mod", self, other)
     def __pow__  (self, other): return self.vm.binary("pow", self, other)
@@ -41,6 +44,13 @@ class Operator:
     def __gt__   (self, other): return self.vm.binary("greater", self, other)
     def __ge__   (self, other): return self.vm.binary("greaterEqual", self, other)
     def __neg__  (self): return self.vm.unary("neg", self)
+    def floor(self): return self.vm.unary("floor", self)
+    def round(self): return self.vm.unary("round", self)
+    def ceil(self): return self.vm.unary("ceil", self)
+    def __round__(self, ndigits=None):
+        if ndigits not in (None, 0):
+            raise TypeError("AudioVM Operator only supports rounding to an integer")
+        return self.round()
 
 class Midi: # convenience class for midi inputs
     def __init__(self, vm):
@@ -116,3 +126,5 @@ class VM:
             s += '},\n'
         s = s[:-2] + "\n\t]\n}\n"
         return s
+    def flatten_json(s):
+        return s.replace('\n','').replace('\t','').replace('"','\\"')

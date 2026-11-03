@@ -127,6 +127,36 @@ public:
         }
     }
 };
+class MathFloor : public UnaryOp {
+public:
+    void process(Buffer *i, Buffer *o, int N) override {
+        for (int ch = 0; ch < i->numChannels; ++ch) {
+            for (int n = 0; n < i->numSamples; ++n) {
+                o->data(ch)[n] = floorf(i->data(ch)[n]);
+            }
+        }
+    }
+};
+class MathRound : public UnaryOp {
+public:
+    void process(Buffer *i, Buffer *o, int N) override {
+        for (int ch = 0; ch < i->numChannels; ++ch) {
+            for (int n = 0; n < i->numSamples; ++n) {
+                o->data(ch)[n] = roundf(i->data(ch)[n]);
+            }
+        }
+    }
+};
+class MathCeil : public UnaryOp {
+public:
+    void process(Buffer *i, Buffer *o, int N) override {
+        for (int ch = 0; ch < i->numChannels; ++ch) {
+            for (int n = 0; n < i->numSamples; ++n) {
+                o->data(ch)[n] = ceilf(i->data(ch)[n]);
+            }
+        }
+    }
+};
 
 // some basic ops to get started
 static float convertNoteToHz(float note) {
@@ -191,6 +221,34 @@ public:
     }
 private:
     float mUnitPhase = 0.f;
+};
+
+class OscNoise : public Operator {
+public:
+    enum In  { Gain, NumInputs };
+    enum Out { Output, NumOutputs };
+    int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? NumInputs : NumOutputs; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        cStr i[]={"gain"};
+        cStr o[]={"output"};
+        return (dir == Port::In) ? i[index] : o[index];
+    }
+    Port::Rate getPortRate(Port::Dir dir, int index) override {
+        return (dir==Port::Out && index==Output) ? Port::Full : Port::Block;
+    }
+    static float randSigned() {
+        static int seed = 0;
+        seed = 1664525 * seed + 1013904223;
+        return 2.3283064365386963e-10f * (float)seed;
+    }
+    void process(Buffer *i, Buffer *o, int N) override {
+        float *dst = o[Output].data(); //, scale = i[Gain].value();
+        for (int n = 0; n < N; n++) {
+            dst[n] = randSigned();
+        }
+    }
+    void init() override {
+    }
 };
 
 class FilterLP : public Operator {
@@ -326,6 +384,33 @@ private:
     float mPhase = R+1, mVal = 0.f, mReleaseVal = 0.f;
 };
 
+class EnvExp : public Operator {
+public:
+    enum In  { Gate, DecayTime, NumInputs };
+    enum Out { Output, NumOutputs };
+    std::string getPortName(Port::Dir dir, int index) override {
+        cStr i[]={"gate","decay"};
+        cStr o[]={"output"};
+        return (dir==Port::In) ? i[index] : o[index];
+    }
+    Port::Rate getPortRate(Port::Dir dir, int index) override {
+        return Port::Block;
+    }
+    int getNumPorts(Port::Dir dir) override {
+        return (dir == Port::Out) ? NumOutputs : NumInputs;
+    }
+    void process(Buffer *i, Buffer *o, int N) override {
+        float dt = N / mSamplerate;
+        float gate = i[Gate].value(), T = i[DecayTime].value();
+        bool on = gate > mPrevGate;
+        mPrevGate = gate;
+        mVal = (on) ? 1.f : mVal * T / (T + dt);
+        o[Output].set(mVal);
+    }
+private:
+    float mVal, mPrevGate;
+};
+
 const char *kIdAudioIn = "audioIn", *kIdAudioOut = "audioOut";
 
 Processor::Processor()
@@ -339,6 +424,9 @@ Processor::Processor()
     registerType("toAudio", [] { return std::make_unique<ControlToAudio>(); });
     // math functions
     registerType("exp", [] { return std::make_unique<MathExp>(); });
+    registerType("floor", [] { return std::make_unique<MathFloor>(); });
+    registerType("round", [] { return std::make_unique<MathRound>(); });
+    registerType("ceil", [] { return std::make_unique<MathCeil>(); });
     
     // binary ops
     registerType("add", [] { return std::make_unique<MathBinary<Add>>(); });
@@ -356,8 +444,10 @@ Processor::Processor()
 
     registerType("oscSin"  , [] { return std::make_unique<OscSin>(); });
     registerType("oscSaw"  , [] { return std::make_unique<OscSaw>(); });
+    registerType("oscNoise", [] { return std::make_unique<OscNoise>(); });
     registerType("filterLP", [] { return std::make_unique<FilterLP>(); });
     registerType("envADSR" , [] { return std::make_unique<EnvADSR>(); });
+    registerType("envExp" , [] { return std::make_unique<EnvExp>(); });
 
     mProgram.list.reserve(128);
 }
@@ -787,7 +877,6 @@ void Processor::midiEvent(char b0, char b1, char b2) {
 }
     
 void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
-    
     int maxBlockSize = mBlockSize;
     for (int ioPos = 0; ioPos < numSamples;) {
         int blockSize = std::min(maxBlockSize, numSamples - ioPos);
