@@ -34,6 +34,7 @@ em++ \
   -s ALLOW_MEMORY_GROWTH=1 \
   -s FILESYSTEM=0 \
   -s NO_EXIT_RUNTIME=1 \
+  -s INCOMING_MODULE_JS_API='["wasmBinary"]' \
   -s EXPORTED_FUNCTIONS='["_malloc","_free"]' \
   -s EXPORTED_RUNTIME_METHODS='["HEAPU8"]' \
   --no-entry \

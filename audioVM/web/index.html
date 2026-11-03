@@ -94,7 +94,6 @@
     </section>
   </main>
   <script type="module">
-    import createAudioVM from './audiovm.js';
     import { PythonPatchRunner, starterPatch } from './python-runner.js';
 
     const editor = document.querySelector('#program');
@@ -155,18 +154,16 @@
     });
     updateEditorChrome();
 
-    let wasm;
     const python = new PythonPatchRunner();
-    let processor = 0;
+    let processor = false;
     let audioContext;
     let audioNode;
-    let inputPointer = 0;
-    let outputPointer = 0;
+    let audioConnected = false;
+    let workletModuleReady;
+    let nextWorkletRequestId = 1;
+    const workletRequests = new Map();
     let resourcesReady = false;
     let presetFilesReady = false;
-    let smoothedCpuLoad = 0;
-    let lastCpuUpdate = 0;
-    const blockSize = 512;
     const outputChannels = 2;
     const activeMidiSources = new Map();
     const pointerNotes = new Map();
@@ -195,20 +192,8 @@
         console.warn('Could not load presets:', cause);
       }
     };
-    const writeString = text => {
-      const bytes = new TextEncoder().encode(text + '\0');
-      const pointer = wasm._malloc(bytes.length);
-      wasm.HEAPU8.set(bytes, pointer);
-      return pointer;
-    };
-    const readCString = pointer => {
-      let end = pointer;
-      while (wasm.HEAPU8[end]) end++;
-      return new TextDecoder().decode(wasm.HEAPU8.subarray(pointer, end));
-    };
     const sliderOptions = () => [0, 1, 0.001];
-    const renderControls = () => {
-      const graph = JSON.parse(readCString(wasm._audiovm_get_op_list_json(processor)));
+    const renderControls = graph => {
       const controlNodes = graph.program.filter(node => node.type === 'control');
       controls.replaceChildren();
       count.textContent = `${controlNodes.length} control${controlNodes.length === 1 ? '' : 's'}`;
@@ -232,7 +217,7 @@
         slider.min = min; slider.max = max; slider.step = step; slider.value = value;
         const set = () => {
           const next = Number(slider.value);
-          wasm._audiovm_set_control_value(processor, index, next);
+          audioNode.port.postMessage({ type: 'control', index, value: next });
           output.value = next.toFixed(Math.max(0, Math.min(3, String(step).split('.')[1]?.length || 0)));
           output.textContent = output.value;
         };
@@ -240,41 +225,58 @@
         row.append(label, output); wrapper.append(row, slider); controls.append(wrapper); set();
       });
     };
+    const postToWorklet = (message, transfer = []) => new Promise((resolve, reject) => {
+      const requestId = nextWorkletRequestId++;
+      workletRequests.set(requestId, { resolve, reject });
+      audioNode.port.postMessage({ ...message, requestId }, transfer);
+    });
+    const ensureAudioWorklet = async () => {
+      if (!audioContext) audioContext = new AudioContext();
+      if (!workletModuleReady) {
+        workletModuleReady = audioContext.audioWorklet.addModule('./audiovm-worklet.js');
+      }
+      await workletModuleReady;
+      if (audioNode) return;
+      audioNode = new AudioWorkletNode(audioContext, 'audiovm-processor', {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [outputChannels],
+      });
+      audioNode.port.onmessage = event => {
+        const message = event.data;
+        if (message.type === 'status') {
+          status.textContent = message.message;
+          return;
+        }
+        if (message.type === 'stats') {
+          const cpu = Math.min(100, Math.max(0, message.cpu));
+          cpuLoad.textContent = `${cpu.toFixed(cpu < 10 ? 1 : 0)}%`;
+          audioFormat.textContent = `${(message.sampleRate / 1000).toFixed(1)} kHz · ${(1000 * message.blockSize / message.sampleRate).toFixed(1)} ms`;
+          return;
+        }
+        const request = workletRequests.get(message.requestId);
+        if (request) {
+          workletRequests.delete(message.requestId);
+          message.type === 'error' ? request.reject(new Error(message.message)) : request.resolve(message);
+        }
+      };
+    };
     const stop = () => {
-      if (audioNode) { audioNode.disconnect(); audioNode = null; }
+      if (audioNode && audioConnected) { audioNode.disconnect(); audioConnected = false; }
       if (audioContext) audioContext.suspend();
       audioStats.hidden = true;
       playButton.textContent = 'Play'; playButton.classList.remove('playing');
     };
     const start = async () => {
-      if (!processor) return;
-      if (!audioContext) audioContext = new AudioContext();
-      await audioContext.resume();
-      smoothedCpuLoad = 0;
-      lastCpuUpdate = 0;
-      cpuLoad.textContent = '0%';
-      audioFormat.textContent = `${(audioContext.sampleRate / 1000).toFixed(1)} kHz · ${(1000 * blockSize / audioContext.sampleRate).toFixed(1)} ms`;
-      audioStats.hidden = false;
-      if (!audioNode) {
-        audioNode = audioContext.createScriptProcessor(blockSize, 1, outputChannels);
-        audioNode.onaudioprocess = event => {
-          const frames = event.outputBuffer.length;
-          const callbackStart = performance.now();
-          wasm._audiovm_process(processor, inputPointer, outputPointer, frames, 1, outputChannels);
-          const samples = new Float32Array(wasm.HEAPU8.buffer, outputPointer, frames * outputChannels);
-          for (let channel = 0; channel < outputChannels; channel++) {
-            event.outputBuffer.copyToChannel(samples.subarray(channel * frames, (channel + 1) * frames), channel);
-          }
-          const callbackLoad = 100 * (performance.now() - callbackStart) / (frames * 1000 / audioContext.sampleRate);
-          smoothedCpuLoad += 0.15 * (callbackLoad - smoothedCpuLoad);
-          if (callbackStart - lastCpuUpdate >= 250) {
-            const displayLoad = Math.min(100, Math.max(0, smoothedCpuLoad));
-            cpuLoad.textContent = `${displayLoad.toFixed(displayLoad < 10 ? 1 : 0)}%`;
-            lastCpuUpdate = callbackStart;
-          }
-        };
+      if (!processor || !audioNode) return;
+      if (!audioConnected) {
         audioNode.connect(audioContext.destination);
+        audioConnected = true;
       }
+      await audioContext.resume();
+      cpuLoad.textContent = '0%';
+      audioFormat.textContent = `${(audioContext.sampleRate / 1000).toFixed(1)} kHz · ${(1000 * 128 / audioContext.sampleRate).toFixed(1)} ms`;
+      audioStats.hidden = false;
       playButton.textContent = 'Stop'; playButton.classList.add('playing');
     };
     const midiNoteForKey = key => 12 * (baseOctave + 1) + keyboardSemitones.get(key);
@@ -318,7 +320,7 @@
       if (activeMidiSources.has(source)) return;
       if (!processor) return;
       activeMidiSources.set(source, midi);
-      wasm._audiovm_midi_event(processor, 0x90, midi, 100);
+      audioNode.port.postMessage({ type: 'midi', status: 0x90, data1: midi, data2: 100 });
       updatePianoKey(midi);
       start().catch(cause => showError(`Could not start audio: ${cause.message}`));
     };
@@ -326,7 +328,9 @@
       const midi = activeMidiSources.get(source);
       if (midi === undefined) return;
       activeMidiSources.delete(source);
-      if (![...activeMidiSources.values()].includes(midi)) wasm._audiovm_midi_event(processor, 0x80, midi, 0);
+      if (![...activeMidiSources.values()].includes(midi)) {
+        audioNode.port.postMessage({ type: 'midi', status: 0x80, data1: midi, data2: 0 });
+      }
       updatePianoKey(midi);
     };
     const releaseAllNotes = () => {
@@ -389,19 +393,25 @@
       try { parsed = JSON.parse(await python.compile(editor.value, message => { status.textContent = message; })); }
       catch (cause) { showError(`Python patch error: ${cause.message}`); status.textContent = 'Python error'; return; }
       try {
-        if (!audioContext) audioContext = new AudioContext();
+        status.textContent = 'Preparing audio worklet…';
         stop();
         releaseAllNotes();
-        if (processor) wasm._audiovm_destroy(processor);
-        processor = wasm._audiovm_create();
-        wasm._audiovm_setup(processor, audioContext.sampleRate, 1, outputChannels, blockSize);
-        const jsonPointer = writeString(JSON.stringify(parsed));
-        wasm._audiovm_load_from_json(processor, jsonPointer);
-        wasm._free(jsonPointer);
-        inputPointer = wasm._malloc(blockSize * 4);
-        outputPointer = wasm._malloc(blockSize * outputChannels * 4);
-        new Float32Array(wasm.HEAPU8.buffer, inputPointer, blockSize).fill(0);
-        renderControls();
+        await ensureAudioWorklet();
+        status.textContent = 'Activating audio worklet…';
+        if (!audioConnected) {
+          audioNode.connect(audioContext.destination);
+          audioConnected = true;
+        }
+        await audioContext.resume();
+        status.textContent = 'Sending patch to audio worklet…';
+        processor = false;
+        const wasmResponse = await fetch('./audiovm.wasm');
+        if (!wasmResponse.ok) throw new Error(`Could not load audiovm.wasm (${wasmResponse.status})`);
+        const wasmBinary = await wasmResponse.arrayBuffer();
+        await postToWorklet({ type: 'load', json: JSON.stringify(parsed), wasmBinary }, [wasmBinary]);
+        stop();
+        processor = true;
+        renderControls(parsed);
         playButton.disabled = false;
         status.textContent = 'Patch loaded';
       } catch (cause) {
@@ -438,7 +448,10 @@
 
     loadButton.addEventListener('click', loadPatch);
     saveButton.addEventListener('click', savePatch);
-    playButton.addEventListener('click', () => audioNode ? stop() : start());
+    playButton.addEventListener('click', () => {
+      if (playButton.classList.contains('playing')) stop();
+      else start().catch(cause => showError(`Could not start audio: ${cause.message}`));
+    });
     presetSelect.addEventListener('change', async () => {
       if (!presetSelect.value) return;
       try {
@@ -489,11 +502,8 @@
       }
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); loadPatch(); }
     });
-    const runtimeReady = Promise.all([
-      createAudioVM(),
-      python.prepare(message => { status.textContent = message; }),
-    ]).then(([module]) => {
-      wasm = module;
+    const runtimeReady = python.prepare(message => { status.textContent = message; })
+    .then(() => {
       resourcesReady = true;
       updateActionAvailability();
       status.textContent = 'Ready to load a patch';

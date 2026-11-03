@@ -176,6 +176,10 @@ public:
     Port::Rate getPortRate(Port::Dir dir, int index) override {
         return (dir==Port::Out && index==Output) ? Port::Full : Port::Block;
     }
+    static inline float fastUnitSinUnsafe(float x) {
+        float b = x * (1-x);
+        return b * (.5f-x) * (12.63816744f + b * (35.870132f + 56.16403226f * b));
+    }
     void process(Buffer *i, Buffer *o, int N) override {
         float note = i[NoteNumber].value();
         float hz = convertNoteToHz(note) + i[FreqHz].value();
@@ -183,7 +187,7 @@ public:
         for (int n = 0; n < N; n++) {
             mUnitPhase += phaseStep;
             mUnitPhase -= floorf(mUnitPhase);
-            o->data()[n] = sinf(2 * M_PI * mUnitPhase);
+            o->data()[n] = fastUnitSinUnsafe(mUnitPhase);
         }
     }
 private:
@@ -268,23 +272,71 @@ public:
         return (dir == Port::Out) ? NumOutputs : NumInputs;
     }
     void process(Buffer *i, Buffer *o, int N) override {
-        float f = std::min(.5f, i[FreqHz].value() / mSamplerate);
-        cK = 2 * f * (3.1415f - 2.15f * 2*f);
-        float d = 1 - i[Resonance].value();
-        cDamp = std::min(2 * d, .99f / cK);
-        float *x = i[Input][0], *y = o[Output][0];
+        Coefs T = getCoefs(i), C = mCoefs;
+        State S = mState; // local copy
+        float *x = i[Input][0], *y = o[Output][0], step = 1.f / o[0].numSamples;
         for (int n = 0; n < N; n++) {
-            float hp = x[n] - sL - cDamp * sB;
-            sB += cK * hp;
-            sL += cK * sB;
-            y[n] = sL;
+            C.k += step * (T.k - C.k);
+            C.d += step * (T.d - C.d);
+            float hp = x[n] - S.l - C.d * S.b;
+            S.b += C.k * hp;
+            S.l += C.k * S.b;
+            y[n] = S.l;
         }
+        mState = S;
+        mCoefs = C;
     }
     void reset() override {
-        sL = sB = 0.f;
+        mState.reset();
     }
-private:
-    float sL, sB, cK = 0.f, cDamp = 0.f;
+    struct State { float l, b; void reset() {l=b=0;} } mState;
+    struct Coefs { float k, d; } mCoefs;
+    Coefs getCoefs(Buffer *i) {
+        Coefs C;
+        float f = std::min(.5f, i[FreqHz].value() / mSamplerate);
+        C.k = 2 * f * (3.1415f - 2.15f * 2*f);
+        float d = 1 - i[Resonance].value();
+        C.d = std::min(2 * d, .99f / C.k);
+        return C;
+    }
+};
+class FilterBP : public FilterLP {
+public:
+    std::string getName() { return "FilterBP"; }
+    void process(Buffer *i, Buffer *o, int N) override {
+        Coefs T = getCoefs(i), C = mCoefs;
+        State S = mState; // local copy
+        float *x = i[Input][0], *y = o[Output][0], step = 1.f / o[0].numSamples;
+        for (int n = 0; n < N; n++) {
+            C.k += step * (T.k - C.k);
+            C.d += step * (T.d - C.d);
+            float hp = x[n] - S.l - C.d * S.b;
+            S.b += C.k * hp;
+            S.l += C.k * S.b;
+            y[n] = S.b;
+        }
+        mState = S;
+        mCoefs = C;
+    }
+};
+class FilterHP : public FilterLP {
+public:
+    std::string getName() { return "FilterHP"; }
+    void process(Buffer *i, Buffer *o, int N) override {
+        Coefs T = getCoefs(i), C = mCoefs;
+        State S = mState; // local copy
+        float *x = i[Input][0], *y = o[Output][0], step = 1.f / o[0].numSamples;
+        for (int n = 0; n < N; n++) {
+            C.k += step * (T.k - C.k);
+            C.d += step * (T.d - C.d);
+            float hp = x[n] - S.l - C.d * S.b;
+            S.b += C.k * hp;
+            S.l += C.k * S.b;
+            y[n] = hp;
+        }
+        mState = S;
+        mCoefs = C;
+    }
 };
 class FilterSatLP : public Operator {
 public:
@@ -386,10 +438,10 @@ private:
 
 class EnvExp : public Operator {
 public:
-    enum In  { Gate, DecayTime, NumInputs };
+    enum In  { Gate, DecayTime, Repeats, RepeatTime, NumInputs };
     enum Out { Output, NumOutputs };
     std::string getPortName(Port::Dir dir, int index) override {
-        cStr i[]={"gate","decay"};
+        cStr i[]={"gate","decay","repeats","repeatTime"};
         cStr o[]={"output"};
         return (dir==Port::In) ? i[index] : o[index];
     }
@@ -401,15 +453,50 @@ public:
     }
     void process(Buffer *i, Buffer *o, int N) override {
         float dt = N / mSamplerate;
-        float gate = i[Gate].value(), T = i[DecayTime].value();
-        bool on = gate > mPrevGate;
-        mPrevGate = gate;
-        mVal = (on) ? 1.f : mVal * T / (T + dt);
+        float gate = i[Gate].value(), tHalf = .31f * i[DecayTime].value(), repeats = i[Repeats].value();
+        mPhase = (gate > mGate) ? -1e-20f : mPhase;
+        mGate = gate;
+        float phaseStep = dt / std::max(1e-20f, i[RepeatTime].value());
+        float prevStep = ceilf(mPhase);
+        mPhase += phaseStep * (mPhase <= repeats);
+        mVal = (mPhase > prevStep) ? 1 : (mVal > 1e-30f) * mVal * tHalf / (tHalf + dt);
         o[Output].set(mVal);
     }
 private:
-    float mVal, mPrevGate;
+    float mVal, mGate, mPhase;
 };
+
+class EnvFollower : public Operator {
+public:
+    enum In  { Input, Attack, Release, NumInputs };
+    enum Out { Output, NumOutputs };
+    std::string getPortName(Port::Dir dir, int index) override {
+        cStr i[]={"input","attack","release"};
+        cStr o[]={"output"};
+        return (dir==Port::In) ? i[index] : o[index];
+    }
+    Port::Rate getPortRate(Port::Dir dir, int index) override {
+        return (index==0) ? Port::Keep : Port::Block;
+    }
+    int getNumPorts(Port::Dir dir) override {
+        return (dir == Port::Out) ? NumOutputs : NumInputs;
+    }
+    void process(Buffer *i, Buffer *o, int numSamples) override {
+        int N = std::min(numSamples, i[0].numSamples);
+        float tA = i[Attack].value(), tR = i[Release].value();
+        float cA = 1/(1+tA*mSamplerate), cR = 1/(1+tR*mSamplerate);
+        float *x = i[Input].data(), *e = o[Output].data();
+        for (int n = 0; n < N; n++) {
+            float a = fabsf(x[n]);
+            mEnv += ((a > mEnv) ? cA : cR) * (a - mEnv);
+            e[n] = mEnv;
+        }
+    }
+private:
+    float mEnv;
+};
+
+
 
 const char *kIdAudioIn = "audioIn", *kIdAudioOut = "audioOut";
 
@@ -446,8 +533,11 @@ Processor::Processor()
     registerType("oscSaw"  , [] { return std::make_unique<OscSaw>(); });
     registerType("oscNoise", [] { return std::make_unique<OscNoise>(); });
     registerType("filterLP", [] { return std::make_unique<FilterLP>(); });
+    registerType("filterBP", [] { return std::make_unique<FilterBP>(); });
+    registerType("filterHP", [] { return std::make_unique<FilterHP>(); });
     registerType("envADSR" , [] { return std::make_unique<EnvADSR>(); });
-    registerType("envExp" , [] { return std::make_unique<EnvExp>(); });
+    registerType("envExp"  , [] { return std::make_unique<EnvExp>(); });
+    registerType("envFollow", [] { return std::make_unique<EnvFollower>(); });
 
     mProgram.list.reserve(128);
 }
