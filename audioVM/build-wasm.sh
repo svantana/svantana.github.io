@@ -17,6 +17,11 @@ export EM_CACHE="$(cd "$cache_dir" && pwd -P)"
 # Keep the browser's Python builder in sync with the canonical source file.
 cp "$project_dir/python/audioVM.py" "$output_dir/audioVM.py"
 
+# A browser cannot list a static directory, so expose the available Python
+# preset files through a manifest beside the presets folder.
+python3 -c 'import json, pathlib, sys; root = pathlib.Path(sys.argv[1]); files = sorted(str(path.relative_to(root)) for path in root.rglob("*.py")); pathlib.Path(sys.argv[2]).write_text(json.dumps(files))' \
+  "$output_dir/presets" "$output_dir/presets.json"
+
 em++ \
   "$project_dir/cpp/AudioVM.cpp" \
   "$project_dir/cpp/AudioVMEmscripten.cpp" \

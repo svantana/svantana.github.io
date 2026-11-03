@@ -175,17 +175,25 @@ public: void process(Buffer *i, Buffer *o) { o[0] = i[0] / i[1]; }
  */
 
 // some basic ops to get started
+static float convertNoteToHz(float note) {
+    return (note > 0) * 440 * exp2f((note-69)/12);
+}
+
 class OscSin : public Operator {
 public:
-    enum In  { FreqHz, NumInputs };
+    enum In  { FreqHz, NoteNumber, NumInputs };
     enum Out { Output, NumOutputs };
     int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? NumInputs : NumOutputs; }
     std::string getPortName(Port::Dir dir, int index) override {
-        return (dir == Port::In && index == FreqHz) ? "note" : "output";
+        cStr i[]={"frequency", "note"};
+        cStr o[]={"output"};
+        return (dir == Port::In) ? i[index] : o[index];
     }
     void process(Buffer *i, Buffer *o, int N) override {
         o->numSamples = N;
-        float phaseStep = i[FreqHz][0][0] / mSamplerate;
+        float note = i[NoteNumber].value();
+        float hz = convertNoteToHz(note) + i[FreqHz].value();
+        float phaseStep = hz / mSamplerate;
         for (int n = 0; n < N; n++) {
             mUnitPhase += phaseStep;
             mUnitPhase -= floorf(mUnitPhase);
@@ -210,7 +218,8 @@ public:
     }
     void process(Buffer *i, Buffer *o, int N) override {
         o->numSamples = N;
-        float note = i[NoteNumber].value(), hz = i[FreqHz].value() + ((note > 0) ? 440 * exp2f((note-69)/12) : 0.f);
+        float note = i[NoteNumber].value();
+        float hz = convertNoteToHz(note) + i[FreqHz].value();
         float phaseStep = hz / mSamplerate;
         float *dst = o[Output].data();
         for (int n = 0; n < N; n++) {
