@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+output_dir="$project_dir/web"
+mkdir -p "$output_dir"
+
+# Homebrew's Emscripten installation may live in a read-only Cellar path.
+# Keep its generated cache outside the checkout unless the caller supplied one.
+cache_dir="${EM_CACHE:-${TMPDIR:-/tmp}/audiovm-emscripten-cache}"
+mkdir -p "$cache_dir"
+# On macOS, /var is a symlink to /private/var.  Emscripten passes system
+# sources as paths relative to EM_CACHE, so use the physical path to ensure
+# Clang resolves those paths from the same location.
+export EM_CACHE="$(cd "$cache_dir" && pwd -P)"
+
+em++ \
+  "$project_dir/cpp/AudioVM.cpp" \
+  "$project_dir/cpp/AudioVMEmscripten.cpp" \
+  --std=c++17 \
+  -O3 \
+  -s MODULARIZE=1 \
+  -s EXPORT_ES6=1 \
+  -s EXPORT_NAME=createAudioVM \
+  -s ENVIRONMENT=web,worker \
+  -s ALLOW_MEMORY_GROWTH=1 \
+  -s FILESYSTEM=0 \
+  -s NO_EXIT_RUNTIME=1 \
+  --no-entry \
+  -o "$output_dir/audiovm.js"
