@@ -14,6 +14,9 @@ mkdir -p "$cache_dir"
 # Clang resolves those paths from the same location.
 export EM_CACHE="$(cd "$cache_dir" && pwd -P)"
 
+# Keep the browser's Python builder in sync with the canonical source file.
+cp "$project_dir/python/audioVM.py" "$output_dir/audioVM.py"
+
 em++ \
   "$project_dir/cpp/AudioVM.cpp" \
   "$project_dir/cpp/AudioVMEmscripten.cpp" \
@@ -26,5 +29,7 @@ em++ \
   -s ALLOW_MEMORY_GROWTH=1 \
   -s FILESYSTEM=0 \
   -s NO_EXIT_RUNTIME=1 \
+  -s EXPORTED_FUNCTIONS='["_malloc","_free"]' \
+  -s EXPORTED_RUNTIME_METHODS='["HEAPU8"]' \
   --no-entry \
   -o "$output_dir/audiovm.js"

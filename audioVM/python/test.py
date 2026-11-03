@@ -6,6 +6,8 @@ midi = vm.midi()
 #noteWrap = midi.note % 12
 #gate0 = (noteWrap == 0)
 
+controlCutoff = vm.control("cutoff", 0.5)
+
 subOsc = vm.op("oscSin", {"note": midi.note - 12})
 osc = vm.op("oscSaw", {"note": midi.note})
 
@@ -14,7 +16,7 @@ envFilter = vm.op("envADSR", {"gate":midi.gate, "a":0.05, "d":1.5, "s":0.0, "r":
 
 oscMix = osc + subOsc * 0.5 
 
-cutoffHz = 400 + envFilter * 2.5e3
+cutoffHz = (0.5 + envFilter) * (controlCutoff * 3e3 + 100)
 
 filterOut = vm.op("filterLP", {"input": oscMix, "frequency": cutoffHz, "resonance": 0.5})
 envOut = filterOut * envAmp

@@ -44,16 +44,19 @@ class VM:
         self.polyphony = polyphony
         self.midiObj = Midi(self)
 
-    def op(self, nodeType, input=None):
+    def op(self, nodeType, input=None, id=None):
         if nodeType not in self.typeCounts:
             self.typeCounts[nodeType] = 0
         self.typeCounts[nodeType] += 1
-        obj = Operator(self, nodeType, nodeType + str(self.typeCounts[nodeType]), input)
+        obj = Operator(self, nodeType, id if id is not None else nodeType + str(self.typeCounts[nodeType]), input)
         self.program += [obj]
         return obj
 
     def constant(self, value):
         return self.op("const", value)
+
+    def control(self, name, value=0):
+        return self.op("control", id=name, input=value)
 
     def as_op(self, value):
         if isinstance(value, Operator):

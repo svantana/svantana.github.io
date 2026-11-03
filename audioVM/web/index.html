@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AudioVM Player</title>
+  <style>
+    :root { color-scheme: dark; --bg:#111214; --panel:#191b1f; --border:#30343a; --text:#e8eaf0; --muted:#9299a5; --accent:#92e5b1; --danger:#ff8f8f; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); font:14px/1.4 ui-sans-serif, system-ui, sans-serif; }
+    header { min-height:58px; padding:10px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
+    h1 { font-size:15px; letter-spacing:.04em; margin:0 auto 0 0; }
+    #status { color:var(--muted); font-size:12px; }
+    button { border:1px solid var(--border); border-radius:5px; background:#282c32; color:var(--text); padding:7px 11px; font:inherit; cursor:pointer; }
+    button:hover:not(:disabled) { border-color:var(--accent); }
+    button:disabled { cursor:wait; opacity:.55; }
+    #play.playing { background:var(--accent); color:#102116; border-color:var(--accent); }
+    main { display:grid; grid-template-columns:minmax(320px, 1.2fr) minmax(280px, .8fr); min-height:calc(100vh - 58px); }
+    section { min-width:0; display:flex; flex-direction:column; }
+    section + section { border-left:1px solid var(--border); }
+    .section-head { display:flex; align-items:center; min-height:44px; padding:8px 14px; border-bottom:1px solid var(--border); background:var(--panel); }
+    .section-head strong { font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
+    .section-head span { margin-left:auto; color:var(--muted); font-size:12px; }
+    .editor { flex:1; min-height:0; display:flex; background:#14161a; }
+    .code { font:13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size:2; }
+    #gutter { flex:0 0 46px; overflow:hidden; padding:16px 9px 40px 0; border-right:1px solid var(--border); color:#69717d; text-align:right; user-select:none; white-space:pre; }
+    .code-stack { position:relative; flex:1; min-width:0; }
+    #highlight, #program { position:absolute; inset:0; margin:0; padding:16px 22px 40px 14px; border:0; font:inherit; line-height:inherit; letter-spacing:inherit; tab-size:inherit; white-space:pre; }
+    #highlight { overflow:hidden; pointer-events:none; color:#d7e5dc; }
+    #program { width:100%; resize:none; outline:0; overflow:auto; background:transparent; color:transparent; caret-color:#e8eaf0; -webkit-text-fill-color:transparent; }
+    #program::selection { background:rgba(146,229,177,.32); }
+    .token-keyword { color:#c99bff; } .token-string { color:#9ee6b4; } .token-number { color:#f2c17d; }
+    .token-comment { color:#737b87; font-style:italic; } .token-builtin { color:#82caff; } .token-function { color:#ffb7cf; }
+    #controls { flex:1; padding:12px 14px 28px; overflow:auto; }
+    .empty { color:var(--muted); margin:8px 0; }
+    .control { padding:13px 0 15px; border-bottom:1px solid var(--border); }
+    .control-row { display:flex; gap:12px; align-items:baseline; margin-bottom:8px; }
+    .control label { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    output { margin-left:auto; color:var(--accent); font:12px ui-monospace, monospace; }
+    input[type=range] { width:100%; accent-color:var(--accent); }
+    #error { display:none; margin:0; padding:9px 14px; background:#331d20; color:var(--danger); border-top:1px solid #67353a; font:12px/1.4 ui-monospace, monospace; white-space:pre-wrap; }
+    @media (max-width:720px) { main { grid-template-columns:1fr; grid-template-rows:minmax(340px, 56vh) auto; } section + section { border:0; border-top:1px solid var(--border); } #controls { min-height:220px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AudioVM Player</h1>
+    <span id="status">Loading AudioVM…</span>
+    <button id="load" disabled>Load patch</button>
+    <button id="play" disabled>Play</button>
+  </header>
+  <main>
+    <section>
+      <div class="section-head"><strong>patch.py</strong><span>Ctrl / ⌘ + Enter to load</span></div>
+      <div class="editor code">
+        <div id="gutter" aria-hidden="true">1</div>
+        <div class="code-stack">
+          <pre id="highlight" aria-hidden="true"></pre>
+          <textarea id="program" spellcheck="false" aria-label="Python AudioVM patch"></textarea>
+        </div>
+      </div>
+    </section>
+    <section>
+      <div class="section-head"><strong>Controls</strong><span id="control-count">0 controls</span></div>
+      <div id="controls"><p class="empty">Load a patch to generate controls.</p></div>
+      <pre id="error" role="alert"></pre>
+    </section>
+  </main>
+  <script type="module">
+    import createAudioVM from './audiovm.js';
+    import { PythonPatchRunner, starterPatch } from './python-runner.js';
+
+    const editor = document.querySelector('#program');
+    const loadButton = document.querySelector('#load');
+    const playButton = document.querySelector('#play');
+    const status = document.querySelector('#status');
+    const controls = document.querySelector('#controls');
+    const count = document.querySelector('#control-count');
+    const error = document.querySelector('#error');
+    const highlight = document.querySelector('#highlight');
+    const gutter = document.querySelector('#gutter');
+    editor.value = starterPatch;
+
+    const keywords = new Set(['and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'if', 'import', 'in', 'is', 'lambda', 'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield']);
+    const builtins = new Set(['True', 'False', 'None', 'print', 'range', 'len', 'str', 'int', 'float', 'dict', 'list', 'set', 'tuple', 'type', 'isinstance']);
+    const escapeHTML = text => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+    const highlightPythonLine = line => {
+      let html = '', index = 0, functionName = false;
+      while (index < line.length) {
+        const char = line[index];
+        if (char === '#') { html += `<span class="token-comment">${escapeHTML(line.slice(index))}</span>`; break; }
+        if (char === '"' || char === "'") {
+          const quote = char; let end = index + 1;
+          while (end < line.length) { if (line[end] === quote && line[end - 1] !== '\\') { end++; break; } end++; }
+          html += `<span class="token-string">${escapeHTML(line.slice(index, end))}</span>`; index = end; continue;
+        }
+        if (/\d/.test(char)) {
+          const match = line.slice(index).match(/^\d+(?:\.\d*)?(?:[eE][+-]?\d+)?/)[0];
+          html += `<span class="token-number">${match}</span>`; index += match.length; continue;
+        }
+        if (/[A-Za-z_]/.test(char)) {
+          const word = line.slice(index).match(/^[A-Za-z_]\w*/)[0];
+          const className = keywords.has(word) ? 'token-keyword' : functionName ? 'token-function' : builtins.has(word) ? 'token-builtin' : '';
+          html += className ? `<span class="${className}">${word}</span>` : word;
+          functionName = word === 'def' || word === 'class'; index += word.length; continue;
+        }
+        html += escapeHTML(char); index++;
+      }
+      return html;
+    };
+    const updateEditorChrome = () => {
+      const lines = editor.value.split('\n');
+      highlight.innerHTML = lines.map(highlightPythonLine).join('\n') + '\n';
+      gutter.textContent = lines.map((_, index) => index + 1).join('\n');
+    };
+    editor.addEventListener('input', updateEditorChrome);
+    editor.addEventListener('scroll', () => {
+      highlight.scrollTop = editor.scrollTop; highlight.scrollLeft = editor.scrollLeft; gutter.scrollTop = editor.scrollTop;
+    });
+    updateEditorChrome();
+
+    let wasm;
+    const python = new PythonPatchRunner();
+    let processor = 0;
+    let audioContext;
+    let audioNode;
+    let inputPointer = 0;
+    let outputPointer = 0;
+    const blockSize = 512;
+    const outputChannels = 2;
+
+    const showError = message => { error.textContent = message; error.style.display = 'block'; };
+    const clearError = () => { error.textContent = ''; error.style.display = 'none'; };
+    const writeString = text => {
+      const bytes = new TextEncoder().encode(text + '\0');
+      const pointer = wasm._malloc(bytes.length);
+      wasm.HEAPU8.set(bytes, pointer);
+      return pointer;
+    };
+    const readCString = pointer => {
+      let end = pointer;
+      while (wasm.HEAPU8[end]) end++;
+      return new TextDecoder().decode(wasm.HEAPU8.subarray(pointer, end));
+    };
+    const sliderOptions = (name, value) => {
+      const id = name.toLowerCase();
+      if (/freq|note|pitch|cutoff/.test(id)) return [20, 2000, 1];
+      if (/attack|decay|release|time/.test(id)) return [0.001, 5, 0.001];
+      if (/level|gain|volume|sustain|resonance/.test(id)) return [0, 1, 0.001];
+      const width = Math.max(Math.abs(value) * 2, 1);
+      return [value - width, value + width, width / 1000];
+    };
+    const renderControls = () => {
+      const graph = JSON.parse(readCString(wasm._audiovm_get_op_list_json(processor)));
+      const controlNodes = graph.program.filter(node => node.type === 'control');
+      controls.replaceChildren();
+      count.textContent = `${controlNodes.length} control${controlNodes.length === 1 ? '' : 's'}`;
+      if (!controlNodes.length) {
+        controls.innerHTML = '<p class="empty">This patch has no Control operators.</p>';
+        return;
+      }
+      controlNodes.forEach((node, index) => {
+        const value = Number(node.input) || 0;
+        const [min, max, step] = sliderOptions(node.id, value);
+        const wrapper = document.createElement('div');
+        wrapper.className = 'control';
+        const row = document.createElement('div');
+        row.className = 'control-row';
+        const label = document.createElement('label');
+        label.htmlFor = `control-${index}`;
+        label.textContent = node.id;
+        const output = document.createElement('output');
+        const slider = document.createElement('input');
+        slider.type = 'range'; slider.id = label.htmlFor;
+        slider.min = min; slider.max = max; slider.step = step; slider.value = value;
+        const set = () => {
+          const next = Number(slider.value);
+          wasm._audiovm_set_control_value(processor, index, next);
+          output.value = next.toFixed(Math.max(0, Math.min(3, String(step).split('.')[1]?.length || 0)));
+          output.textContent = output.value;
+        };
+        slider.addEventListener('input', set);
+        row.append(label, output); wrapper.append(row, slider); controls.append(wrapper); set();
+      });
+    };
+    const stop = () => {
+      if (audioNode) { audioNode.disconnect(); audioNode = null; }
+      if (audioContext) audioContext.suspend();
+      playButton.textContent = 'Play'; playButton.classList.remove('playing');
+    };
+    const start = async () => {
+      if (!processor) return;
+      if (!audioContext) audioContext = new AudioContext();
+      await audioContext.resume();
+      if (!audioNode) {
+        audioNode = audioContext.createScriptProcessor(blockSize, 1, outputChannels);
+        audioNode.onaudioprocess = event => {
+          const frames = event.outputBuffer.length;
+          wasm._audiovm_process(processor, inputPointer, outputPointer, frames, 1, outputChannels);
+          const samples = new Float32Array(wasm.HEAPU8.buffer, outputPointer, frames * outputChannels);
+          for (let channel = 0; channel < outputChannels; channel++) {
+            event.outputBuffer.copyToChannel(samples.subarray(channel * frames, (channel + 1) * frames), channel);
+          }
+        };
+        audioNode.connect(audioContext.destination);
+      }
+      playButton.textContent = 'Stop'; playButton.classList.add('playing');
+    };
+    const loadPatch = async () => {
+      clearError();
+      let parsed;
+      try { parsed = JSON.parse(await python.compile(editor.value, message => { status.textContent = message; })); }
+      catch (cause) { showError(`Python patch error: ${cause.message}`); status.textContent = 'Python error'; return; }
+      try {
+        if (!audioContext) audioContext = new AudioContext();
+        stop();
+        if (processor) wasm._audiovm_destroy(processor);
+        processor = wasm._audiovm_create();
+        wasm._audiovm_setup(processor, audioContext.sampleRate, 1, outputChannels, blockSize);
+        const jsonPointer = writeString(JSON.stringify(parsed));
+        wasm._audiovm_load_from_json(processor, jsonPointer);
+        wasm._free(jsonPointer);
+        inputPointer = wasm._malloc(blockSize * 4);
+        outputPointer = wasm._malloc(blockSize * outputChannels * 4);
+        new Float32Array(wasm.HEAPU8.buffer, inputPointer, blockSize).fill(0);
+        renderControls();
+        playButton.disabled = false;
+        status.textContent = 'Patch loaded';
+      } catch (cause) {
+        showError(`AudioVM could not load this patch: ${cause.message}`);
+        status.textContent = 'Load failed';
+      }
+    };
+
+    loadButton.addEventListener('click', loadPatch);
+    playButton.addEventListener('click', () => audioNode ? stop() : start());
+    editor.addEventListener('keydown', event => {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); loadPatch(); }
+    });
+    createAudioVM().then(module => {
+      wasm = module; loadButton.disabled = false; status.textContent = 'Ready to load a patch';
+    }).catch(cause => { showError(`AudioVM runtime failed to load: ${cause.message}`); status.textContent = 'Runtime unavailable'; });
+  </script>
+</body>
+</html>
