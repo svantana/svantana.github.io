@@ -66,7 +66,7 @@ private:
         int mMidiInId = -1;
     };
     Program mProgram;
-    std::vector<Program> mVoicePrograms;
+    std::vector<Program> mPolyPrograms;
     
     struct Compiler {
         std::map<std::string, int> mIdToIndex;

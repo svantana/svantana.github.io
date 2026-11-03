@@ -33,7 +33,7 @@ namespace AudioVM {
         virtual Port::Rate getPortRate(Port::Dir dir, int index) { return Port::Keep; }
         virtual void init() {} // do setup here, if needed
         virtual void reset() {}
-        virtual void process(Buffer* inBufs, Buffer* outBufs, int numSamples) = 0;
+        virtual void process(Buffer* inBufs, Buffer* outBufs, int numSamples) {}
         float mSamplerate;
     };
 }

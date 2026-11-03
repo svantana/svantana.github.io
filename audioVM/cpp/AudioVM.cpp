@@ -7,53 +7,58 @@ using namespace AudioVM;
 typedef const char* cStr;
 
 // basic operators
-class AudioIn : public Operator {
-public:
+struct FullRateOp : public Operator {
+    Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Full; }
+};
+struct BlockRateOp : public Operator {
+    Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Block; }
+};
+
+struct AudioIn : public FullRateOp {
     int getNumPorts(Port::Dir dir) override { return (dir == Port::Out) ? 1 : 0; }
-    Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Full; }
     void process(Buffer *i, Buffer *o, int N) override {}
 };
-class AudioOut : public Operator {
-public:
+struct AudioOut : public FullRateOp {
     int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? 1 : 0; }
-    Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Full; }
-    void process(Buffer *i, Buffer *o, int N) override {}
 };
-class MidiIn : public Operator {
-public:
+struct MidiIn : public BlockRateOp {
     enum Type { Gate, Note, Velocity, NumTypes };
     int getNumPorts(Port::Dir dir) override { return (dir == Port::Out) ? NumTypes : 0; }
-    Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Block; }
-    void process(Buffer *i, Buffer *o, int N) override {}
 };
-class Control : public Operator {
-public:
+struct PolyStart : public BlockRateOp {
+    enum In { NumVoices, TimeOut, NumInputs };
+    int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? NumInputs : 0; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        cStr i[] = {"numVoices", "timeOut"};
+        return i[index];
+    }
+};
+struct PolyEnd : public BlockRateOp {
+    int getNumPorts(Port::Dir dir) override { return 0; }
+};
+
+struct Control : public BlockRateOp {
     Control(std::string name = "control") { mName = name; }
     int getNumPorts(Port::Dir dir) override {
         return (dir == Port::In) ? 0 : 1;
     }
-    Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Block; }
     void process(Buffer *i, Buffer *o, int N) override { o[0].value() = mValue; }
     float mValue;
     std::string mName;
 };
-class ConstOp : public Operator {
-public:
+struct ConstOp : public BlockRateOp {
     ConstOp(std::string name = "const") { mName = name; }
     int getNumPorts(Port::Dir dir) override {
         return (dir == Port::In) ? 0 : 1;
     }
-    Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Block; }
     void process(Buffer *i, Buffer *o, int N) override { o[0].value() = mValue; }
     float mValue;
     std::string mName;
 };
 
-// needed for feedback
-class BufferOperator : public Operator {
-public:
+// needed for feedback and sums
+struct BufferOperator : public FullRateOp {
     int getNumPorts(Port::Dir dir) override { return Port::Out ? 1 : 0; }
-    Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Full; }
     void process(Buffer *i, Buffer *o, int N) override {}
 };
 
@@ -69,21 +74,27 @@ public:
         }
         state = next;
     }
+    void reset() override { state = 0.f; }
 private:
     float state = 0.f;
 };
 
 // math ops
-class UnaryOp : public Operator {
-public:
+struct UnaryOp : public Operator {
     int getNumPorts(Port::Dir dir) override {
         return 1;
     }
-};
-class BinaryOp : public Operator {
-    public: int getNumPorts(Port::Dir dir) override {
-        return (dir == Port::In) ? 2 : 1;
+    void process(Buffer *i, Buffer *o, int N) override {
+        assert(i[0].numSamples == o[0].numSamples);
+        for (int ch = 0; ch < i->numChannels; ch++) {
+            for (int n = 0; n < i->numSamples; n++) {
+                o->data(ch)[n] = expf(i->data(ch)[n]);
+            }
+        }
     }
+};
+struct BinaryOp : public Operator {
+    int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? 2 : 1; }
 };
 
 template <class Operation>
@@ -92,6 +103,7 @@ protected:
     void process(Buffer *i, Buffer *o, int N) override {
         const int channels = std::max(i[0].numChannels, i[1].numChannels);
         assert(i[0].numSamples == i[1].numSamples);
+        assert(i[0].numSamples == o[0].numSamples);
         const int numSamples = std::min(N, i[0].numSamples);
         for (int ch = 0; ch < channels; ++ch) {
             const float *a = i[0].dataWrap(ch);
