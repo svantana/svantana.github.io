@@ -119,10 +119,14 @@ struct GreaterEqual { static float apply(float a, float b) { return a >= b ? 1.f
 
 // Mutates an existing BufferOperator output. It has no output of its own: the
 // first input is the mutable target and the second is the incoming value.
-template <class Operation>
-class InplaceBinaryOp : public BinaryOp {
+class InplaceOp : public BinaryOp {
 public:
     int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? 2 : 0; }
+};
+
+template <class Operation>
+class InplaceBinaryOp : public InplaceOp {
+public:
     void process(Buffer *i, Buffer *o, int N) override {
         assert(i[0].numSamples == i[1].numSamples);
         const int channels = std::max(i[0].numChannels, i[1].numChannels);
@@ -543,6 +547,8 @@ Processor::Processor()
     registerType(kIdAudioIn , [] { return std::make_unique<AudioIn>(); });
     registerType(kIdAudioOut, [] { return std::make_unique<AudioOut>(); });
     registerType("midiIn", [] { return std::make_unique<MidiIn>(); });
+    registerType("polyStart", [] { return std::make_unique<PolyStart>(); });
+    registerType("polyEnd", [] { return std::make_unique<PolyEnd>(); });
     registerType("control", [] { return std::make_unique<Control>(); });
     registerType("const", [] { return std::make_unique<ConstOp>(); });
     registerType("buffer", [] { return std::make_unique<BufferOperator>(); });
@@ -593,6 +599,8 @@ void Processor::setup(float samplerate, int numInputChannels, int numOutputChann
 
 void Processor::clearProgram() {
     mProgram.list.clear();
+    mPolyPrograms.clear();
+    mVoiceAge = 0;
 }
 int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
     OpPtr op = makeOpWithId(operatorId);
@@ -720,6 +728,160 @@ bool Processor::compileProgram() {
             mProgram.mMidiInId = n;
         }
     }
+
+    mPolyPrograms.clear();
+    mVoiceAge = 0;
+    int polyStartCount = 0;
+    for (const Entry& entry : mProgram.list) {
+        polyStartCount += dynamic_cast<const PolyStart*>(entry.op.get()) != nullptr;
+    }
+    mPolyPrograms.reserve(polyStartCount);
+
+    int openRange = -1;
+    for (int index = 0; index < static_cast<int>(mProgram.list.size()); ++index) {
+        const Entry& entry = mProgram.list[index];
+        if (dynamic_cast<const PolyStart*>(entry.op.get()) != nullptr) {
+            if (openRange >= 0) {
+                throw std::runtime_error("Nested polyphonic ranges are not supported");
+            }
+            if (entry.mInputIds.empty() || entry.mInputIds[PolyStart::NumVoices] < 0) {
+                throw std::runtime_error("polyStart requires a numVoices input");
+            }
+            const int sourceId = entry.mInputIds[PolyStart::NumVoices];
+            const Entry& source = mProgram.list[sourceId / OpSpacing];
+            float numVoicesValue = 0.f;
+            if (const auto* constant = dynamic_cast<const ConstOp*>(source.op.get())) {
+                numVoicesValue = constant->mValue;
+            } else if (const auto* control = dynamic_cast<const Control*>(source.op.get())) {
+                numVoicesValue = control->mValue;
+            } else {
+                throw std::runtime_error("polyStart numVoices must be a constant or control");
+            }
+            const int numVoices = static_cast<int>(roundf(numVoicesValue));
+            if (numVoices < 1 || numVoices > 128 || numVoicesValue != static_cast<float>(numVoices)) {
+                throw std::runtime_error("polyStart numVoices must be an integer between 1 and 128");
+            }
+            mPolyPrograms.emplace_back();
+            PolyRange& range = mPolyPrograms.back();
+            range.startIndex = index;
+            range.voices.resize(numVoices);
+            if (entry.mInputIds.size() > PolyStart::TimeOut && entry.mInputIds[PolyStart::TimeOut] >= 0) {
+                const int timeoutSourceId = entry.mInputIds[PolyStart::TimeOut];
+                const int timeoutSourceIndex = timeoutSourceId / OpSpacing;
+                const Entry& timeoutSource = mProgram.list[timeoutSourceIndex];
+                if (const auto* constant = dynamic_cast<const ConstOp*>(timeoutSource.op.get())) {
+                    range.timeOutSeconds = constant->mValue;
+                } else if (const auto* control = dynamic_cast<const Control*>(timeoutSource.op.get())) {
+                    range.timeOutSeconds = control->mValue;
+                    range.timeOutControlIndex = timeoutSourceIndex;
+                } else {
+                    throw std::runtime_error("polyStart timeOut must be a constant or control");
+                }
+                if (range.timeOutSeconds < 0.f) {
+                    throw std::runtime_error("polyStart timeOut cannot be negative");
+                }
+            }
+            openRange = static_cast<int>(mPolyPrograms.size()) - 1;
+        } else if (dynamic_cast<const PolyEnd*>(entry.op.get()) != nullptr) {
+            if (openRange < 0) {
+                throw std::runtime_error("polyEnd has no matching polyStart");
+            }
+            mPolyPrograms[openRange].endIndex = index;
+            openRange = -1;
+        }
+    }
+    if (openRange >= 0) {
+        throw std::runtime_error("polyStart has no matching polyEnd");
+    }
+
+    for (PolyRange& range : mPolyPrograms) {
+        for (int index = range.startIndex + 1; index < range.endIndex; ++index) {
+            const Entry& entry = mProgram.list[index];
+            for (int input = 0; input < static_cast<int>(entry.mInputIds.size()); ++input) {
+                const int sourceId = entry.mInputIds[input];
+                if (sourceId < 0) continue;
+                const int sourceIndex = sourceId / OpSpacing;
+                if (dynamic_cast<const InplaceOp*>(entry.op.get()) != nullptr && input == 0) {
+                    if (dynamic_cast<const BufferOperator*>(mProgram.list[sourceIndex].op.get()) == nullptr) {
+                        throw std::runtime_error("in-place operations require a buffer target");
+                    }
+                    if (sourceIndex >= range.endIndex || sourceIndex == range.startIndex) {
+                        throw std::runtime_error("polyphonic in-place targets must be local or precede polyStart");
+                    }
+                }
+            }
+        }
+        for (int index = range.endIndex + 1; index < static_cast<int>(mProgram.list.size()); ++index) {
+            const Entry& entry = mProgram.list[index];
+            for (const int sourceId : entry.mInputIds) {
+                if (sourceId >= 0 && sourceId / OpSpacing > range.startIndex &&
+                    sourceId / OpSpacing < range.endIndex) {
+                    throw std::runtime_error("polyphonic outputs must be accumulated into a global buffer with an in-place operation");
+                }
+            }
+        }
+
+        for (Voice& voice : range.voices) {
+            const int cloneCount = range.endIndex - range.startIndex - 1;
+            voice.list.resize(cloneCount);
+            int bufferSize = 1;
+            for (int offset = 0; offset < cloneCount; ++offset) {
+                const Entry& source = mProgram.list[range.startIndex + 1 + offset];
+                Entry& clone = voice.list[offset];
+                clone.mIndex = source.mIndex;
+                clone.mId = source.mId;
+                clone.mType = source.mType;
+                clone.mInputIds = source.mInputIds;
+                clone.op = makeOpWithId(source.mType);
+                clone.op->mSamplerate = mSamplerate;
+                clone.op->init();
+                if (const auto* constant = dynamic_cast<const ConstOp*>(source.op.get())) {
+                    auto* cloneConstant = dynamic_cast<ConstOp*>(clone.op.get());
+                    cloneConstant->mName = constant->mName;
+                    cloneConstant->mValue = constant->mValue;
+                } else if (const auto* control = dynamic_cast<const Control*>(source.op.get())) {
+                    auto* cloneControl = dynamic_cast<Control*>(clone.op.get());
+                    cloneControl->mName = control->mName;
+                    cloneControl->mValue = control->mValue;
+                }
+                clone.mInputs.resize(source.mInputs.size());
+                clone.mOutputs = source.mOutputs;
+                for (const Buffer& output : clone.mOutputs) bufferSize += output.size();
+            }
+            voice.mIoBuffer.assign(bufferSize, 0.f);
+            int position = 1;
+            for (Entry& clone : voice.list) {
+                for (Buffer& output : clone.mOutputs) {
+                    output.ptr = &voice.mIoBuffer[position];
+                    position += output.size();
+                }
+            }
+        }
+
+        // Link cloned inputs after the whole voice range has allocated its
+        // buffers, so local wires resolve to the corresponding voice clone.
+        for (Voice& voice : range.voices) {
+            for (int offset = 0; offset < static_cast<int>(voice.list.size()); ++offset) {
+                Entry& clone = voice.list[offset];
+                for (int input = 0; input < static_cast<int>(clone.mInputs.size()); ++input) {
+                    const int sourceId = clone.mInputIds[input];
+                    if (sourceId < 0) {
+                        clone.mInputs[input].ptr = &voice.mIoBuffer[0];
+                        continue;
+                    }
+                    const int sourceIndex = sourceId / OpSpacing;
+                    const int sourcePort = sourceId % OpSpacing;
+                    if (sourceIndex > range.startIndex && sourceIndex < range.endIndex) {
+                        clone.mInputs[input] = voice.list[sourceIndex - range.startIndex - 1].mOutputs[sourcePort];
+                    } else if (sourceIndex == mProgram.mMidiInId) {
+                        clone.mInputs[input] = Buffer(&voice.mMidiValues[sourcePort]);
+                    } else {
+                        clone.mInputs[input] = mProgram.list[sourceIndex].mOutputs[sourcePort];
+                    }
+                }
+            }
+        }
+    }
     return true;
 }
 
@@ -745,6 +907,8 @@ void Processor::loadFromJSON(std::string jsonString) {
     // must not leave the processor with a half-built program.
     Program previousProgram = std::move(mProgram);
     Compiler previousCompiler = std::move(mCompiler);
+    std::vector<PolyRange> previousPolyPrograms = std::move(mPolyPrograms);
+    const unsigned long long previousVoiceAge = mVoiceAge;
     mProgram = Program();
     mProgram.list.reserve(program.size());
     mCompiler = Compiler();
@@ -865,6 +1029,8 @@ void Processor::loadFromJSON(std::string jsonString) {
     } catch (...) {
         mProgram = std::move(previousProgram);
         mCompiler = std::move(previousCompiler);
+        mPolyPrograms = std::move(previousPolyPrograms);
+        mVoiceAge = previousVoiceAge;
         throw;
     }
 }
@@ -983,6 +1149,28 @@ std::string Processor::getOpDefinitionsJSON() const {
 
 const int kMidiNoteOn = 0x90, kMidiNoteOff = 0x80;
 
+void Processor::resetVoice(Voice& voice) {
+    for (Entry& entry : voice.list) {
+        entry.op->reset();
+    }
+    for (float& value : voice.mIoBuffer) {
+        value = 0.f;
+    }
+}
+
+void Processor::processPolyRange(PolyRange& range, int numSamples) {
+    for (Voice& voice : range.voices) {
+        if (!voice.active) continue;
+        for (Entry& entry : voice.list) {
+            entry.op->process(entry.mInputs.data(), entry.mOutputs.data(), numSamples);
+        }
+        if (voice.mMidiValues[MidiIn::Gate] == 0.f && voice.releaseSamples >= 0) {
+            voice.releaseSamples -= numSamples;
+            if (voice.releaseSamples <= 0) voice.active = false;
+        }
+    }
+}
+
 void Processor::midiEvent(char b0, char b1, char b2) {
     if (mProgram.mMidiInId < 0) {
         return; // no midi
@@ -990,18 +1178,55 @@ void Processor::midiEvent(char b0, char b1, char b2) {
     Entry &E = mProgram.list[mProgram.mMidiInId];
     auto &O = E.mOutputs;
     //O[MidiIn::Channel].value() = b0 & 0x0f; // TODO: handle channel
-    int msg = b0 & 0xf0;
+    const int note = static_cast<unsigned char>(b1);
+    const int velocity = static_cast<unsigned char>(b2);
+    int msg = static_cast<unsigned char>(b0) & 0xf0;
+    if (msg == kMidiNoteOn && velocity == 0) msg = kMidiNoteOff;
     switch (msg) {
         case kMidiNoteOn: {
             O[MidiIn::Gate].set(1.f);
-            O[MidiIn::Note].set(b1);
-            O[MidiIn::Velocity].set(b2);
-            mCurrMidiNote = b1; // TODO: polyphony
+            O[MidiIn::Note].set(note);
+            O[MidiIn::Velocity].set(velocity);
+            mCurrMidiNote = note;
+            for (PolyRange& range : mPolyPrograms) {
+                Voice* selected = nullptr;
+                for (Voice& voice : range.voices) {
+                    if (!voice.active) {
+                        selected = &voice;
+                        break;
+                    }
+                }
+                if (selected == nullptr) {
+                    selected = &range.voices.front();
+                    for (Voice& voice : range.voices) {
+                        if (voice.age < selected->age) selected = &voice;
+                    }
+                }
+                resetVoice(*selected);
+                selected->active = true;
+                selected->note = note;
+                selected->releaseSamples = -1;
+                selected->age = ++mVoiceAge;
+                selected->mMidiValues[MidiIn::Gate] = 1.f;
+                selected->mMidiValues[MidiIn::Note] = static_cast<float>(note);
+                selected->mMidiValues[MidiIn::Velocity] = static_cast<float>(velocity);
+            }
             break;
         }
         case kMidiNoteOff: {
             if (b1 == mCurrMidiNote) {
                 O[MidiIn::Gate].set(0.f);
+            }
+            for (PolyRange& range : mPolyPrograms) {
+                for (Voice& voice : range.voices) {
+                    if (voice.active && voice.note == note) {
+                        voice.mMidiValues[MidiIn::Gate] = 0.f;
+                        if (range.timeOutSeconds >= 0.f) {
+                            voice.releaseSamples = static_cast<int>(ceilf(range.timeOutSeconds * mSamplerate));
+                            if (voice.releaseSamples == 0) voice.active = false;
+                        }
+                    }
+                }
             }
             break;
         }
@@ -1014,6 +1239,18 @@ void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
         int blockSize = std::min(maxBlockSize, numSamples - ioPos);
         
         for (int n = 0; n < (int)mProgram.list.size(); n++) {
+            PolyRange* range = nullptr;
+            for (PolyRange& candidate : mPolyPrograms) {
+                if (candidate.startIndex == n) {
+                    range = &candidate;
+                    break;
+                }
+            }
+            if (range != nullptr) {
+                processPolyRange(*range, blockSize);
+                n = range->endIndex;
+                continue;
+            }
             Entry &E = mProgram.list[n];
             E.op->process(E.mInputs.data(), E.mOutputs.data(), blockSize);
         }
@@ -1058,6 +1295,16 @@ void Processor::setControlValue(int controlIndex, float value) {
     int opIndex = mProgram.mControlIds[controlIndex];
     Control *C = dynamic_cast<Control*>(mProgram.list[opIndex].op.get());
     C->mValue = value;
+    for (PolyRange& range : mPolyPrograms) {
+        if (range.timeOutControlIndex == opIndex) range.timeOutSeconds = value;
+        if (opIndex <= range.startIndex || opIndex >= range.endIndex) continue;
+        const int voiceIndex = opIndex - range.startIndex - 1;
+        for (Voice& voice : range.voices) {
+            Control* clone = dynamic_cast<Control*>(voice.list[voiceIndex].op.get());
+            assert(clone != nullptr);
+            clone->mValue = value;
+        }
+    }
 }
 
 #if 0 // test

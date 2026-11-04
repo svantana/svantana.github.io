@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <array>
 #include "Operator.h"
 
 namespace AudioVM {
@@ -66,7 +67,30 @@ private:
         int mMidiInId = -1;
     };
     Program mProgram;
-    std::vector<Program> mPolyPrograms;
+
+    // A polyphonic range shares the graph's global buffers but owns cloned
+    // operator state and output buffers for every voice.
+    struct Voice {
+        std::vector<Entry> list;
+        std::vector<float> mIoBuffer;
+        std::array<float, 3> mMidiValues{};
+        bool active = false;
+        int note = -1;
+        int releaseSamples = -1;
+        unsigned long long age = 0;
+    };
+    struct PolyRange {
+        int startIndex = -1;
+        int endIndex = -1;
+        float timeOutSeconds = -1.f;
+        int timeOutControlIndex = -1;
+        std::vector<Voice> voices;
+    };
+    std::vector<PolyRange> mPolyPrograms;
+    unsigned long long mVoiceAge = 0;
+
+    void resetVoice(Voice& voice);
+    void processPolyRange(PolyRange& range, int numSamples);
     
     struct Compiler {
         std::map<std::string, int> mIdToIndex;
