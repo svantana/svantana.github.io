@@ -18,7 +18,7 @@ oscMix = (osc + subOsc) * 0.2
 
 filterHz = (0.5 + envFilter) * (unitCutoff * 3e3 + 100)
 
-filterOut = vm.op("filterLP", {"input": oscMix, "frequency": filterHz, "resonance": unitRez})
-envOut = filterOut * envAmp
+filter = vm.op("filterLP", {"frequency": filterHz, "resonance": unitRez})(oscMix)
+envOut = filter * envAmp
 
 vm.op("audioOut", envOut)

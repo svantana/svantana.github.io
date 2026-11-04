@@ -9,12 +9,10 @@ release = 0.5
 
 mix = vm.op("buffer")
 with vm.poly(numVoices=8, timeOut=release):
-    env = vm.op("envADSR", {"gate": midi.gate, "a": 0.015, "d": 0.25, "s": 0.5, "r": release})
-    osc = vm.op("oscSaw", {"note": midi.note})
-    mix += osc * (env * 0.2)
+  env = vm.op("envADSR", {"gate": midi.gate, "a": 0.015, "d": 0.5, "s": 0.4, "r": release})
+  osc = vm.op("oscSaw", {"note": midi.note})
+  filterHz = (cutoff + env) ** 4 * 5000
+  filtered = vm.op("filterLP", {"input": osc, "frequency": filterHz, "resonance": resonance})
+  mix += filtered * (env * 0.2)
 
-# This filter sees the sum of all active voices.
-filterHz = cutoff ** 3 * 7000 + 120
-filtered = vm.op("filterLP", {"input": mix, "frequency": filterHz, "resonance": resonance})
-
-vm.op("audioOut", filtered)
+vm.op("audioOut", mix)

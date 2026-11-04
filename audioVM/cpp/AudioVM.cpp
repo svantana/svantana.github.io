@@ -456,7 +456,7 @@ public:
                 float dur = std::max(1e-9f, i[Decay].value());
                 mPhase = std::min((float)S, mPhase + dt / dur);
                 float p = mPhase - D;
-                mVal = (1-p) + p * sustain;
+                mVal = sustain + (1-sustain) * powf(1-p, 2);
                 break;
             }
             case S: {
@@ -466,7 +466,7 @@ public:
             case R: {
                 float dur = std::max(1e-9f, i[Release].value());
                 mPhase = mPhase + dt / dur;
-                mVal = mReleaseVal * (R+1 - mPhase);
+                mVal = mReleaseVal * powf(R+1 - mPhase, 2);
                 break;
             }
             default:

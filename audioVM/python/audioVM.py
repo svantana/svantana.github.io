@@ -54,6 +54,23 @@ class Operator:
             raise TypeError("AudioVM Operator only supports rounding to an integer")
         return self.round()
 
+    def __call__(self, input):
+        """Set the signal input of a mapping-style operator.
+
+        This permits a pipeline-like form, for example:
+        ``vm.op("filterLP", {"frequency": 1e3})(osc)``.
+        """
+        if not isinstance(self.input, dict):
+            raise TypeError("Only operators configured with a dictionary can accept an input")
+        if "input" in self.input:
+            raise TypeError("This operator already has an input")
+        if isinstance(input, Operator):
+            if input.vm is not self.vm:
+                raise ValueError("Cannot mix different DSP vms")
+            input = input.name
+        self.input["input"] = input
+        return self
+
 class Midi: # convenience class for midi inputs
     def __init__(self, vm):
         outs = ["channel", "gate", "note", "velocity", "pitchbend", "modwheel"]
