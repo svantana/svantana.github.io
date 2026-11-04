@@ -29,7 +29,7 @@
     #highlight { overflow:hidden; pointer-events:none; color:#d7e5dc; }
     #program { width:100%; resize:none; outline:0; overflow:auto; background:transparent; color:transparent; caret-color:#e8eaf0; -webkit-text-fill-color:transparent; }
     #program::selection { background:rgba(146,229,177,.32); }
-    .editor-toolbar { flex:none; min-height:58px; padding:10px 14px; display:flex; align-items:center; gap:10px; border-top:1px solid var(--border); background:var(--panel); }
+    .editor-toolbar { flex:none; height:69px; padding:10px 14px; display:flex; align-items:center; gap:10px; border-top:1px solid var(--border); background:var(--panel); }
     .editor-toolbar button, .editor-toolbar select { flex:none; white-space:nowrap; }
     #audio-stats { display:flex; align-items:center; gap:5px; min-height:30px; padding:0 7px; border:1px solid var(--border); border-radius:4px; background:#1b1e23; color:var(--muted); font:10px ui-monospace, monospace; white-space:nowrap; }
     #audio-stats[hidden] { display:none; }
@@ -46,14 +46,14 @@
     input[type=range] { width:100%; accent-color:var(--accent); }
     #error { display:none; margin:0; padding:9px 14px; background:#331d20; color:var(--danger); border-top:1px solid #67353a; font:12px/1.4 ui-monospace, monospace; white-space:pre-wrap; }
     #right-panel:focus { outline:2px solid var(--accent); outline-offset:-2px; }
-    .keyboard-panel { flex:none; padding:6px 14px 8px; border-top:1px solid var(--border); background:var(--panel); }
-    #piano { position:relative; height:66px; display:grid; border:1px solid #090a0c; border-radius:4px; overflow:visible; background:#e8e9e8; }
+    .keyboard-panel { flex:none; height:69px; padding:0; border-top:1px solid var(--border); background:var(--panel); }
+    #piano { position:relative; height:100%; display:grid; border:1px solid #090a0c; border-radius:4px; overflow:hidden; background:#e8e9e8; }
     .piano-key { touch-action:none; user-select:none; }
     .piano-key.white { position:relative; grid-row:1; min-width:0; border:0; border-right:1px solid #8e9394; border-radius:0; background:#f5f5f1; color:transparent; padding:0; font:10px ui-monospace, monospace; }
     .key-label { position:absolute; right:0; bottom:4px; left:0; text-align:center; }
     .octave-label { position:absolute; top:4px; right:0; left:0; font-size:9px; font-weight:700; text-align:center; }
     .piano-key.white:last-of-type { border-right:0; }
-    .piano-key.black { position:absolute; z-index:2; top:0; left:calc(var(--after) * (100% / var(--white-count)) - 7px); width:14px; height:39px; border:1px solid #050607; border-radius:0 0 4px 4px; background:#171a1e; color:transparent; padding:0 1px 4px; display:flex; align-items:end; justify-content:center; font:9px ui-monospace, monospace; }
+    .piano-key.black { position:absolute; z-index:2; top:0; left:0; width:14px; height:60%; border:1px solid #050607; border-radius:0 0 4px 4px; background:#171a1e; color:transparent; padding:0 1px 4px; display:flex; align-items:end; justify-content:center; font:9px ui-monospace, monospace; }
     #right-panel:focus-within .piano-key.white { color:#25282b; }
     #right-panel:focus-within .piano-key.black { color:#dfe4e9; }
     .piano-key:hover { border-color:var(--accent); }
@@ -65,7 +65,6 @@
 <body>
   <main>
     <section>
-      <div class="section-head"><strong>patch.py</strong><span>Ctrl / ⌘ + Enter to load</span></div>
       <div class="editor code">
         <div id="gutter" aria-hidden="true">1</div>
         <div class="code-stack">
@@ -85,10 +84,10 @@
       </div>
     </section>
     <section id="right-panel" tabindex="0" aria-label="AudioVM controls and piano keyboard">
-      <div class="section-head"><strong>Controls</strong><span id="control-count">0 controls</span></div>
+      <span id="control-count" hidden>0 controls</span>
       <div id="controls"><p class="empty">Load a patch to generate controls.</p></div>
       <pre id="error" role="alert"></pre>
-      <div class="keyboard-panel">
+      <div class="keyboard-panel" hidden>
         <div id="piano" role="group" aria-label="Piano keyboard"></div>
       </div>
     </section>
@@ -111,6 +110,7 @@
     const highlight = document.querySelector('#highlight');
     const gutter = document.querySelector('#gutter');
     const rightPanel = document.querySelector('#right-panel');
+    const keyboardPanel = document.querySelector('.keyboard-panel');
     const piano = document.querySelector('#piano');
     const keyboardSemitones = new Map(Object.entries({ a:0, w:1, s:2, e:3, d:4, f:5, t:6, g:7, y:8, h:9, u:10, j:11, k:12, o:13, l:14, p:15 }));
     let pianoKeys = new Map();
@@ -225,6 +225,16 @@
         row.append(label, output); wrapper.append(row, slider); controls.append(wrapper); set();
       });
     };
+    const containsMidiReference = value => {
+      if (typeof value === 'string') return value.startsWith('midi.');
+      if (Array.isArray(value)) return value.some(containsMidiReference);
+      return value && typeof value === 'object' && Object.values(value).some(containsMidiReference);
+    };
+    const updatePianoVisibility = graph => {
+      const usesMidi = graph.program.some(node => containsMidiReference(node.input));
+      keyboardPanel.hidden = !usesMidi;
+      if (!usesMidi) releaseAllNotes();
+    };
     const postToWorklet = (message, transfer = []) => new Promise((resolve, reject) => {
       const requestId = nextWorkletRequestId++;
       workletRequests.set(requestId, { resolve, reject });
@@ -286,8 +296,7 @@
       const firstC = 12 * baseOctave;
       const natural = [0, 2, 4, 5, 7, 9, 11];
       const labels = new Map([...keyboardSemitones].map(([key, semitone]) => [12 * (baseOctave + 1) + semitone, key]));
-      piano.style.gridTemplateColumns = `repeat(${whiteCount}, 1fr)`;
-      piano.style.setProperty('--white-count', whiteCount);
+      piano.style.gridTemplateColumns = `repeat(${whiteCount}, 24px)`;
       piano.replaceChildren(); pianoKeys = new Map();
       for (let index = 0; index < whiteCount; index++) {
         const midi = firstC + 12 * Math.floor(index / 7) + natural[index % 7];
@@ -301,7 +310,7 @@
         const next = firstC + 12 * Math.floor((index + 1) / 7) + natural[(index + 1) % 7];
         if (next - midi === 2) {
           const black = document.createElement('button'), blackMidi = midi + 1, blackKey = labels.get(blackMidi);
-          black.className = 'piano-key black'; black.style.setProperty('--after', index + 1); black.dataset.midi = blackMidi;
+          black.className = 'piano-key black'; black.style.left = `${(index + 1) * 24 - 7}px`; black.dataset.midi = blackMidi;
           black.setAttribute('aria-label', `MIDI ${blackMidi}${blackKey ? ', ' + blackKey.toUpperCase() + ' key' : ''}`);
           black.textContent = blackKey || ''; piano.append(black); pianoKeys.set(blackMidi, black);
         }
@@ -365,6 +374,7 @@
       );
     }
     rightPanel.addEventListener('keydown', event => {
+      if (keyboardPanel.hidden) return;
       const key = event.key.toLowerCase();
       if (key === 'z' || key === 'x') {
         event.preventDefault();
@@ -376,6 +386,7 @@
       sendNoteOn(`keyboard:${key}`, midiNoteForKey(key));
     });
     rightPanel.addEventListener('keyup', event => {
+      if (keyboardPanel.hidden) return;
       const key = event.key.toLowerCase();
       if (!keyboardSemitones.has(key)) return;
       event.preventDefault();
@@ -412,6 +423,7 @@
         stop();
         processor = true;
         renderControls(parsed);
+        updatePianoVisibility(parsed);
         playButton.disabled = false;
         status.textContent = 'Patch loaded';
       } catch (cause) {

@@ -2,8 +2,6 @@ import audioVM
 
 vm = audioVM.VM()
 midi = vm.midi()
-#noteWrap = midi.note % 12
-#gate0 = (noteWrap == 0)
 
 unitCutoff = vm.control("cutoff", 0.5)
 unitRez = vm.control("resonance", 0.5)
