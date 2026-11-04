@@ -1,6 +1,8 @@
 # audioVM.py - DSP vm builder
 # generates an audio processing program in python. inputs are either constants or references to earlier output buffers
 
+from contextlib import contextmanager
+
 class Operator:
     def __init__(self, vm, nodeType, name=None, input=None):
         self.vm = vm
@@ -115,6 +117,14 @@ class VM:
     def midi(self, numVoices=1):
         #self.op("midi", input={"polyphony": numVoices})
         return self.midiObj
+
+    @contextmanager
+    def poly(self, numVoices, timeOut=0):
+        self.op("polyStart", {"numVoices": numVoices, "timeOut": timeOut})
+        try:
+            yield
+        finally:
+            self.op("polyEnd")
     
     def get_json(self):
         s = '{\n\t"version": 1,\n\t"polyphony":'+str(self.polyphony)+',\n\t"program": [\n'
