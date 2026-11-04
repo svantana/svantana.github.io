@@ -9,7 +9,7 @@ release = 0.5
 
 mix = vm.op("buffer")
 with vm.poly(numVoices=8, timeOut=release):
-    env = vm.op("envADSR", {"gate": midi.gate, "a": 0.015, "d": 0.25, "s": 0.65, "r": release})
+    env = vm.op("envADSR", {"gate": midi.gate, "a": 0.015, "d": 0.25, "s": 0.5, "r": release})
     osc = vm.op("oscSaw", {"note": midi.note})
     mix += osc * (env * 0.2)
 

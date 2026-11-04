@@ -7,7 +7,7 @@
   <style>
     :root { color-scheme: dark; --bg:#111214; --panel:#191b1f; --border:#30343a; --text:#e8eaf0; --muted:#9299a5; --accent:#92e5b1; --danger:#ff8f8f; }
     * { box-sizing:border-box; }
-    body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); font:14px/1.4 ui-sans-serif, system-ui, sans-serif; }
+    body { margin:0; height:100vh; overflow:hidden; background:var(--bg); color:var(--text); font:14px/1.4 ui-sans-serif, system-ui, sans-serif; }
     #status { min-width:0; margin-left:auto; overflow:hidden; color:var(--muted); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
     button { border:1px solid var(--border); border-radius:5px; background:#282c32; color:var(--text); padding:7px 11px; font:inherit; cursor:pointer; }
     button:hover:not(:disabled) { border-color:var(--accent); }
@@ -15,8 +15,8 @@
     select { max-width:180px; border:1px solid var(--border); border-radius:5px; background:#282c32; color:var(--text); padding:7px 28px 7px 9px; font:inherit; }
     select:disabled { cursor:wait; opacity:.55; }
     #play.playing { background:var(--accent); color:#102116; border-color:var(--accent); }
-    main { display:grid; grid-template-columns:minmax(320px, 1.2fr) minmax(280px, .8fr); min-height:100vh; }
-    section { min-width:0; display:flex; flex-direction:column; }
+    main { display:grid; grid-template-columns:minmax(320px, 1.2fr) minmax(280px, .8fr); grid-template-rows:minmax(0, 1fr); height:100vh; overflow:hidden; }
+    section { min-width:0; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
     section + section { border-left:1px solid var(--border); }
     .section-head { display:flex; align-items:center; min-height:44px; padding:8px 14px; border-bottom:1px solid var(--border); background:var(--panel); }
     .section-head strong { font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
