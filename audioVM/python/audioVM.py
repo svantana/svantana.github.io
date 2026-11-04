@@ -20,16 +20,16 @@ class Operator:
 
     def __add__  (self, other): return self.vm.binary("add", self, other)
     def __radd__ (self, other): return self.vm.binary("add", other, self)
-    def __iadd__ (self, other): return self.vm.binary("add", self, other)
+    def __iadd__ (self, other): return self.vm.inplace("iadd", self, other)
     def __sub__  (self, other): return self.vm.binary("sub", self, other)
     def __rsub__ (self, other): return self.vm.binary("sub", other, self)
-    def __isub__ (self, other): return self.vm.binary("sub", self, other)
+    def __isub__ (self, other): return self.vm.inplace("isub", self, other)
     def __mul__  (self, other): return self.vm.binary("mul", self, other)
     def __rmul__ (self, other): return self.vm.binary("mul", other, self)
-    def __imul__ (self, other): return self.vm.binary("mul", self, other)
+    def __imul__ (self, other): return self.vm.inplace("imul", self, other)
     def __truediv__ (self, other): return self.vm.binary("div", self, other)
     def __rtruediv__(self, other): return self.vm.binary("div", other, self)
-    def __itruediv__(self, other): return self.vm.binary("div", self, other)
+    def __itruediv__(self, other): return self.vm.inplace("idiv", self, other)
     def __floordiv__(self, other): return self.vm.unary("floor", self.vm.binary("div", self, other))
     def __rfloordiv__(self, other): return self.vm.unary("floor", self.vm.binary("div", other, self))
     def __ifloordiv__(self, other): return self.vm.unary("floor", self.vm.binary("div", self, other))
@@ -96,6 +96,14 @@ class VM:
         a = self.as_op(a)
         b = self.as_op(b)
         return self.op(op, [a.name, b.name])
+
+    def inplace(self, op, target, value):
+        target = self.as_op(target)
+        value = self.as_op(value)
+        if target.type != "buffer":
+            raise TypeError("In-place operations are only supported for buffer operators")
+        self.op(op, [target.name, value.name])
+        return target
 
     def unary(self, op, a):
         a = self.as_op(a)

@@ -58,8 +58,15 @@ struct ConstOp : public BlockRateOp {
 
 // needed for feedback and sums
 struct BufferOperator : public FullRateOp {
-    int getNumPorts(Port::Dir dir) override { return Port::Out ? 1 : 0; }
-    void process(Buffer *i, Buffer *o, int N) override {}
+    int getNumPorts(Port::Dir dir) override { return (dir == Port::Out) ? 1 : 0; }
+    void process(Buffer *i, Buffer *o, int N) override {
+        for (int ch = 0; ch < o[0].numChannels; ++ch) {
+            float* dst = o[0].data(ch);
+            for (int n = 0; n < N; ++n) {
+                dst[n] = 0.f;
+            }
+        }
+    }
 };
 
 class ControlToAudio : public Operator {
@@ -97,6 +104,38 @@ struct BinaryOp : public Operator {
     int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? 2 : 1; }
 };
 
+struct Add { static float apply(float a, float b) { return a + b; } };
+struct Sub { static float apply(float a, float b) { return a - b; } };
+struct Mul { static float apply(float a, float b) { return a * b; } };
+struct Div { static float apply(float a, float b) { return a / b; } };
+struct Pow { static float apply(float a, float b) { return powf(a, b); } };
+struct Mod { static float apply(float a, float b) { return fmodf(a, b); } };
+struct Equal { static float apply(float a, float b) { return a == b ? 1.f : 0.f; } };
+struct NotEqual { static float apply(float a, float b) { return a != b ? 1.f : 0.f; } };
+struct Less { static float apply(float a, float b) { return a < b ? 1.f : 0.f; } };
+struct LessEqual { static float apply(float a, float b) { return a <= b ? 1.f : 0.f; } };
+struct Greater { static float apply(float a, float b) { return a > b ? 1.f : 0.f; } };
+struct GreaterEqual { static float apply(float a, float b) { return a >= b ? 1.f : 0.f; } };
+
+// Mutates an existing BufferOperator output. It has no output of its own: the
+// first input is the mutable target and the second is the incoming value.
+template <class Operation>
+class InplaceBinaryOp : public BinaryOp {
+public:
+    int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? 2 : 0; }
+    void process(Buffer *i, Buffer *o, int N) override {
+        assert(i[0].numSamples == i[1].numSamples);
+        const int channels = std::max(i[0].numChannels, i[1].numChannels);
+        for (int ch = 0; ch < channels; ++ch) {
+            float* dst = i[0].dataWrap(ch);
+            const float* src = i[1].dataWrap(ch);
+            for (int n = 0; n < N; ++n) {
+                dst[n] = Operation::apply(dst[n], src[n]);
+            }
+        }
+    }
+};
+
 template <class Operation>
 class MathBinary : public BinaryOp {
 protected:
@@ -115,19 +154,6 @@ protected:
         }
     }
 };
-
-struct Add { static float apply(float a, float b) { return a + b; } };
-struct Sub { static float apply(float a, float b) { return a - b; } };
-struct Mul { static float apply(float a, float b) { return a * b; } };
-struct Div { static float apply(float a, float b) { return a / b; } };
-struct Pow { static float apply(float a, float b) { return powf(a, b); } };
-struct Mod { static float apply(float a, float b) { return fmodf(a, b); } };
-struct Equal { static float apply(float a, float b) { return a == b ? 1.f : 0.f; } };
-struct NotEqual { static float apply(float a, float b) { return a != b ? 1.f : 0.f; } };
-struct Less { static float apply(float a, float b) { return a < b ? 1.f : 0.f; } };
-struct LessEqual { static float apply(float a, float b) { return a <= b ? 1.f : 0.f; } };
-struct Greater { static float apply(float a, float b) { return a > b ? 1.f : 0.f; } };
-struct GreaterEqual { static float apply(float a, float b) { return a >= b ? 1.f : 0.f; } };
 
 class MathExp : public UnaryOp {
 public:
@@ -520,6 +546,10 @@ Processor::Processor()
     registerType("control", [] { return std::make_unique<Control>(); });
     registerType("const", [] { return std::make_unique<ConstOp>(); });
     registerType("buffer", [] { return std::make_unique<BufferOperator>(); });
+    registerType("iadd", [] { return std::make_unique<InplaceBinaryOp<Add>>(); });
+    registerType("isub", [] { return std::make_unique<InplaceBinaryOp<Sub>>(); });
+    registerType("imul", [] { return std::make_unique<InplaceBinaryOp<Mul>>(); });
+    registerType("idiv", [] { return std::make_unique<InplaceBinaryOp<Div>>(); });
     registerType("toAudio", [] { return std::make_unique<ControlToAudio>(); });
     // math functions
     registerType("exp", [] { return std::make_unique<MathExp>(); });
