@@ -38,6 +38,14 @@
     .token-keyword { color:#c99bff; } .token-string { color:#9ee6b4; } .token-number { color:#f2c17d; }
     .token-comment { color:#737b87; font-style:italic; } .token-builtin { color:#82caff; } .token-function { color:#ffb7cf; }
     #controls { flex:1; padding:12px 14px 28px; overflow:auto; }
+    #analysis-panel { flex:none; height:164px; display:flex; border-top:1px solid var(--border); background:#111317; }
+    #analysis-canvas { flex:1; min-width:0; height:100%; }
+    #analysis-toggles { display:flex; flex:0 0 92px; flex-direction:column; justify-content:center; gap:7px; padding:9px; border-left:1px solid var(--border); color:var(--muted); font-size:11px; }
+    #analysis-toggles label { display:flex; align-items:center; gap:5px; cursor:pointer; }
+    #analysis-toggles label[hidden] { display:none; }
+    #analysis-toggles input { margin:0; accent-color:var(--accent); }
+    #analysis-toggles select { width:100%; padding:4px 20px 4px 6px; font-size:11px; }
+    #analysis-toggles select[hidden] { display:none; }
     #audio-input-bar { flex:none; min-height:58px; padding:10px 14px; display:flex; align-items:center; gap:10px; border-bottom:1px solid var(--border); background:var(--panel); }
     #audio-input-bar[hidden] { display:none; }
     #audio-input-bar label { color:var(--muted); font-size:12px; }
@@ -107,6 +115,20 @@
       </div>
       <div id="controls"><p class="empty">Load a patch to generate controls.</p></div>
       <pre id="error" role="alert"></pre>
+      <div id="analysis-panel">
+        <canvas id="analysis-canvas" aria-label="Audio oscilloscope and spectrum display"></canvas>
+        <div id="analysis-toggles" aria-label="Analysis display options">
+          <label id="show-input-toggle" hidden><input id="show-input" type="checkbox" checked>Input</label>
+          <label><input id="show-output" type="checkbox" checked>Output</label>
+          <label><input id="show-oscilloscope" type="checkbox" checked>Osc</label>
+          <label><input id="show-spectrum" type="checkbox" checked>Spectrum</label>
+          <select id="spectrum-frequency-scale" aria-label="Spectrum frequency scale">
+            <option value="linear">Linear</option>
+            <option value="log">Log</option>
+            <option id="spectrum-scale-piano" value="piano" disabled>Piano</option>
+          </select>
+        </div>
+      </div>
       <div class="keyboard-panel" hidden>
         <div id="piano" role="group" aria-label="Piano keyboard"></div>
       </div>
@@ -134,10 +156,21 @@
     const audioInputSource = document.querySelector('#audio-input-source');
     const audioInputVolume = document.querySelector('#audio-input-volume');
     const audioInputToggle = document.querySelector('#audio-input-toggle');
+    const analysisCanvas = document.querySelector('#analysis-canvas');
+    const showInput = document.querySelector('#show-input');
+    const showInputToggle = document.querySelector('#show-input-toggle');
+    const showOutput = document.querySelector('#show-output');
+    const showOscilloscope = document.querySelector('#show-oscilloscope');
+    const showSpectrum = document.querySelector('#show-spectrum');
+    const spectrumFrequencyScale = document.querySelector('#spectrum-frequency-scale');
+    const pianoSpectrumScale = document.querySelector('#spectrum-scale-piano');
     const keyboardPanel = document.querySelector('.keyboard-panel');
     const piano = document.querySelector('#piano');
     const keyboardSemitones = new Map(Object.entries({ a:0, w:1, s:2, e:3, d:4, f:5, t:6, g:7, y:8, h:9, u:10, j:11, k:12, o:13, l:14, p:15 }));
     let pianoKeys = new Map();
+    let pianoFrequencyStops = [];
+    let pianoSpectrumStart = 0;
+    let pianoSpectrumSpan = 1;
     editor.value = starterPatch;
 
     const keywords = new Set(['and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'if', 'import', 'in', 'is', 'lambda', 'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield']);
@@ -185,6 +218,8 @@
     let audioConnected = false;
     let inputSource;
     let inputGain;
+    let inputAnalyser;
+    let outputAnalyser;
     let inputVolume = 0.5;
     let workletModuleReady;
     let nextWorkletRequestId = 1;
@@ -296,12 +331,16 @@
     const updatePianoVisibility = graph => {
       const usesMidi = graph.program.some(node => containsMidiReference(node.input));
       keyboardPanel.hidden = !usesMidi;
+      pianoSpectrumScale.disabled = !usesMidi;
+      if (!usesMidi && spectrumFrequencyScale.value === 'piano') spectrumFrequencyScale.value = 'log';
+      if (usesMidi) requestAnimationFrame(renderPiano);
       if (!usesMidi) releaseAllNotes();
     };
     const updateAudioInputVisibility = graph => {
       const usesAudioInput = graph.program.some(node => node.type === 'audioIn');
       audioInputBar.hidden = !usesAudioInput;
       audioInputToggle.disabled = !usesAudioInput;
+      showInputToggle.hidden = !usesAudioInput;
       if (!usesAudioInput) stopInputSource();
     };
     const postToWorklet = (message, transfer = []) => new Promise((resolve, reject) => {
@@ -323,6 +362,12 @@
         channelCountMode: 'explicit',
         outputChannelCount: [outputChannels],
       });
+      inputAnalyser = audioContext.createAnalyser();
+      outputAnalyser = audioContext.createAnalyser();
+      inputAnalyser.fftSize = outputAnalyser.fftSize = 4096;
+      inputAnalyser.smoothingTimeConstant = outputAnalyser.smoothingTimeConstant = 0.75;
+      inputAnalyser.connect(audioNode);
+      audioNode.connect(outputAnalyser);
       audioNode.port.onmessage = event => {
         const message = event.data;
         if (message.type === 'status') {
@@ -343,7 +388,7 @@
       };
     };
     const stop = () => {
-      if (audioNode && audioConnected) { audioNode.disconnect(); audioConnected = false; }
+      if (outputAnalyser && audioConnected) { outputAnalyser.disconnect(); audioConnected = false; }
       if (audioContext) audioContext.suspend();
       audioStats.hidden = true;
       playButton.textContent = 'Play'; playButton.classList.remove('playing');
@@ -351,7 +396,7 @@
     const start = async () => {
       if (!processor || !audioNode) return;
       if (!audioConnected) {
-        audioNode.connect(audioContext.destination);
+        outputAnalyser.connect(audioContext.destination);
         audioConnected = true;
       }
       await audioContext.resume();
@@ -362,6 +407,21 @@
     };
     const midiNoteForKey = key => 12 * (baseOctave + 1) + keyboardSemitones.get(key);
     const updatePianoKey = midi => pianoKeys.get(midi)?.classList.toggle('active', [...activeMidiSources.values()].includes(midi));
+    function updatePianoFrequencyStops() {
+      const pianoRect = piano.getBoundingClientRect();
+      if (!pianoRect.width) return;
+      const analysisRect = analysisCanvas.getBoundingClientRect();
+      pianoSpectrumStart = (analysisRect.left - pianoRect.left) / pianoRect.width;
+      pianoSpectrumSpan = analysisRect.width / pianoRect.width;
+      pianoFrequencyStops = [...pianoKeys.entries()].map(([midi, key]) => {
+        const keyRect = key.getBoundingClientRect();
+        return {
+          midi,
+          position: (keyRect.left + keyRect.width / 2 - pianoRect.left) / pianoRect.width,
+          frequency: 440 * Math.pow(2, (midi - 69) / 12),
+        };
+      }).sort((a, b) => a.position - b.position);
+    }
     const renderPiano = () => {
       const whiteCount = Math.max(17, Math.ceil(piano.clientWidth / 24));
       const firstC = 12 * baseOctave;
@@ -386,6 +446,7 @@
           black.textContent = blackKey || ''; piano.append(black); pianoKeys.set(blackMidi, black);
         }
       }
+      updatePianoFrequencyStops();
     };
     const transposeOctave = amount => {
       const next = Math.max(0, Math.min(8, baseOctave + amount));
@@ -419,6 +480,109 @@
     const updateInputVolume = () => {
       if (inputGain && audioContext) inputGain.gain.setTargetAtTime(inputVolume, audioContext.currentTime, 0.01);
     };
+    const analysisContext = analysisCanvas.getContext('2d');
+    const analysisData = {
+      inputTime: new Float32Array(0), outputTime: new Float32Array(0),
+      inputSpectrum: new Float32Array(0), outputSpectrum: new Float32Array(0),
+    };
+    const resizeAnalysisCanvas = () => {
+      const rect = analysisCanvas.getBoundingClientRect();
+      const scale = window.devicePixelRatio || 1;
+      analysisCanvas.width = Math.max(1, Math.round(rect.width * scale));
+      analysisCanvas.height = Math.max(1, Math.round(rect.height * scale));
+      analysisContext.setTransform(scale, 0, 0, scale, 0, 0);
+      updatePianoFrequencyStops();
+    };
+    const readAnalysisData = (analyser, timeKey, spectrumKey) => {
+      if (!analyser) return;
+      if (analysisData[timeKey].length !== analyser.fftSize) analysisData[timeKey] = new Float32Array(analyser.fftSize);
+      if (analysisData[spectrumKey].length !== analyser.frequencyBinCount) analysisData[spectrumKey] = new Float32Array(analyser.frequencyBinCount);
+      analyser.getFloatTimeDomainData(analysisData[timeKey]);
+      analyser.getFloatFrequencyData(analysisData[spectrumKey]);
+    };
+    const findRisingZeroCrossing = data => {
+      let crossing = -1, distance = Infinity;
+      const middle = data.length / 2;
+      for (let index = 0; index < data.length - 1; index++) {
+        if (data[index] <= 0 && data[index + 1] > 0 && Math.abs(index - middle) < distance) {
+          crossing = index;
+          distance = Math.abs(index - middle);
+        }
+      }
+      return crossing;
+    };
+    const spectrumBinAt = (position, binCount) => {
+      const nyquist = audioContext ? audioContext.sampleRate / 2 : 24000;
+      if (spectrumFrequencyScale.value === 'linear') return Math.floor(position * (binCount - 1));
+      let frequency;
+      if (spectrumFrequencyScale.value === 'piano' && pianoFrequencyStops.length > 1) {
+        const target = pianoSpectrumStart + position * pianoSpectrumSpan;
+        let right = pianoFrequencyStops.findIndex(stop => stop.position >= target);
+        if (right < 0) right = pianoFrequencyStops.length - 1;
+        const left = Math.max(0, right - 1);
+        const a = pianoFrequencyStops[left], b = pianoFrequencyStops[right];
+        const mix = a === b ? 0 : (target - a.position) / (b.position - a.position);
+        frequency = a.frequency * Math.pow(b.frequency / a.frequency, Math.max(0, Math.min(1, mix)));
+      } else {
+        frequency = 20 * Math.pow(nyquist / 20, position);
+      }
+      return Math.max(0, Math.min(binCount - 1, Math.floor(frequency / nyquist * binCount)));
+    };
+    const drawSpectrum = (data, color, width, height) => {
+      const floor = -96;
+      analysisContext.beginPath();
+      analysisContext.moveTo(0, height);
+      for (let x = 0; x <= width; x++) {
+        const index = spectrumBinAt(x / width, data.length);
+        const amount = Math.max(0, Math.min(1, (data[index] - floor) / -floor));
+        analysisContext.lineTo(x, height - amount * height);
+      }
+      analysisContext.lineTo(width, height);
+      analysisContext.closePath();
+      analysisContext.fillStyle = color;
+      analysisContext.fill();
+    };
+    const drawWaveform = (data, color, anchor, width, height) => {
+      const crossing = findRisingZeroCrossing(anchor) >= 0 ? findRisingZeroCrossing(anchor) : Math.floor(data.length / 2);
+      const start = crossing - Math.floor(data.length / 2);
+      analysisContext.beginPath();
+      for (let x = 0; x <= width; x++) {
+        const index = (start + Math.floor(x / width * data.length) + data.length) % data.length;
+        const y = height / 2 - Math.max(-1, Math.min(1, data[index])) * height * 0.45;
+        x ? analysisContext.lineTo(x, y) : analysisContext.moveTo(x, y);
+      }
+      analysisContext.strokeStyle = color;
+      analysisContext.lineWidth = 1.5;
+      analysisContext.stroke();
+    };
+    const drawAnalysis = () => {
+      requestAnimationFrame(drawAnalysis);
+      const { width, height } = analysisCanvas.getBoundingClientRect();
+      if (!width || !height) return;
+      readAnalysisData(inputAnalyser, 'inputTime', 'inputSpectrum');
+      readAnalysisData(outputAnalyser, 'outputTime', 'outputSpectrum');
+      analysisContext.clearRect(0, 0, width, height);
+      analysisContext.fillStyle = '#111317';
+      analysisContext.fillRect(0, 0, width, height);
+      analysisContext.strokeStyle = 'rgba(255,255,255,.12)';
+      analysisContext.lineWidth = 1;
+      analysisContext.beginPath(); analysisContext.moveTo(0, height / 2); analysisContext.lineTo(width, height / 2); analysisContext.stroke();
+      if (showSpectrum.checked) {
+        if (showInput.checked && analysisData.inputSpectrum.length) drawSpectrum(analysisData.inputSpectrum, 'rgba(78, 159, 255, .34)', width, height);
+        if (showOutput.checked && analysisData.outputSpectrum.length) drawSpectrum(analysisData.outputSpectrum, 'rgba(255, 102, 108, .34)', width, height);
+      }
+      if (showOscilloscope.checked) {
+        const anchor = showOutput.checked && analysisData.outputTime.length ? analysisData.outputTime : analysisData.inputTime;
+        if (showInput.checked && analysisData.inputTime.length) drawWaveform(analysisData.inputTime, '#4e9fff', anchor, width, height);
+        if (showOutput.checked && analysisData.outputTime.length) drawWaveform(analysisData.outputTime, '#ff666c', anchor, width, height);
+      }
+    };
+    new ResizeObserver(resizeAnalysisCanvas).observe(analysisCanvas);
+    resizeAnalysisCanvas();
+    requestAnimationFrame(drawAnalysis);
+    showSpectrum.addEventListener('change', () => {
+      spectrumFrequencyScale.hidden = !showSpectrum.checked;
+    });
     const makeInputBuffer = () => {
       const frames = audioContext.sampleRate;
       const buffer = audioContext.createBuffer(1, frames, audioContext.sampleRate);
@@ -449,7 +613,7 @@
       stopInputSource();
       if (!inputGain) {
         inputGain = audioContext.createGain();
-        inputGain.connect(audioNode);
+        inputGain.connect(inputAnalyser);
       }
       updateInputVolume();
       inputSource = audioContext.createBufferSource();
