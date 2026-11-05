@@ -8,6 +8,7 @@ unitPitch = vm.control("pitch", 0.5)
 unitLength = vm.control("length", 0.3)
 
 mix = vm.op("buffer")
+noise = vm.op("oscNoise")
 
 # bass
 gate = midi.gate * (noteOct==0)
@@ -20,15 +21,19 @@ mix += sin * envA
 gate = midi.gate * (noteOct==2)
 envA = vm.op("envExp", {"gate": gate, "decay": (.01 + 0.5 * unitLength)})
 sin  = vm.op("oscSin", {"frequency": 100 + 200 * unitPitch})
-noi = vm.op("oscNoise")
-noiBP = vm.op("filterBP", {"frequency": 3e3, "resonance": 0.5})(noi)
-mix += (sin + noi) * (envA * 0.5)
+noiBP = vm.op("filterBP", {"frequency": 3e3, "resonance": 0.5})(noise)
+mix += (sin + noiBP) * (envA * 0.5)
 
 # clap
 gate = midi.gate * (noteOct==3)
 envA = vm.op("envExp", {"gate": gate, "decay": (.01 + 0.3 * unitLength), "repeats": 3, "repeatTime": 0.025})
-noi = vm.op("oscNoise")
-noiBP = vm.op("filterBP", {"input":noi, "frequency": 1e3 + 1e3 * unitPitch, "resonance": 0.7})
+noiBP = vm.op("filterBP", {"frequency": 1e3 + 1e3 * unitPitch, "resonance": 0.7})(noise)
 mix += noiBP * envA
+
+# hihat
+gate = midi.gate * (noteOct==6)
+envA = vm.op("envExp", {"gate": gate, "decay": (.01 + 0.1 * unitLength)})
+noiBP = vm.op("filterHP", {"frequency": 5e3 + 9e3 * unitPitch, "resonance": 0.3})(noise)
+mix += noiBP * (envA * 0.5)
 
 vm.op("audioOut", mix)

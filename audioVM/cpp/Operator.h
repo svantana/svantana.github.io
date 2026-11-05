@@ -3,6 +3,7 @@
 #include <vector>
 
 namespace AudioVM {
+    typedef const char* cStr;
     struct Buffer {
         Buffer(float *aPtr = nullptr, int aNumSamples = 1, int aNumChannels = 1) {
             ptr = aPtr; numSamples = aNumSamples; numChannels = aNumChannels;
