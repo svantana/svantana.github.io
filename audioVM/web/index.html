@@ -37,7 +37,7 @@
     #audio-format { padding-left:5px; border-left:1px solid var(--border); }
     .token-keyword { color:#c99bff; } .token-string { color:#9ee6b4; } .token-number { color:#f2c17d; }
     .token-comment { color:#737b87; font-style:italic; } .token-builtin { color:#82caff; } .token-function { color:#ffb7cf; }
-    #controls { flex:1; padding:12px 14px 28px; overflow:auto; }
+    #controls { flex:1; min-height:0; display:grid; grid-template-columns:repeat(auto-fit, minmax(112px, 1fr)); align-content:start; gap:10px; padding:12px 14px 28px; overflow:auto; }
     #analysis-panel { flex:none; height:164px; display:flex; border-top:1px solid var(--border); background:#111317; }
     #analysis-canvas { flex:1; min-width:0; height:100%; }
     #analysis-toggles { display:flex; flex:0 0 92px; flex-direction:column; justify-content:center; gap:7px; padding:9px; border-left:1px solid var(--border); color:var(--muted); font-size:11px; }
@@ -55,10 +55,11 @@
     .knob:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
     .control .knob { margin:0 auto; }
     .empty { color:var(--muted); margin:8px 0; }
-    .control { padding:13px 0 15px; border-bottom:1px solid var(--border); }
-    .control-row { display:flex; gap:12px; align-items:baseline; margin-bottom:8px; }
-    .control label { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    #controls .empty { grid-column:1 / -1; }
+    .control { min-width:0; min-height:118px; display:grid; grid-template-rows:auto 1fr auto; place-items:center; gap:7px; padding:10px; border:1px solid var(--border); border-radius:5px; background:#17191d; }
+    .control label { max-width:100%; font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     output { margin-left:auto; color:var(--accent); font:12px ui-monospace, monospace; }
+    .control output { margin:0; }
     input[type=range] { width:100%; accent-color:var(--accent); }
     #error { display:none; margin:0; padding:9px 14px; background:#331d20; color:var(--danger); border-top:1px solid #67353a; font:12px/1.4 ui-monospace, monospace; white-space:pre-wrap; }
     #right-panel:focus { outline:2px solid var(--accent); outline-offset:-2px; }
@@ -308,8 +309,6 @@
         const [min, max, step] = sliderOptions(node.id, value);
         const wrapper = document.createElement('div');
         wrapper.className = 'control';
-        const row = document.createElement('div');
-        row.className = 'control-row';
         const label = document.createElement('label');
         label.htmlFor = `control-${index}`;
         label.textContent = node.id;
@@ -320,7 +319,7 @@
           output.textContent = output.value;
         };
         const knob = createKnob({ value, min, max, step, label: node.id, onInput: set });
-        row.append(label, output); wrapper.append(row, knob.element); controls.append(wrapper); set(value);
+        wrapper.append(label, knob.element, output); controls.append(wrapper); set(value);
       });
     };
     const containsMidiReference = value => {

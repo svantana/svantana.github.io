@@ -38,6 +38,7 @@ class Operator:
     def __mod__  (self, other): return self.vm.binary("mod", self, other)
     def __imod__ (self, other): return self.vm.binary("mod", self, other)
     def __pow__  (self, other): return self.vm.binary("pow", self, other)
+    def __rpow__ (self, other): return self.vm.binary("pow", other, self)
     def __ipow__ (self, other): return self.vm.binary("pow", self, other)
     def __eq__   (self, other): return self.vm.binary("equal", self, other)
     def __ne__   (self, other): return self.vm.binary("notEqual", self, other)
@@ -71,6 +72,41 @@ class Operator:
         self.input["input"] = input
         return self
 
+class Delay:
+    """A compiler-linked delay read/write pair.
+
+    The delay line is intentionally not an ordinary signal graph edge: the
+    read happens earlier in the program and the write commits the next block
+    into the same state.  ``maxSeconds`` is fixed at compile time so no audio
+    thread allocation is necessary.
+    """
+    def __init__(self, vm, maxSeconds, name):
+        if not isinstance(maxSeconds, (int, float)) or maxSeconds <= 0:
+            raise ValueError("Delay maxSeconds must be a positive number")
+        self.vm = vm
+        self.maxSeconds = maxSeconds
+        self.name = name
+        self._read = None
+        self._written = False
+
+    def read(self, time):
+        if self._read is not None:
+            raise TypeError("A delay may only have one read endpoint; reuse its output")
+        self._read = self.vm.op("delayRead", {
+            "time": time,
+            "maxSeconds": self.maxSeconds,
+        }, id=self.name + ".read")
+        return self._read
+
+    def write(self, input):
+        if self._read is None:
+            raise TypeError("Call delay.read() before delay.write()")
+        if self._written:
+            raise TypeError("A delay may only have one write endpoint")
+        self._written = True
+        return self.vm.op("delayWrite", {"delay": self._read, "input": input},
+                          id=self.name + ".write")
+
 class Midi: # convenience class for midi inputs
     def __init__(self, vm):
         outs = ["channel", "gate", "note", "velocity", "pitchbend", "modwheel"]
@@ -97,6 +133,15 @@ class VM:
 
     def control(self, name, value=0):
         return self.op("control", id=name, input=value)
+
+    def delay(self, maxSeconds, id=None):
+        """Create a feedback delay handle; call read() before write()."""
+        if id is None:
+            if "delay" not in self.typeCounts:
+                self.typeCounts["delay"] = 0
+            self.typeCounts["delay"] += 1
+            id = "delay" + str(self.typeCounts["delay"])
+        return Delay(self, maxSeconds, id)
 
     def as_op(self, value):
         if isinstance(value, Operator):

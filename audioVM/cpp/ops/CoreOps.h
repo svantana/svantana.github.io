@@ -1,5 +1,9 @@
 #pragma once
 
+#include <algorithm>
+#include <cmath>
+#include <memory>
+#include <stdexcept>
 #include "../Operator.h"
 
 using namespace AudioVM;
@@ -64,6 +68,106 @@ struct BufferOperator : public FullRateOp {
             }
         }
     }
+};
+
+// A delay is deliberately split in two: DelayRead owns the circular-buffer
+// state and DelayWrite receives a compiler-linked reference to it.  This
+// makes feedback explicit in the linear execution order without introducing
+// a graph cycle.  The reader must run before the writer.
+struct DelayLineState {
+    std::vector<float> samples;
+    size_t writeHead = 0;
+
+    void reset() {
+        std::fill(samples.begin(), samples.end(), 0.f);
+        writeHead = 0;
+    }
+};
+
+class DelayRead : public Operator {
+public:
+    enum In { TimeSeconds, MaxSeconds, NumInputs };
+    enum Out { Output, NumOutputs };
+
+    DelayRead() : mState(std::make_shared<DelayLineState>()) {}
+
+    int getNumPorts(Port::Dir dir) override {
+        return dir == Port::In ? NumInputs : NumOutputs;
+    }
+    std::string getPortName(Port::Dir dir, int index) override {
+        static const cStr inputs[] = {"time", "maxSeconds"};
+        static const cStr outputs[] = {"output"};
+        return dir == Port::In ? inputs[index] : outputs[index];
+    }
+    Port::Rate getPortRate(Port::Dir dir, int index) override {
+        return dir == Port::Out ? Port::Full : Port::Block;
+    }
+
+    // Called only by the compiler, before audio processing starts.
+    void configure(float maxSeconds) {
+        if (!std::isfinite(maxSeconds) || maxSeconds <= 0.f) {
+            throw std::runtime_error("delayRead maxSeconds must be positive and finite");
+        }
+        mMaxSamples = std::max(1, static_cast<int>(std::ceil(maxSeconds * mSamplerate)));
+        // One extra location makes a delay equal to maxSeconds addressable.
+        mState->samples.assign(static_cast<size_t>(mMaxSamples) + 1, 0.f);
+        mState->writeHead = 0;
+    }
+    float maxSeconds() const { return static_cast<float>(mMaxSamples) / mSamplerate; }
+    std::shared_ptr<DelayLineState> state() const { return mState; }
+
+    void process(Buffer* in, Buffer* out, int N) override {
+        if (mState->samples.empty()) {
+            throw std::runtime_error("delayRead was not configured");
+        }
+        const int requestedSamples = static_cast<int>(std::lround(in[TimeSeconds].value() * mSamplerate));
+        // Block-wise feedback is only well-defined when this block cannot
+        // read data that its paired writer will produce later in the block.
+        const int delaySamples = std::clamp(requestedSamples, N, mMaxSamples);
+        const size_t size = mState->samples.size();
+        const size_t start = (mState->writeHead + size - static_cast<size_t>(delaySamples)) % size;
+        float* dst = out[Output].data();
+        for (int n = 0; n < N; ++n) {
+            dst[n] = mState->samples[(start + static_cast<size_t>(n)) % size];
+        }
+    }
+    void reset() override { mState->reset(); }
+
+private:
+    std::shared_ptr<DelayLineState> mState;
+    int mMaxSamples = 0;
+};
+
+class DelayWrite : public Operator {
+public:
+    // Delay is a compile-time link to DelayRead.  Its buffer is unused at
+    // runtime; Input contains the audio that will be committed to the line.
+    enum In { Delay, Input, NumInputs };
+
+    int getNumPorts(Port::Dir dir) override { return dir == Port::In ? NumInputs : 0; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        static const cStr inputs[] = {"delay", "input"};
+        return dir == Port::In ? inputs[index] : "";
+    }
+    Port::Rate getPortRate(Port::Dir dir, int index) override {
+        return index == Input ? Port::Full : Port::Keep;
+    }
+
+    void link(std::shared_ptr<DelayLineState> state) { mState = std::move(state); }
+    void process(Buffer* in, Buffer*, int N) override {
+        if (!mState || mState->samples.empty()) {
+            throw std::runtime_error("delayWrite is not linked to a delayRead");
+        }
+        const size_t size = mState->samples.size();
+        const float* src = in[Input].data();
+        for (int n = 0; n < N; ++n) {
+            mState->samples[mState->writeHead] = src[n];
+            mState->writeHead = (mState->writeHead + 1) % size;
+        }
+    }
+
+private:
+    std::shared_ptr<DelayLineState> mState;
 };
 
 class ControlToAudio : public Operator {

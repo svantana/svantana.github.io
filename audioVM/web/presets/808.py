@@ -12,10 +12,10 @@ noise = vm.op("oscNoise")
 
 # bass
 gate = midi.gate * (noteOct==0)
-envF = vm.op("envExp", {"gate": gate, "decay": 0.02})
+envF = vm.op("envExp", {"gate": gate, "decay": 0.05})
 envA = vm.op("envExp", {"gate": gate, "decay": (.01 + unitLength)})
-sin  = vm.op("oscSin", {"frequency": (50 + 100 * envF) * (.5 + unitPitch)})
-mix += sin * envA
+sin  = vm.op("oscSin", {"frequency": (60 + 100 * envF) * (.5 + unitPitch)})
+mix += sin * (envA * 0.7)
 
 # snare
 gate = midi.gate * (noteOct==2)

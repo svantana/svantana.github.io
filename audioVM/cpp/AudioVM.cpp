@@ -23,6 +23,8 @@ Processor::Processor()
     registerType("control", [] { return std::make_unique<Control>(); });
     registerType("const", [] { return std::make_unique<ConstOp>(); });
     registerType("buffer", [] { return std::make_unique<BufferOperator>(); });
+    registerType("delayRead", [] { return std::make_unique<DelayRead>(); });
+    registerType("delayWrite", [] { return std::make_unique<DelayWrite>(); });
     registerType("iadd", [] { return std::make_unique<InplaceBinaryOp<Add>>(); });
     registerType("isub", [] { return std::make_unique<InplaceBinaryOp<Sub>>(); });
     registerType("imul", [] { return std::make_unique<InplaceBinaryOp<Mul>>(); });
@@ -203,6 +205,29 @@ bool Processor::compileProgram() {
         }
     }
 
+    // Delay capacity is structural rather than a DSP input: it must be known
+    // before processing starts so delay lines never allocate on the audio
+    // thread.  Keep it as a regular constant input in JSON so the builder
+    // does not need a second property syntax.
+    for (Entry& entry : mProgram.list) {
+        auto* delay = dynamic_cast<DelayRead*>(entry.op.get());
+        if (delay == nullptr) continue;
+        if (entry.mInputIds.size() <= DelayRead::MaxSeconds ||
+            entry.mInputIds[DelayRead::MaxSeconds] < 0) {
+            throw std::runtime_error("delayRead requires a constant maxSeconds input");
+        }
+        const int maxSourceId = entry.mInputIds[DelayRead::MaxSeconds];
+        const Entry& maxSource = mProgram.list[maxSourceId / OpSpacing];
+        const auto* maxSeconds = dynamic_cast<const ConstOp*>(maxSource.op.get());
+        if (maxSeconds == nullptr) {
+            throw std::runtime_error("delayRead maxSeconds must be a constant");
+        }
+        delay->configure(maxSeconds->mValue);
+        if (delay->maxSeconds() * mSamplerate < static_cast<float>(mBlockSize)) {
+            throw std::runtime_error("delayRead maxSeconds must be at least one processing block");
+        }
+    }
+
     mPolyPrograms.clear();
     mVoiceAge = 0;
     int polyStartCount = 0;
@@ -268,6 +293,42 @@ bool Processor::compileProgram() {
         throw std::runtime_error("polyStart has no matching polyEnd");
     }
 
+    // Bind write endpoints to the state owned by their read endpoint.  A
+    // feedback pair must live in one scope: allowing a polyphonic writer to
+    // mutate a global reader would make voices share delay memory.
+    const auto rangeForIndex = [&](int index) {
+        for (int rangeIndex = 0; rangeIndex < static_cast<int>(mPolyPrograms.size()); ++rangeIndex) {
+            const PolyRange& range = mPolyPrograms[rangeIndex];
+            if (index > range.startIndex && index < range.endIndex) return rangeIndex;
+        }
+        return -1;
+    };
+    std::map<int, int> delayWriterCounts;
+    for (int index = 0; index < static_cast<int>(mProgram.list.size()); ++index) {
+        Entry& entry = mProgram.list[index];
+        auto* writer = dynamic_cast<DelayWrite*>(entry.op.get());
+        if (writer == nullptr) continue;
+        if (entry.mInputIds.size() <= DelayWrite::Delay || entry.mInputIds[DelayWrite::Delay] < 0 ||
+            entry.mInputIds.size() <= DelayWrite::Input || entry.mInputIds[DelayWrite::Input] < 0) {
+            throw std::runtime_error("delayWrite requires delay and input arguments");
+        }
+        const int readIndex = entry.mInputIds[DelayWrite::Delay] / OpSpacing;
+        if (readIndex >= index || readIndex < 0 || readIndex >= static_cast<int>(mProgram.list.size())) {
+            throw std::runtime_error("delayWrite must refer to an earlier delayRead");
+        }
+        auto* reader = dynamic_cast<DelayRead*>(mProgram.list[readIndex].op.get());
+        if (reader == nullptr) {
+            throw std::runtime_error("delayWrite delay argument must refer to a delayRead");
+        }
+        if (rangeForIndex(readIndex) != rangeForIndex(index)) {
+            throw std::runtime_error("delayRead and delayWrite must be in the same polyphonic scope");
+        }
+        if (++delayWriterCounts[readIndex] != 1) {
+            throw std::runtime_error("a delayRead may have only one delayWrite");
+        }
+        if (rangeForIndex(index) < 0) writer->link(reader->state());
+    }
+
     for (PolyRange& range : mPolyPrograms) {
         for (int index = range.startIndex + 1; index < range.endIndex; ++index) {
             const Entry& entry = mProgram.list[index];
@@ -309,6 +370,10 @@ bool Processor::compileProgram() {
                 clone.op = makeOpWithId(source.mType);
                 clone.op->mSamplerate = mSamplerate;
                 clone.op->init();
+                if (const auto* sourceDelay = dynamic_cast<const DelayRead*>(source.op.get())) {
+                    auto* cloneDelay = dynamic_cast<DelayRead*>(clone.op.get());
+                    cloneDelay->configure(sourceDelay->maxSeconds());
+                }
                 if (const auto* constant = dynamic_cast<const ConstOp*>(source.op.get())) {
                     auto* cloneConstant = dynamic_cast<ConstOp*>(clone.op.get());
                     cloneConstant->mName = constant->mName;
@@ -338,7 +403,8 @@ bool Processor::compileProgram() {
             for (int offset = 0; offset < static_cast<int>(voice.list.size()); ++offset) {
                 Entry& clone = voice.list[offset];
                 for (int input = 0; input < static_cast<int>(clone.mInputs.size()); ++input) {
-                    const int sourceId = clone.mInputIds[input];
+                    const int sourceId = input < static_cast<int>(clone.mInputIds.size())
+                        ? clone.mInputIds[input] : -1;
                     if (sourceId < 0) {
                         clone.mInputs[input].ptr = &voice.mIoBuffer[0];
                         continue;
@@ -353,6 +419,24 @@ bool Processor::compileProgram() {
                         clone.mInputs[input] = mProgram.list[sourceIndex].mOutputs[sourcePort];
                     }
                 }
+            }
+
+            // The master graph validated the pair; bind this writer to the
+            // corresponding voice-local reader state.
+            for (int offset = 0; offset < static_cast<int>(voice.list.size()); ++offset) {
+                Entry& clone = voice.list[offset];
+                auto* writer = dynamic_cast<DelayWrite*>(clone.op.get());
+                if (writer == nullptr) continue;
+                const int readIndex = clone.mInputIds[DelayWrite::Delay] / OpSpacing;
+                if (readIndex <= range.startIndex || readIndex >= range.endIndex) {
+                    throw std::runtime_error("internal error linking polyphonic delay");
+                }
+                auto* reader = dynamic_cast<DelayRead*>(
+                    voice.list[readIndex - range.startIndex - 1].op.get());
+                if (reader == nullptr) {
+                    throw std::runtime_error("internal error linking polyphonic delay reader");
+                }
+                writer->link(reader->state());
             }
         }
     }

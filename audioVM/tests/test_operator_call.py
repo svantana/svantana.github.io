@@ -27,6 +27,23 @@ class OperatorCallTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "already has an input"):
             node("anotherOsc")
 
+    def test_delay_emits_linked_read_and_write_endpoints(self):
+        vm = VM()
+        string = vm.delay(0.1, id="string")
+        tap = string.read(0.01)
+        string.write(tap)
+
+        self.assertEqual(tap.type, "delayRead")
+        self.assertEqual(vm.program[-1].type, "delayWrite")
+        self.assertEqual(vm.program[-1].input["delay"], "string.read")
+        self.assertIn('"type": "delayRead", "id": "string.read"', vm.get_json())
+
+    def test_delay_requires_read_before_write(self):
+        vm = VM()
+        string = vm.delay(0.1)
+        with self.assertRaisesRegex(TypeError, "read"):
+            string.write(0)
+
 
 if __name__ == "__main__":
     unittest.main()
