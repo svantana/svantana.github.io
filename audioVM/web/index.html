@@ -38,6 +38,14 @@
     .token-keyword { color:#c99bff; } .token-string { color:#9ee6b4; } .token-number { color:#f2c17d; }
     .token-comment { color:#737b87; font-style:italic; } .token-builtin { color:#82caff; } .token-function { color:#ffb7cf; }
     #controls { flex:1; padding:12px 14px 28px; overflow:auto; }
+    #audio-input-bar { flex:none; min-height:58px; padding:10px 14px; display:flex; align-items:center; gap:10px; border-bottom:1px solid var(--border); background:var(--panel); }
+    #audio-input-bar[hidden] { display:none; }
+    #audio-input-bar label { color:var(--muted); font-size:12px; }
+    #audio-input-bar select { flex:1; min-width:0; }
+    .knob { --knob-angle:-135deg; position:relative; flex:none; width:38px; height:38px; border:2px solid var(--border); border-radius:50%; background:radial-gradient(circle at 35% 30%, #3b4048, #20242a 68%); box-shadow:inset 0 1px rgba(255,255,255,.12); cursor:ns-resize; touch-action:none; }
+    .knob::after { position:absolute; top:5px; left:calc(50% - 1px); width:2px; height:13px; border-radius:1px; background:var(--accent); content:""; transform:rotate(var(--knob-angle)); transform-origin:1px 14px; }
+    .knob:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+    .control .knob { margin:0 auto; }
     .empty { color:var(--muted); margin:8px 0; }
     .control { padding:13px 0 15px; border-bottom:1px solid var(--border); }
     .control-row { display:flex; gap:12px; align-items:baseline; margin-bottom:8px; }
@@ -85,6 +93,18 @@
     </section>
     <section id="right-panel" tabindex="0" aria-label="AudioVM controls and piano keyboard">
       <span id="control-count" hidden>0 controls</span>
+      <div id="audio-input-bar" hidden>
+        <label for="audio-input-source">Input</label>
+        <select id="audio-input-source" aria-label="Audio input source">
+          <option value="noise">White noise</option>
+          <option value="tone-100">100 Hz tone</option>
+          <option value="tone-440">440 Hz tone</option>
+          <option value="sweep">1 s sine sweep</option>
+        </select>
+        <label>Volume</label>
+        <div id="audio-input-volume" class="knob" role="slider" tabindex="0" aria-label="Input volume"></div>
+        <button id="audio-input-toggle" type="button" disabled>Start</button>
+      </div>
       <div id="controls"><p class="empty">Load a patch to generate controls.</p></div>
       <pre id="error" role="alert"></pre>
       <div class="keyboard-panel" hidden>
@@ -110,6 +130,10 @@
     const highlight = document.querySelector('#highlight');
     const gutter = document.querySelector('#gutter');
     const rightPanel = document.querySelector('#right-panel');
+    const audioInputBar = document.querySelector('#audio-input-bar');
+    const audioInputSource = document.querySelector('#audio-input-source');
+    const audioInputVolume = document.querySelector('#audio-input-volume');
+    const audioInputToggle = document.querySelector('#audio-input-toggle');
     const keyboardPanel = document.querySelector('.keyboard-panel');
     const piano = document.querySelector('#piano');
     const keyboardSemitones = new Map(Object.entries({ a:0, w:1, s:2, e:3, d:4, f:5, t:6, g:7, y:8, h:9, u:10, j:11, k:12, o:13, l:14, p:15 }));
@@ -159,6 +183,9 @@
     let audioContext;
     let audioNode;
     let audioConnected = false;
+    let inputSource;
+    let inputGain;
+    let inputVolume = 0.5;
     let workletModuleReady;
     let nextWorkletRequestId = 1;
     const workletRequests = new Map();
@@ -193,6 +220,46 @@
       }
     };
     const sliderOptions = () => [0, 1, 0.001];
+    const createKnob = ({ element, value, min, max, step, label, onInput }) => {
+      const knob = element ?? document.createElement('div');
+      knob.className = 'knob';
+      knob.tabIndex = 0;
+      knob.setAttribute('role', 'slider');
+      knob.setAttribute('aria-label', label);
+      knob.setAttribute('aria-valuemin', min);
+      knob.setAttribute('aria-valuemax', max);
+      let currentValue;
+      const setValue = (nextValue, notify = true) => {
+        const snapped = Math.round((Math.max(min, Math.min(max, nextValue)) - min) / step) * step + min;
+        currentValue = Math.max(min, Math.min(max, snapped));
+        const progress = (currentValue - min) / (max - min);
+        knob.style.setProperty('--knob-angle', `${-135 + progress * 270}deg`);
+        knob.setAttribute('aria-valuenow', currentValue);
+        knob.setAttribute('aria-valuetext', currentValue.toFixed(Math.max(0, String(step).split('.')[1]?.length || 0)));
+        if (notify) onInput(currentValue);
+      };
+      let dragStartY, dragStartValue;
+      knob.addEventListener('pointerdown', event => {
+        event.preventDefault();
+        dragStartY = event.clientY;
+        dragStartValue = currentValue;
+        knob.setPointerCapture(event.pointerId);
+      });
+      knob.addEventListener('pointermove', event => {
+        if (!knob.hasPointerCapture(event.pointerId)) return;
+        setValue(dragStartValue + (dragStartY - event.clientY) * (max - min) / 160);
+      });
+      knob.addEventListener('pointerup', event => knob.releasePointerCapture(event.pointerId));
+      knob.addEventListener('keydown', event => {
+        const increment = event.shiftKey ? step * 10 : step;
+        if (event.key === 'ArrowUp' || event.key === 'ArrowRight') { event.preventDefault(); setValue(currentValue + increment); }
+        if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') { event.preventDefault(); setValue(currentValue - increment); }
+        if (event.key === 'Home') { event.preventDefault(); setValue(min); }
+        if (event.key === 'End') { event.preventDefault(); setValue(max); }
+      });
+      setValue(value, false);
+      return { element: knob, setValue };
+    };
     const renderControls = graph => {
       const controlNodes = graph.program.filter(node => node.type === 'control');
       controls.replaceChildren();
@@ -212,17 +279,13 @@
         label.htmlFor = `control-${index}`;
         label.textContent = node.id;
         const output = document.createElement('output');
-        const slider = document.createElement('input');
-        slider.type = 'range'; slider.id = label.htmlFor;
-        slider.min = min; slider.max = max; slider.step = step; slider.value = value;
-        const set = () => {
-          const next = Number(slider.value);
+        const set = next => {
           audioNode.port.postMessage({ type: 'control', index, value: next });
           output.value = next.toFixed(Math.max(0, Math.min(3, String(step).split('.')[1]?.length || 0)));
           output.textContent = output.value;
         };
-        slider.addEventListener('input', set);
-        row.append(label, output); wrapper.append(row, slider); controls.append(wrapper); set();
+        const knob = createKnob({ value, min, max, step, label: node.id, onInput: set });
+        row.append(label, output); wrapper.append(row, knob.element); controls.append(wrapper); set(value);
       });
     };
     const containsMidiReference = value => {
@@ -234,6 +297,12 @@
       const usesMidi = graph.program.some(node => containsMidiReference(node.input));
       keyboardPanel.hidden = !usesMidi;
       if (!usesMidi) releaseAllNotes();
+    };
+    const updateAudioInputVisibility = graph => {
+      const usesAudioInput = graph.program.some(node => node.type === 'audioIn');
+      audioInputBar.hidden = !usesAudioInput;
+      audioInputToggle.disabled = !usesAudioInput;
+      if (!usesAudioInput) stopInputSource();
     };
     const postToWorklet = (message, transfer = []) => new Promise((resolve, reject) => {
       const requestId = nextWorkletRequestId++;
@@ -248,8 +317,10 @@
       await workletModuleReady;
       if (audioNode) return;
       audioNode = new AudioWorkletNode(audioContext, 'audiovm-processor', {
-        numberOfInputs: 0,
+        numberOfInputs: 1,
         numberOfOutputs: 1,
+        channelCount: 1,
+        channelCountMode: 'explicit',
         outputChannelCount: [outputChannels],
       });
       audioNode.port.onmessage = event => {
@@ -345,6 +416,66 @@
     const releaseAllNotes = () => {
       for (const source of activeMidiSources.keys()) sendNoteOff(source);
     };
+    const updateInputVolume = () => {
+      if (inputGain && audioContext) inputGain.gain.setTargetAtTime(inputVolume, audioContext.currentTime, 0.01);
+    };
+    const makeInputBuffer = () => {
+      const frames = audioContext.sampleRate;
+      const buffer = audioContext.createBuffer(1, frames, audioContext.sampleRate);
+      const samples = buffer.getChannelData(0);
+      const type = audioInputSource.value;
+      let phase = 0;
+      for (let frame = 0; frame < frames; frame++) {
+        if (type === 'noise') samples[frame] = Math.random() * 2 - 1;
+        else {
+          const frequency = type === 'tone-100' ? 100 : type === 'tone-440' ? 440 : 20 * Math.pow(1000, frame / frames);
+          samples[frame] = Math.sin(phase);
+          phase += 2 * Math.PI * frequency / audioContext.sampleRate;
+        }
+      }
+      return buffer;
+    };
+    const stopInputSource = () => {
+      if (!inputSource) return;
+      inputSource.onended = null;
+      inputSource.stop();
+      inputSource.disconnect();
+      inputSource = undefined;
+      audioInputToggle.textContent = 'Start';
+    };
+    const startInputSource = async () => {
+      if (!audioNode || !audioContext) return;
+      await start();
+      stopInputSource();
+      if (!inputGain) {
+        inputGain = audioContext.createGain();
+        inputGain.connect(audioNode);
+      }
+      updateInputVolume();
+      inputSource = audioContext.createBufferSource();
+      inputSource.buffer = makeInputBuffer();
+      inputSource.loop = true;
+      inputSource.connect(inputGain);
+      inputSource.start();
+      audioInputToggle.textContent = 'Stop';
+    };
+    audioInputToggle.addEventListener('click', () => {
+      if (inputSource) stopInputSource();
+      else startInputSource().catch(cause => showError(`Could not start input: ${cause.message}`));
+    });
+    createKnob({
+      element: audioInputVolume,
+      value: inputVolume,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      label: 'Input volume',
+      onInput: value => { inputVolume = value; updateInputVolume(); },
+    });
+    audioInputSource.addEventListener('change', () => {
+      if (inputSource) startInputSource().catch(cause => showError(`Could not change input: ${cause.message}`));
+    });
+    updateInputVolume();
     rightPanel.addEventListener('pointerdown', event => {
       if (!event.target.closest('.piano-key')) rightPanel.focus();
     });
@@ -424,6 +555,7 @@
         processor = true;
         renderControls(parsed);
         updatePianoVisibility(parsed);
+        updateAudioInputVisibility(parsed);
         playButton.disabled = false;
         status.textContent = 'Patch loaded';
       } catch (cause) {

@@ -110,10 +110,14 @@ public:
     int getNumPorts(Port::Dir dir) override {
         return (dir == Port::Out) ? NumOutputs : NumInputs;
     }
+    float timeToCoef(float t) {
+        float n = t * mSamplerate;
+        return 1 / (1 + n);
+    }
     void process(Buffer *i, Buffer *o, int numSamples) override {
         int N = std::min(numSamples, i[0].numSamples);
         float tA = i[Attack].value(), tR = i[Release].value();
-        float cA = 1/(1+tA*mSamplerate), cR = 1/(1+tR*mSamplerate);
+        float cA = timeToCoef(tA), cR = timeToCoef(tR);
         float *x = i[Input].data(), *e = o[Output].data();
         for (int n = 0; n < N; n++) {
             float a = fabsf(x[n]);

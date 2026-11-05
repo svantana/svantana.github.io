@@ -189,6 +189,9 @@ bool Processor::compileProgram() {
             output.ptr = &mProgram.mIoBuffer[pos];
             pos += output.size();
         }
+        if (dynamic_cast<AudioIn*>(entry.op.get())) {
+            mProgram.mAudioInIds.push_back(entry.mIndex);
+        }
         if (dynamic_cast<AudioOut*>(entry.op.get())) {
             mProgram.mAudioOutIds.push_back(entry.mInputIds[0]);
         }
@@ -708,6 +711,17 @@ void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
     int maxBlockSize = mBlockSize;
     for (int ioPos = 0; ioPos < numSamples;) {
         int blockSize = std::min(maxBlockSize, numSamples - ioPos);
+
+        for (int n = 0; n < (int)mProgram.mAudioInIds.size(); n++) {
+            int id = mProgram.mAudioInIds[n];
+            for (int ch = 0; ch < mNumInputChannels && inBufs; ch++) {
+                float *dst = mProgram.list[id/OpSpacing].mOutputs[id%OpSpacing].dataWrap(ch);
+                const float *src = &inBufs[ch][ioPos];
+                for (int i = 0; i < blockSize; i++) {
+                    dst[i] = src[i];
+                }
+            }
+        }
         
         for (int n = 0; n < (int)mProgram.list.size(); n++) {
             PolyRange* range = nullptr;
