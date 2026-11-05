@@ -131,13 +131,13 @@ class VM:
     def write(self, input):
         self.op("write", input)
 
-    def midi(self, numVoices=1):
-        #self.op("midi", input={"polyphony": numVoices})
+    def midi(self):
+        #self.op("midi", input={}) # TODO: any midi settings?
         return self.midiObj
 
     @contextmanager
-    def poly(self, numVoices, timeOut=0):
-        self.op("polyStart", {"numVoices": numVoices, "timeOut": timeOut})
+    def poly(self, count, timeOut=0):
+        self.op("polyStart", {"count": count, "timeOut": timeOut})
         try:
             yield
         finally:

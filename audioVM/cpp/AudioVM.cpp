@@ -29,7 +29,7 @@ struct PolyStart : public BlockRateOp {
     enum In { NumVoices, TimeOut, NumInputs };
     int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? NumInputs : 0; }
     std::string getPortName(Port::Dir dir, int index) override {
-        cStr i[] = {"numVoices", "timeOut"};
+        cStr i[] = {"count", "timeOut"};
         return i[index];
     }
 };
