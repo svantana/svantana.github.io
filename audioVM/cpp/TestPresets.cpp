@@ -13,18 +13,27 @@ namespace {
 constexpr int kChannels = 2;
 constexpr int kBlockSize = 128;
 constexpr float kSampleRate = 44100.f;
+constexpr float kInputFrequency = 440.f;
+constexpr float kInputAmplitude = 0.25f;
+constexpr float kPi = 3.14159265358979323846f;
 
-bool processAndCheck(AudioVM::Processor& processor, int frames, float& peak) {
+bool processAndCheck(AudioVM::Processor& processor, int frames, int& inputSample, float& peak) {
     std::vector<std::vector<float>> input(kChannels, std::vector<float>(frames, 0.f));
     std::vector<std::vector<float>> output(kChannels, std::vector<float>(frames, 0.f));
     float* inputPointers[kChannels];
     float* outputPointers[kChannels];
     for (int channel = 0; channel < kChannels; ++channel) {
+        for (int sample = 0; sample < frames; ++sample) {
+            const float phase = 2.f * kPi * kInputFrequency
+                * static_cast<float>(inputSample + sample) / kSampleRate;
+            input[channel][sample] = kInputAmplitude * std::sin(phase);
+        }
         inputPointers[channel] = input[channel].data();
         outputPointers[channel] = output[channel].data();
     }
 
     processor.process(inputPointers, outputPointers, frames);
+    inputSample += frames;
     for (const auto& channel : output) {
         for (const float sample : channel) {
             if (!std::isfinite(sample)) {
@@ -62,13 +71,14 @@ int main(int argc, char* argv[]) {
         }
 
         float peak = 0.f;
+        int inputSample = 0;
         processor.midiEvent(static_cast<char>(0x90), 60, 100);
         // Includes a partial final block to cover Processor::process splitting.
         for (const int frames : {kBlockSize, kBlockSize * 3 + 17, kBlockSize * 4}) {
-            if (!processAndCheck(processor, frames, peak)) return 1;
+            if (!processAndCheck(processor, frames, inputSample, peak)) return 1;
         }
         processor.midiEvent(static_cast<char>(0x80), 60, 0);
-        if (!processAndCheck(processor, kBlockSize * 3 + 11, peak)) return 1;
+        if (!processAndCheck(processor, kBlockSize * 3 + 11, inputSample, peak)) return 1;
 
         if (peak < 1e-6f) {
             std::cerr << presetName << ": produced only silence after MIDI note-on\n";

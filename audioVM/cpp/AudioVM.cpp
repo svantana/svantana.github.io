@@ -114,6 +114,7 @@ int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
     entry.mType = operatorId;
     entry.op = std::move(op);
     entry.op->mSamplerate = mSamplerate;
+    entry.op->mBlockSize = mBlockSize;
     entry.op->init();
     entry.mInputIds = inputIds;
 
@@ -479,6 +480,8 @@ void Processor::loadFromJSON(std::string jsonString) {
         mCompiler.mIdToIndex.emplace("midi.gate", midiInId + MidiIn::Gate);
         mCompiler.mIdToIndex.emplace("midi.note", midiInId + MidiIn::Note);
         mCompiler.mIdToIndex.emplace("midi.velocity", midiInId + MidiIn::Velocity);
+        mCompiler.mIdToIndex.emplace("midi.onset", midiInId + MidiIn::Onset);
+        mCompiler.mIdToIndex.emplace("midi.offset", midiInId + MidiIn::Offset);
 
         for (size_t index = 0; index < program.size(); ++index) {
             const picojson::value& node = program[index];
@@ -612,6 +615,8 @@ std::string Processor::getOpListAsJSON() {
             sourceIds.emplace(entry.mIndex + MidiIn::Gate, "midi.gate");
             sourceIds.emplace(entry.mIndex + MidiIn::Note, "midi.note");
             sourceIds.emplace(entry.mIndex + MidiIn::Velocity, "midi.velocity");
+            sourceIds.emplace(entry.mIndex + MidiIn::Onset, "midi.onset");
+            sourceIds.emplace(entry.mIndex + MidiIn::Offset, "midi.offset");
             continue;
         }
         std::string id = entry.mId;
@@ -745,6 +750,7 @@ void Processor::midiEvent(char b0, char b1, char b2) {
             O[MidiIn::Gate].set(1.f);
             O[MidiIn::Note].set(note);
             O[MidiIn::Velocity].set(velocity);
+            O[MidiIn::Onset].set(1.f);
             mCurrMidiNote = note;
             for (PolyRange& range : mPolyPrograms) {
                 Voice* selected = nullptr;
@@ -768,6 +774,7 @@ void Processor::midiEvent(char b0, char b1, char b2) {
                 selected->mMidiValues[MidiIn::Gate] = 1.f;
                 selected->mMidiValues[MidiIn::Note] = static_cast<float>(note);
                 selected->mMidiValues[MidiIn::Velocity] = static_cast<float>(velocity);
+                selected->mMidiValues[MidiIn::Onset] = 1.f;
             }
             break;
         }
@@ -775,10 +782,12 @@ void Processor::midiEvent(char b0, char b1, char b2) {
             if (b1 == mCurrMidiNote) {
                 O[MidiIn::Gate].set(0.f);
             }
+            O[MidiIn::Offset].set(1.f);
             for (PolyRange& range : mPolyPrograms) {
                 for (Voice& voice : range.voices) {
                     if (voice.active && voice.note == note) {
                         voice.mMidiValues[MidiIn::Gate] = 0.f;
+                        voice.mMidiValues[MidiIn::Offset] = 1.f;
                         if (range.timeOutSeconds >= 0.f) {
                             voice.releaseSamples = static_cast<int>(ceilf(range.timeOutSeconds * mSamplerate));
                             if (voice.releaseSamples == 0) voice.active = false;
@@ -831,6 +840,20 @@ void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
                 for (int i = 0; i < blockSize; i++) {
                     dst[i] = src[i];
                 }
+            }
+        }
+        // MIDI inputs are control-rate, so an event trigger is observable for
+        // this processing block only.  Clear them after all global and
+        // polyphonic operators have consumed the values.
+        if (mProgram.mMidiInId >= 0) {
+            auto& midiOutputs = mProgram.list[mProgram.mMidiInId].mOutputs;
+            midiOutputs[MidiIn::Onset].set(0.f);
+            midiOutputs[MidiIn::Offset].set(0.f);
+        }
+        for (PolyRange& range : mPolyPrograms) {
+            for (Voice& voice : range.voices) {
+                voice.mMidiValues[MidiIn::Onset] = 0.f;
+                voice.mMidiValues[MidiIn::Offset] = 0.f;
             }
         }
         ioPos += blockSize;

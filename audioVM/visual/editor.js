@@ -6,7 +6,7 @@ const moduleDefs = {
   audioOut:   { name: "Audio Out", audioInputs: [""], controlInputs: [], audioOutputs: [], controlOutputs: [] },
   ctrlIn:     { name: "Ctrl In", audioInputs: [], controlInputs: [], audioOutputs: [], controlOutputs: [""] },
   ctrlOut:    { name: "Ctrl Out", audioInputs: [], controlInputs: [""], audioOutputs: [], controlOutputs: [] },
-  midiIn:     { name: "Midi In", audioInputs: [], controlInputs: ["poly"], audioOutputs: [], controlOutputs: ["gate", "note", "velocity", "pitchbend", "mod-wheel"]},
+  midiIn:     { name: "Midi In", audioInputs: [], controlInputs: ["poly"], audioOutputs: [], controlOutputs: ["gate", "onset", "offset", "note", "velocity", "pitchbend", "mod-wheel"]},
   number:     { name: "Number", audioInputs: [], controlInputs: ["scale"], audioOutputs: [], controlOutputs: ["out"] },
   oscillator: { name: "BlitOsc", audioInputs: [],             controlInputs: ["note", "width","color"],   audioOutputs: ["out"],           controlOutputs: [] },
   vca:        { name: "VCA",        audioInputs: ["in"],      controlInputs: ["gain", "exponent"],        audioOutputs: ["out"],           controlOutputs: [] },

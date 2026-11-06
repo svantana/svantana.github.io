@@ -35,6 +35,6 @@ namespace AudioVM {
         virtual void init() {} // do setup here, if needed
         virtual void reset() {}
         virtual void process(Buffer* inBufs, Buffer* outBufs, int numSamples) {}
-        float mSamplerate;
+        float mSamplerate, mBlockSize;
     };
 }

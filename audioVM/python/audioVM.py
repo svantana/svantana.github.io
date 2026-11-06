@@ -109,7 +109,7 @@ class Delay:
 
 class Midi: # convenience class for midi inputs
     def __init__(self, vm):
-        outs = ["channel", "gate", "note", "velocity", "pitchbend", "modwheel"]
+        outs = ["channel", "gate", "onset", "offset", "note", "velocity", "pitchbend", "modwheel"]
         for out in outs:
             setattr(self, out, Operator(vm, "const", "midi."+out))
 

@@ -23,8 +23,15 @@ struct AudioOut : public FullRateOp {
     int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? 1 : 0; }
 };
 struct MidiIn : public BlockRateOp {
-    enum Type { Gate, Note, Velocity, NumTypes };
+    // Onset and Offset are one-processing-block triggers set by note-on and
+    // note-off events.  Keep the established output indices intact so manual
+    // programs that address the original MIDI outputs remain compatible.
+    enum Type { Gate, Note, Velocity, Onset, Offset, NumTypes };
     int getNumPorts(Port::Dir dir) override { return (dir == Port::Out) ? NumTypes : 0; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        cStr o[] = {"gate", "note", "velocity", "onset", "offset"};
+        return dir == Port::Out ? o[index] : "";
+    }
 };
 struct PolyStart : public BlockRateOp {
     enum In { NumVoices, TimeOut, NumInputs };

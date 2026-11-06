@@ -73,7 +73,8 @@ private:
     struct Voice {
         std::vector<Entry> list;
         std::vector<float> mIoBuffer;
-        std::array<float, 3> mMidiValues{};
+        // Keep in sync with MidiIn::NumTypes; MidiIn is implementation-only.
+        std::array<float, 5> mMidiValues{};
         bool active = false;
         int note = -1;
         int releaseSamples = -1;
