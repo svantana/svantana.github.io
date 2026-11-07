@@ -898,34 +898,47 @@ void Processor::processPolyRange(PolyRange& range, int numSamples) {
     }
 }
 
+bool Processor::MidiEventFIFO::push(MidiEvent event) {
+    const size_t write = mWrite.load(std::memory_order_relaxed);
+    const size_t next = (write + 1) % Capacity;
+    if (next == mRead.load(std::memory_order_acquire)) return false;
+    mEvents[write] = event;
+    mWrite.store(next, std::memory_order_release);
+    return true;
+}
+
+bool Processor::MidiEventFIFO::pop(MidiEvent& event) {
+    const size_t read = mRead.load(std::memory_order_relaxed);
+    if (read == mWrite.load(std::memory_order_acquire)) return false;
+    event = mEvents[read];
+    mRead.store((read + 1) % Capacity, std::memory_order_release);
+    return true;
+}
+
+void Processor::MidiEventFIFO::clear() {
+    const size_t write = mWrite.load(std::memory_order_acquire);
+    mRead.store(write, std::memory_order_release);
+}
+
 void Processor::clearMidiEvents() {
-    const size_t write = mMidiWrite.load(std::memory_order_acquire);
-    mMidiRead.store(write, std::memory_order_release);
+    mMidiEventFIFO.clear();
 }
 
 void Processor::midiEvent(char b0, char b1, char b2) {
-    const size_t write = mMidiWrite.load(std::memory_order_relaxed);
-    const size_t next = (write + 1) % MidiEventCapacity;
     // Keep the oldest events if the host outruns the audio callback.  The
     // following producer attempt can retry after the audio thread advances.
-    if (next == mMidiRead.load(std::memory_order_acquire)) return;
-    mMidiEvents[write] = {
+    mMidiEventFIFO.push({
         static_cast<unsigned char>(b0),
         static_cast<unsigned char>(b1),
         static_cast<unsigned char>(b2),
-    };
-    mMidiWrite.store(next, std::memory_order_release);
+    });
 }
 
 void Processor::consumeMidiEvents() {
-    size_t read = mMidiRead.load(std::memory_order_relaxed);
-    const size_t write = mMidiWrite.load(std::memory_order_acquire);
-    while (read != write) {
-        const MidiEvent event = mMidiEvents[read];
-        read = (read + 1) % MidiEventCapacity;
+    MidiEvent event;
+    while (mMidiEventFIFO.pop(event)) {
         applyMidiEvent(event.status, event.data1, event.data2);
     }
-    mMidiRead.store(read, std::memory_order_release);
 }
 
 void Processor::applyMidiEvent(unsigned char b0, unsigned char b1, unsigned char b2) {

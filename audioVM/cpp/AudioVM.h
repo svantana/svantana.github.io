@@ -60,13 +60,21 @@ private:
         unsigned char data1;
         unsigned char data2;
     };
-    // MIDI may arrive independently of the audio callback.  One producer
-    // (the host MIDI input) and the audio thread consume this fixed-size ring
+    // MIDI may arrive independently of the audio callback. One producer (the
+    // host MIDI input) and the audio thread consume this fixed-size ring
     // without allocating or locking.
-    static constexpr size_t MidiEventCapacity = 256;
-    std::array<MidiEvent, MidiEventCapacity> mMidiEvents{};
-    std::atomic<size_t> mMidiWrite{0};
-    std::atomic<size_t> mMidiRead{0};
+    struct MidiEventFIFO {
+        static constexpr size_t Capacity = 256;
+
+        bool push(MidiEvent event);
+        bool pop(MidiEvent& event);
+        void clear();
+
+    private:
+        std::array<MidiEvent, Capacity> mEvents{};
+        std::atomic<size_t> mWrite{0};
+        std::atomic<size_t> mRead{0};
+    } mMidiEventFIFO;
     struct Transport {
         float bpm = 120.f;
         float beatPos = 0.f;
