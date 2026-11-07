@@ -20,6 +20,8 @@ Processor::Processor()
     registerType("midiIn", [] { return std::make_unique<MidiIn>(); });
     registerType("polyStart", [] { return std::make_unique<PolyStart>(); });
     registerType("polyEnd", [] { return std::make_unique<PolyEnd>(); });
+    registerType("ifStart", [] { return std::make_unique<IfStart>(); });
+    registerType("ifEnd", [] { return std::make_unique<IfEnd>(); });
     registerType("control", [] { return std::make_unique<Control>(); });
     registerType("const", [] { return std::make_unique<ConstOp>(); });
     registerType("buffer", [] { return std::make_unique<BufferOperator>(); });
@@ -73,6 +75,7 @@ void Processor::setup(float samplerate, int numInputChannels, int numOutputChann
 void Processor::clearProgram() {
     mProgram.list.clear();
     mPolyPrograms.clear();
+    mIfEndByStart.clear();
     mVoiceAge = 0;
 }
 int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
@@ -299,6 +302,41 @@ bool Processor::compileProgram() {
         throw std::runtime_error("polyStart has no matching polyEnd");
     }
 
+    // Resolve conditional ranges once at compile time.  This keeps the audio
+    // loop allocation-free and lets a false condition jump over an entire
+    // nested range without calling any of its operators.
+    mIfEndByStart.assign(mProgram.list.size(), -1);
+    std::vector<int> openIfs;
+    const auto polyScopeForIndex = [&](int index) {
+        for (int rangeIndex = 0; rangeIndex < static_cast<int>(mPolyPrograms.size()); ++rangeIndex) {
+            const PolyRange& range = mPolyPrograms[rangeIndex];
+            if (index > range.startIndex && index < range.endIndex) return rangeIndex;
+        }
+        return -1;
+    };
+    for (int index = 0; index < static_cast<int>(mProgram.list.size()); ++index) {
+        const Entry& entry = mProgram.list[index];
+        if (dynamic_cast<const IfStart*>(entry.op.get()) != nullptr) {
+            if (entry.mInputIds.empty() || entry.mInputIds[IfStart::Condition] < 0) {
+                throw std::runtime_error("ifStart requires a condition input");
+            }
+            openIfs.push_back(index);
+        } else if (dynamic_cast<const IfEnd*>(entry.op.get()) != nullptr) {
+            if (openIfs.empty()) {
+                throw std::runtime_error("ifEnd has no matching ifStart");
+            }
+            const int startIndex = openIfs.back();
+            openIfs.pop_back();
+            if (polyScopeForIndex(startIndex) != polyScopeForIndex(index)) {
+                throw std::runtime_error("ifStart and ifEnd must be in the same polyphonic scope");
+            }
+            mIfEndByStart[startIndex] = index;
+        }
+    }
+    if (!openIfs.empty()) {
+        throw std::runtime_error("ifStart has no matching ifEnd");
+    }
+
     // Bind write endpoints to the state owned by their read endpoint.  A
     // feedback pair must live in one scope: allowing a polyphonic writer to
     // mutate a global reader would make voices share delay memory.
@@ -487,6 +525,7 @@ void Processor::loadFromJSON(std::string jsonString) {
     Program previousProgram = std::move(mProgram);
     Compiler previousCompiler = std::move(mCompiler);
     std::vector<PolyRange> previousPolyPrograms = std::move(mPolyPrograms);
+    std::vector<int> previousIfEndByStart = std::move(mIfEndByStart);
     const unsigned long long previousVoiceAge = mVoiceAge;
     mProgram = Program();
     mProgram.list.reserve(program.size());
@@ -611,6 +650,7 @@ void Processor::loadFromJSON(std::string jsonString) {
         mProgram = std::move(previousProgram);
         mCompiler = std::move(previousCompiler);
         mPolyPrograms = std::move(previousPolyPrograms);
+        mIfEndByStart = std::move(previousIfEndByStart);
         mVoiceAge = previousVoiceAge;
         throw;
     }
@@ -744,12 +784,32 @@ void Processor::resetVoice(Voice& voice) {
 void Processor::processPolyRange(PolyRange& range, int numSamples) {
     for (Voice& voice : range.voices) {
         if (!voice.active) continue;
-        for (Entry& entry : voice.list) {
+        for (int offset = 0; offset < static_cast<int>(voice.list.size()); ++offset) {
+            Entry& entry = voice.list[offset];
+            const int programIndex = entry.mIndex / OpSpacing;
+            if (auto* ifStart = dynamic_cast<IfStart*>(entry.op.get())) {
+                ifStart->process(entry.mInputs.data(), entry.mOutputs.data(), numSamples);
+                if (ifStart->active()) continue;
+                const int endIndex = mIfEndByStart[programIndex];
+                assert(endIndex > programIndex);
+                const int endOffset = endIndex - range.startIndex - 1;
+                // A skipped producer must not expose audio from its previous
+                // invocation to a later operator outside this range.
+                for (int skipped = offset + 1; skipped < endOffset; ++skipped) {
+                    for (Buffer& output : voice.list[skipped].mOutputs) {
+                        std::fill(output.ptr, output.ptr + output.size(), 0.f);
+                    }
+                }
+                offset = endOffset;
+                continue;
+            }
             entry.op->process(entry.mInputs.data(), entry.mOutputs.data(), numSamples);
         }
-        if (voice.mMidiValues[MidiIn::Gate] == 0.f && voice.releaseSamples >= 0) {
-            voice.releaseSamples -= numSamples;
-            if (voice.releaseSamples <= 0) voice.active = false;
+        if (voice.mMidiValues[MidiIn::Gate] == 0.f && voice.releasePhase >= 0.f) {
+            const float duration = std::max(1e-9f, range.timeOutSeconds);
+            voice.releasePhase = std::min(1.f,
+                voice.releasePhase + numSamples / (mSamplerate * duration));
+            if (voice.releasePhase >= 1.f) voice.active = false;
         }
     }
 }
@@ -789,7 +849,7 @@ void Processor::midiEvent(char b0, char b1, char b2) {
                 resetVoice(*selected);
                 selected->active = true;
                 selected->note = note;
-                selected->releaseSamples = -1;
+                selected->releasePhase = -1.f;
                 selected->age = ++mVoiceAge;
                 selected->mMidiValues[MidiIn::Gate] = 1.f;
                 selected->mMidiValues[MidiIn::Note] = static_cast<float>(note);
@@ -809,8 +869,7 @@ void Processor::midiEvent(char b0, char b1, char b2) {
                         voice.mMidiValues[MidiIn::Gate] = 0.f;
                         voice.mMidiValues[MidiIn::Offset] = 1.f;
                         if (range.timeOutSeconds >= 0.f) {
-                            voice.releaseSamples = static_cast<int>(ceilf(range.timeOutSeconds * mSamplerate));
-                            if (voice.releaseSamples == 0) voice.active = false;
+                            voice.releasePhase = 0.f;
                         }
                     }
                 }
@@ -850,6 +909,21 @@ void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
                 continue;
             }
             Entry &E = mProgram.list[n];
+            if (auto* ifStart = dynamic_cast<IfStart*>(E.op.get())) {
+                ifStart->process(E.mInputs.data(), E.mOutputs.data(), blockSize);
+                if (ifStart->active()) continue;
+                const int endIndex = mIfEndByStart[n];
+                assert(endIndex > n);
+                // Keep skipped outputs deterministic rather than leaking the
+                // previous block's samples to consumers after the range.
+                for (int skipped = n + 1; skipped < endIndex; ++skipped) {
+                    for (Buffer& output : mProgram.list[skipped].mOutputs) {
+                        std::fill(output.ptr, output.ptr + output.size(), 0.f);
+                    }
+                }
+                n = endIndex;
+                continue;
+            }
             E.op->process(E.mInputs.data(), E.mOutputs.data(), blockSize);
         }
         for (int o = 0; o < (int)mProgram.mAudioOutIds.size(); o++) {

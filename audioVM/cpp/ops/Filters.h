@@ -1,10 +1,10 @@
 class FilterLP : public Operator {
 public:
-    enum In  { Input, FreqHz, Resonance, NumInputs };
+    enum In  { Input, FreqHz, Resonance, Reset, NumInputs };
     enum Out { Output, NumOutputs };
     std::string getName() { return "FilterLP"; }
     std::string getPortName(Port::Dir dir, int index) override {
-        cStr i[]={"input","frequency","resonance"};
+        cStr i[]={"input","frequency","resonance","reset"};
         cStr o[]={"output"};
         return (dir==Port::In) ? i[index] : o[index];
     }
@@ -17,6 +17,9 @@ public:
     // static inline float doSVF(Coefs &C, State &S) // todo: combine lp/bp/hp
     void process(Buffer *i, Buffer *o, int N) override {
         Coefs T = getCoefs(i), C = mCoefs;
+        if (i[Reset].value() > .5f) {
+            mState.reset();
+        }
         State S = mState; // local copy
         float *x = i[Input][0], *y = o[Output][0], step = 1.f / o[0].numSamples;
         for (int n = 0; n < N; n++) {

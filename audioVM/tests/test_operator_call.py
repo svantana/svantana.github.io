@@ -44,6 +44,17 @@ class OperatorCallTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "read"):
             string.write(0)
 
+    def test_when_emits_conditional_range(self):
+        vm = VM()
+        midi = vm.midi()
+        with vm.if_(midi.gate):
+            vm.op("oscSaw", {"note": midi.note})
+
+        self.assertEqual([op.type for op in vm.program], ["ifStart", "oscSaw", "ifEnd"])
+        self.assertEqual(vm.program[0].input, {"condition": "midi.gate", "timeOut": 0})
+        self.assertIn('"type": "ifStart"', vm.get_json())
+        self.assertIn('"type": "ifEnd"', vm.get_json())
+
 
 if __name__ == "__main__":
     unittest.main()

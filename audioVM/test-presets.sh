@@ -11,6 +11,14 @@ trap 'rm -rf "$temp_dir"' EXIT
   "$project_dir/cpp/TestPresets.cpp" \
   -o "$temp_dir/test-presets"
 
+"${CXX:-c++}" \
+  -std=c++17 -O2 \
+  "$project_dir/cpp/AudioVM.cpp" \
+  "$project_dir/tests/test_runtime_when.cpp" \
+  -o "$temp_dir/test-runtime-when"
+
+"$temp_dir/test-runtime-when"
+
 found_preset=false
 while IFS= read -r -d '' preset; do
   found_preset=true

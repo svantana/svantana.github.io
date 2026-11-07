@@ -77,7 +77,9 @@ private:
         std::array<float, 5> mMidiValues{};
         bool active = false;
         int note = -1;
-        int releaseSamples = -1;
+        // -1 means the voice is gated; otherwise this advances from 0 to 1
+        // over the polyphonic timeout, like an ADSR release phase.
+        float releasePhase = -1.f;
         unsigned long long age = 0;
     };
     struct PolyRange {
@@ -88,6 +90,8 @@ private:
         std::vector<Voice> voices;
     };
     std::vector<PolyRange> mPolyPrograms;
+    // Indexed by the program index of an IfStart; -1 for non-start entries.
+    std::vector<int> mIfEndByStart;
     unsigned long long mVoiceAge = 0;
 
     void resetVoice(Voice& voice);

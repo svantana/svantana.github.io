@@ -45,6 +45,37 @@ struct PolyEnd : public BlockRateOp {
     int getNumPorts(Port::Dir dir) override { return 0; }
 };
 
+// Structural operators that delimit a conditionally processed range.  The
+// processor consumes these markers directly; they have no signal outputs.
+struct IfStart : public BlockRateOp {
+    enum In { Condition, TimeOut, NumInputs };
+    int getNumPorts(Port::Dir dir) override { return dir == Port::In ? NumInputs : 0; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        static const cStr inputs[] = {"condition", "timeOut"};
+        return dir == Port::In ? inputs[index] : "";
+    }
+    void process(Buffer* in, Buffer*, int N) override {
+        if (in[Condition].value() != 0.f) {
+            mReleasePhase = 0.f;
+            mActive = true;
+        } else if (mReleasePhase >= 0.f) {
+            const float duration = std::max(1e-9f, in[TimeOut].value());
+            mReleasePhase = std::min(1.f, mReleasePhase + N / (mSamplerate * duration));
+            mActive = mReleasePhase < 1.f;
+        } else {
+            mActive = false;
+        }
+    }
+    bool active() const { return mActive; }
+    void reset() override { mActive = false; mReleasePhase = -1.f; }
+private:
+    bool mActive = false;
+    float mReleasePhase = -1.f;
+};
+struct IfEnd : public BlockRateOp {
+    int getNumPorts(Port::Dir dir) override { return 0; }
+};
+
 struct Control : public BlockRateOp {
     Control(std::string name = "control") { mName = name; }
     int getNumPorts(Port::Dir dir) override {

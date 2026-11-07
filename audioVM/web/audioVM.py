@@ -187,6 +187,27 @@ class VM:
             yield
         finally:
             self.op("polyEnd")
+
+    @contextmanager
+    def when(self, condition, timeOut=0):
+        """Run the enclosed operators only while ``condition`` is non-zero.
+
+        The condition is sampled once per audio block.  When it becomes zero,
+        an internal release phase advances from 0 to 1 at ``1 / timeOut`` per
+        second; the block is skipped once it reaches 1.  This is deliberately
+        control flow rather than a signal selector: skipped operators do not
+        advance their internal state.  ``if`` cannot be used as this method's
+        name because it is a Python keyword.
+        """
+        self.op("ifStart", {"condition": condition, "timeOut": timeOut})
+        try:
+            yield
+        finally:
+            self.op("ifEnd")
+
+    def if_(self, condition, timeOut=0):
+        """Alias for :meth:`when`; the trailing underscore avoids ``if``."""
+        return self.when(condition, timeOut)
     
     def get_json(self):
         s = '{\n\t"version": 1,\n\t"polyphony":'+str(self.polyphony)+',\n\t"program": [\n'
