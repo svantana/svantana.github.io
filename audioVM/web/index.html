@@ -15,10 +15,19 @@
     select { max-width:180px; border:1px solid var(--border); border-radius:5px; background:#282c32; color:var(--text); padding:7px 28px 7px 9px; font:inherit; }
     select:disabled { cursor:wait; opacity:.55; }
     #play.playing { background:var(--accent); color:#102116; border-color:var(--accent); }
-    main { display:grid; grid-template-columns:minmax(210px, 280px) minmax(320px, 1.2fr) minmax(280px, .8fr); grid-template-rows:minmax(0, 1fr); height:100vh; overflow:hidden; transition:grid-template-columns .18s ease; }
-    main.ops-collapsed { grid-template-columns:42px minmax(320px, 1.2fr) minmax(280px, .8fr); }
+    main { --operator-width:168px; --editor-width:minmax(320px, 1.2fr); display:grid; grid-template-columns:var(--operator-width) 6px var(--editor-width) 6px minmax(280px, 1fr); grid-template-rows:minmax(0, 1fr); height:100vh; overflow:hidden; transition:grid-template-columns .18s ease; }
+    main.resizing { transition:none; }
+    main.ops-collapsed { grid-template-columns:42px 0 minmax(320px, 1.2fr) 6px minmax(280px, 1fr); }
     section { min-width:0; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
-    section + section { border-left:1px solid var(--border); }
+    #operator-sidebar { grid-column:1; }
+    #operator-resize { grid-column:2; }
+    #editor-panel { grid-column:3; }
+    #player-resize { grid-column:4; }
+    #right-panel { grid-column:5; }
+    .resize-handle { position:relative; z-index:2; cursor:col-resize; background:var(--border); touch-action:none; }
+    .resize-handle:hover, .resize-handle.resizing { background:var(--accent); }
+    .resize-handle::after { position:absolute; top:0; right:-3px; bottom:0; left:-3px; content:""; }
+    main.ops-collapsed #operator-resize { visibility:hidden; pointer-events:none; }
     .section-head { display:flex; align-items:center; min-height:44px; padding:8px 14px; border-bottom:1px solid var(--border); background:var(--panel); }
     .section-head strong { font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
     .section-head span { margin-left:auto; color:var(--muted); font-size:12px; }
@@ -110,7 +119,7 @@
     .piano-key:hover { border-color:var(--accent); }
     .piano-key.active { background:var(--accent); color:#112116; border-color:var(--accent); }
     .piano-key.black.active { background:#76c995; color:#102116; }
-    @media (max-width:720px) { main, main.ops-collapsed { grid-template-columns:1fr; grid-template-rows:auto minmax(340px, 56vh) auto; } #operator-sidebar { max-height:42vh; } section + section { border:0; border-top:1px solid var(--border); } #controls { min-height:220px; } }
+    @media (max-width:720px) { main, main.ops-collapsed { grid-template-columns:1fr; grid-template-rows:auto minmax(340px, 56vh) auto; } #operator-sidebar, #operator-resize, #editor-panel, #player-resize, #right-panel { grid-column:auto; } .resize-handle { display:none; } #operator-sidebar { max-height:42vh; } section + section { border:0; border-top:1px solid var(--border); } #controls { min-height:220px; } }
   </style>
 </head>
 <body>
@@ -124,7 +133,8 @@
       <input id="operator-search" type="search" placeholder="Search operators" aria-label="Search operators">
       <div id="operator-list" aria-live="polite"><p class="operator-empty">Loading operators…</p></div>
     </section>
-    <section>
+    <div id="operator-resize" class="resize-handle" role="separator" aria-label="Resize operator reference" aria-orientation="vertical"></div>
+    <section id="editor-panel">
       <div class="editor code">
         <div id="gutter" aria-hidden="true">1</div>
         <div class="code-stack">
@@ -144,6 +154,7 @@
         <span id="status">Loading AudioVM…</span>
       </div>
     </section>
+    <div id="player-resize" class="resize-handle" role="separator" aria-label="Resize code editor" aria-orientation="vertical"></div>
     <section id="right-panel" tabindex="0" aria-label="AudioVM controls and piano keyboard">
       <span id="control-count" hidden>0 controls</span>
       <div id="transport-bar" hidden aria-label="Transport">
@@ -234,7 +245,10 @@
     const keyboardPanel = document.querySelector('.keyboard-panel');
     const piano = document.querySelector('#piano');
     const main = document.querySelector('main');
+    const editorPanel = document.querySelector('#editor-panel');
     const operatorSidebarToggle = document.querySelector('#operator-sidebar-toggle');
+    const operatorResize = document.querySelector('#operator-resize');
+    const playerResize = document.querySelector('#player-resize');
     const operatorSearch = document.querySelector('#operator-search');
     const operatorList = document.querySelector('#operator-list');
     const operatorCount = document.querySelector('#operator-sidebar-count');
@@ -325,6 +339,31 @@
       operatorSidebarToggle.setAttribute('aria-label', collapsed ? 'Expand operator reference' : 'Collapse operator reference');
       operatorSidebarToggle.setAttribute('aria-expanded', String(!collapsed));
     });
+    const makeResizeHandle = (handle, minimum, getWidth, setWidth, getMaximum) => {
+      handle.addEventListener('pointerdown', event => {
+        event.preventDefault();
+        const startX = event.clientX;
+        const startWidth = getWidth();
+        main.classList.add('resizing');
+        handle.classList.add('resizing');
+        handle.setPointerCapture(event.pointerId);
+        const resize = move => setWidth(Math.max(minimum, Math.min(getMaximum(), startWidth + move.clientX - startX)));
+        handle.addEventListener('pointermove', resize);
+        handle.addEventListener('lostpointercapture', () => {
+          main.classList.remove('resizing');
+          handle.classList.remove('resizing');
+          handle.removeEventListener('pointermove', resize);
+        }, { once:true });
+      });
+    };
+    makeResizeHandle(operatorResize, 126,
+      () => document.querySelector('#operator-sidebar').getBoundingClientRect().width,
+      width => main.style.setProperty('--operator-width', `${width}px`),
+      () => main.clientWidth - editorPanel.getBoundingClientRect().width - 280 - 12);
+    makeResizeHandle(playerResize, 320,
+      () => editorPanel.getBoundingClientRect().width,
+      width => main.style.setProperty('--editor-width', `${width}px`),
+      () => main.clientWidth - document.querySelector('#operator-sidebar').getBoundingClientRect().width - 280 - 12);
     loadOperatorDefinitions();
 
     const keywords = new Set(['and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'if', 'import', 'in', 'is', 'lambda', 'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield']);
