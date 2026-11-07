@@ -104,5 +104,93 @@ int main() {
         std::cerr << "transport loop did not wrap at its requested length\n";
         return 1;
     }
+
+    AudioVM::Processor midiBufferProcessor;
+    midiBufferProcessor.setup(44100.f, 1, 1, 16);
+    midiBufferProcessor.loadFromJSON(R"({"version":1,"program":[
+        {"type":"midiBuffer","id":"arp"},
+        {"type":"toAudio","id":"note","input":"arp.note"},
+        {"type":"audioOut","id":"out","input":"note"}
+    ]})");
+    if (!midiBufferProcessor.setMidiOutput("arp") ||
+        !midiBufferProcessor.midiEvent("arp", static_cast<char>(0x90), 64, 100)) {
+        std::cerr << "named MIDI buffer could not be configured\n";
+        return 1;
+    }
+    float midiBufferOutput[16]{};
+    float* midiBufferOutputs[] = {midiBufferOutput};
+    midiBufferProcessor.process(nullptr, midiBufferOutputs, 16);
+    AudioVM::MidiEvent midiOutputEvent{};
+    if (std::abs(midiBufferOutput[15] - 64.f) > 1e-6f ||
+        !midiBufferProcessor.readMidiOutput(midiOutputEvent) ||
+        midiOutputEvent.status != 0x90 || midiOutputEvent.data1 != 64 || midiOutputEvent.data2 != 100) {
+        std::cerr << "named MIDI buffer did not expose its processed event\n";
+        return 1;
+    }
+
+    // A MIDI buffer used directly by a synth must sound the same as an event
+    // forwarded through one processor's MIDI output into another processor.
+    const char* directSynth = R"({"version":1,"program":[
+        {"type":"midiBuffer","id":"generator"},
+        {"type":"oscSaw","id":"osc","input":{"note":"generator.note"}},
+        {"type":"envADSR","id":"env","input":{"gate":"generator.gate","a":0.001,"d":0.1,"s":0.5,"r":0.1}},
+        {"type":"mul","id":"amp","input":["osc","env"]},
+        {"type":"audioOut","id":"out","input":"amp"}
+    ]})";
+    const char* receivingSynth = R"({"version":1,"program":[
+        {"type":"oscSaw","id":"osc","input":{"note":"midi.note"}},
+        {"type":"envADSR","id":"env","input":{"gate":"midi.gate","a":0.001,"d":0.1,"s":0.5,"r":0.1}},
+        {"type":"mul","id":"amp","input":["osc","env"]},
+        {"type":"audioOut","id":"out","input":"amp"}
+    ]})";
+    AudioVM::Processor directProcessor;
+    directProcessor.setup(44100.f, 1, 1, 16);
+    directProcessor.loadFromJSON(directSynth);
+    if (!directProcessor.midiEvent("generator", static_cast<char>(0x90), 60, 100)) {
+        std::cerr << "direct synth could not receive generator MIDI\n";
+        return 1;
+    }
+    float directOutput[16]{};
+    float* directOutputs[] = {directOutput};
+    directProcessor.process(nullptr, directOutputs, 16);
+
+    AudioVM::Processor generatorProcessor;
+    generatorProcessor.setup(44100.f, 1, 1, 16);
+    generatorProcessor.loadFromJSON(R"({"version":1,"program":[
+        {"type":"midiBuffer","id":"generator"}
+    ]})");
+    if (!generatorProcessor.setMidiOutput("generator") ||
+        !generatorProcessor.midiEvent("generator", static_cast<char>(0x90), 60, 100)) {
+        std::cerr << "generator processor could not produce MIDI\n";
+        return 1;
+    }
+    generatorProcessor.process(nullptr, nullptr, 16);
+    AudioVM::MidiEvent generatedEvent{};
+    if (!generatorProcessor.readMidiOutput(generatedEvent)) {
+        std::cerr << "generator processor produced no MIDI output\n";
+        return 1;
+    }
+
+    AudioVM::Processor receivingProcessor;
+    receivingProcessor.setup(44100.f, 1, 1, 16);
+    receivingProcessor.loadFromJSON(receivingSynth);
+    receivingProcessor.midiEvent(static_cast<char>(generatedEvent.status),
+                                  static_cast<char>(generatedEvent.data1),
+                                  static_cast<char>(generatedEvent.data2));
+    float receivedOutput[16]{};
+    float* receivedOutputs[] = {receivedOutput};
+    receivingProcessor.process(nullptr, receivedOutputs, 16);
+    bool directIsAudible = false;
+    for (int sample = 0; sample < 16; ++sample) {
+        directIsAudible = directIsAudible || std::abs(directOutput[sample]) > 1e-6f;
+        if (std::abs(directOutput[sample] - receivedOutput[sample]) > 1e-6f) {
+            std::cerr << "forwarded MIDI did not reproduce direct synth output\n";
+            return 1;
+        }
+    }
+    if (!directIsAudible) {
+        std::cerr << "direct MIDI synth produced silence\n";
+        return 1;
+    }
     return 0;
 }

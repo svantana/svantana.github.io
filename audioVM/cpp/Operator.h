@@ -1,9 +1,29 @@
 #pragma once
 
+#include <array>
+#include <atomic>
 #include <vector>
 
 namespace AudioVM {
     typedef const char* cStr;
+    struct MidiEvent {
+        unsigned char status;
+        unsigned char data1;
+        unsigned char data2;
+    };
+    class MidiEventFifo {
+    public:
+        static constexpr size_t Capacity = 256;
+
+        bool push(MidiEvent event);
+        bool pop(MidiEvent& event);
+        void clear();
+
+    private:
+        std::array<MidiEvent, Capacity> mEvents{};
+        std::atomic<size_t> mWrite{0};
+        std::atomic<size_t> mRead{0};
+    };
     struct Buffer {
         Buffer(float *aPtr = nullptr, int aNumSamples = 1, int aNumChannels = 1) {
             ptr = aPtr; numSamples = aNumSamples; numChannels = aNumChannels;

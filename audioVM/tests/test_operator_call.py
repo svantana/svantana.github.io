@@ -81,6 +81,15 @@ class OperatorCallTests(unittest.TestCase):
         self.assertIn('"transport.bpm"', vm.get_json())
         self.assertIn('"transport.beatPos"', vm.get_json())
 
+    def test_named_midi_buffer_is_a_program_source(self):
+        vm = VM()
+        arp = vm.midi("arp")
+        vm.op("oscSaw", {"note": arp.note})
+
+        self.assertEqual(vm.program[0].type, "midiBuffer")
+        self.assertEqual(vm.program[0].name, "arp")
+        self.assertIn('"arp.note"', vm.get_json())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -109,10 +109,10 @@ class Delay:
                           id=self.name + ".write")
 
 class Midi: # convenience class for midi inputs
-    def __init__(self, vm):
+    def __init__(self, vm, name="midi"):
         outs = ["channel", "gate", "onset", "offset", "note", "velocity", "pitchbend", "modwheel"]
         for out in outs:
-            setattr(self, out, Operator(vm, "const", "midi."+out))
+            setattr(self, out, Operator(vm, "const", name+"."+out))
 
 class Transport:
     """Block-rate transport values supplied by the AudioVM host."""
@@ -128,6 +128,7 @@ class VM:
         self.typeCounts = {}
         self.polyphony = polyphony
         self.midiObj = Midi(self)
+        self.midiObjects = {"midi": self.midiObj}
         self.transportObj = Transport(self)
         self.settings = {}
 
@@ -199,9 +200,18 @@ class VM:
     def write(self, input):
         self.op("write", input)
 
-    def midi(self):
-        #self.op("midi", input={}) # TODO: any midi settings?
-        return self.midiObj
+    def midi(self, name=None):
+        """Return the default MIDI source or create a named virtual source."""
+        if name is None:
+            return self.midiObj
+        if not isinstance(name, str) or not name:
+            raise TypeError("MIDI buffer name must be a non-empty string")
+        if name in self.midiObjects:
+            return self.midiObjects[name]
+        self.op("midiBuffer", id=name)
+        midi = Midi(self, name)
+        self.midiObjects[name] = midi
+        return midi
 
     def transport(self):
         """Return the engine-global, block-rate transport source."""

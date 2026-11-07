@@ -3,8 +3,6 @@
 #include <vector>
 #include <string>
 #include <map>
-#include <array>
-#include <atomic>
 #include "Operator.h"
 
 namespace AudioVM {
@@ -29,6 +27,9 @@ public:
     
     // realtime processing interface
     void midiEvent(char b0, char b1, char b2);
+    bool midiEvent(const std::string& bufferId, char b0, char b1, char b2);
+    bool setMidiOutput(const std::string& bufferId);
+    bool readMidiOutput(MidiEvent& event);
     void setBPM(float bpm);
     void setPlay(bool doPlay);
     void setBeatPos(float beatPos);
@@ -54,27 +55,6 @@ private:
     
     int mBlockSize, mNumInputChannels, mNumOutputChannels;
     float mSamplerate;
-    int mCurrMidiNote;
-    struct MidiEvent {
-        unsigned char status;
-        unsigned char data1;
-        unsigned char data2;
-    };
-    // MIDI may arrive independently of the audio callback. One producer (the
-    // host MIDI input) and the audio thread consume this fixed-size ring
-    // without allocating or locking.
-    struct MidiEventFIFO {
-        static constexpr size_t Capacity = 256;
-
-        bool push(MidiEvent event);
-        bool pop(MidiEvent& event);
-        void clear();
-
-    private:
-        std::array<MidiEvent, Capacity> mEvents{};
-        std::atomic<size_t> mWrite{0};
-        std::atomic<size_t> mRead{0};
-    } mMidiEventFIFO;
     struct Transport {
         float bpm = 120.f;
         float beatPos = 0.f;
@@ -100,8 +80,9 @@ private:
         void print();
         std::vector<Entry> list;
         std::vector<float> mIoBuffer;
-        std::vector<int> mAudioInIds, mAudioOutIds, mControlIds;
+        std::vector<int> mAudioInIds, mAudioOutIds, mControlIds, mMidiBufferIds;
         int mMidiInId = -1;
+        int mMidiOutputId = -1;
         int mTransportInId = -1;
     };
     Program mProgram;
@@ -123,6 +104,7 @@ private:
     struct PolyRange {
         int startIndex = -1;
         int endIndex = -1;
+        int midiBufferId = -1;
         float timeOutSeconds = -1.f;
         int timeOutControlIndex = -1;
         std::vector<Voice> voices;
@@ -137,7 +119,7 @@ private:
 
     void resetVoice(Voice& voice);
     void processPolyRange(PolyRange& range, int numSamples);
-    void applyMidiEvent(unsigned char status, unsigned char data1, unsigned char data2);
+    void applyMidiEvent(int midiBufferId, MidiEvent event);
     void consumeMidiEvents();
     void clearMidiEvents();
     void updateTransportOutputs();

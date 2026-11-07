@@ -20,7 +20,8 @@ Processor::Processor()
 {
     registerType(kIdAudioIn , [] { return std::make_unique<AudioIn>(); });
     registerType(kIdAudioOut, [] { return std::make_unique<AudioOut>(); });
-    registerType("midiIn", [] { return std::make_unique<MidiIn>(); });
+    registerType("midiIn", [] { return std::make_unique<MidiBuffer>(); });
+    registerType("midiBuffer", [] { return std::make_unique<MidiBuffer>(); });
     registerType("transportIn", [] { return std::make_unique<TransportIn>(); });
     registerType("polyStart", [] { return std::make_unique<PolyStart>(); });
     registerType("polyEnd", [] { return std::make_unique<PolyEnd>(); });
@@ -206,6 +207,8 @@ bool Processor::compileProgram() {
     mProgram.mAudioInIds.clear();
     mProgram.mControlIds.clear();
     mProgram.mMidiInId = -1;
+    mProgram.mMidiOutputId = -1;
+    mProgram.mMidiBufferIds.clear();
     mProgram.mTransportInId = -1;
 
     int size = 1; // Keep a zero value for unconnected control-rate inputs.
@@ -243,8 +246,9 @@ bool Processor::compileProgram() {
         if (dynamic_cast<Control*>(entry.op.get())) {
             mProgram.mControlIds.push_back(n);
         }
-        if (dynamic_cast<MidiIn*>(entry.op.get())) {
-            mProgram.mMidiInId = n;
+        if (dynamic_cast<MidiBuffer*>(entry.op.get())) {
+            mProgram.mMidiBufferIds.push_back(n);
+            if (mProgram.mMidiInId < 0) mProgram.mMidiInId = n;
         }
         if (dynamic_cast<TransportIn*>(entry.op.get())) {
             mProgram.mTransportInId = n;
@@ -334,6 +338,20 @@ bool Processor::compileProgram() {
                 throw std::runtime_error("polyEnd has no matching polyStart");
             }
             mPolyPrograms[openRange].endIndex = index;
+            PolyRange& range = mPolyPrograms[openRange];
+            range.midiBufferId = -1;
+            for (int rangeIndex = range.startIndex + 1; rangeIndex < range.endIndex; ++rangeIndex) {
+                for (const int sourceId : mProgram.list[rangeIndex].mInputIds) {
+                    if (sourceId < 0) continue;
+                    const int sourceIndex = sourceId / OpSpacing;
+                    if (dynamic_cast<MidiBuffer*>(mProgram.list[sourceIndex].op.get()) == nullptr) continue;
+                    if (range.midiBufferId >= 0 && range.midiBufferId != sourceIndex) {
+                        throw std::runtime_error("polyphonic range cannot use more than one MIDI buffer");
+                    }
+                    range.midiBufferId = sourceIndex;
+                }
+            }
+            if (range.midiBufferId < 0) range.midiBufferId = mProgram.mMidiInId;
             openRange = -1;
         }
     }
@@ -518,7 +536,7 @@ bool Processor::compileProgram() {
                     const int sourcePort = sourceId % OpSpacing;
                     if (sourceIndex > range.startIndex && sourceIndex < range.endIndex) {
                         clone.mInputs[input] = voice.list[sourceIndex - range.startIndex - 1].mOutputs[sourcePort];
-                    } else if (sourceIndex == mProgram.mMidiInId) {
+                    } else if (sourceIndex == range.midiBufferId) {
                         clone.mInputs[input] = Buffer(&voice.mMidiValues[sourcePort]);
                     } else {
                         clone.mInputs[input] = mProgram.list[sourceIndex].mOutputs[sourcePort];
@@ -604,6 +622,8 @@ void Processor::loadFromJSON(std::string jsonString) {
         // entries.  Store their individual output-port IDs in the same lookup
         // table used by regular operator IDs.
         const int midiInId = addOperator("midiIn");
+        mProgram.list.back().mId = "midi";
+        mCompiler.mIdToIndex.emplace("midi", midiInId);
         mCompiler.mIdToIndex.emplace("midi.gate", midiInId + MidiIn::Gate);
         mCompiler.mIdToIndex.emplace("midi.note", midiInId + MidiIn::Note);
         mCompiler.mIdToIndex.emplace("midi.velocity", midiInId + MidiIn::Velocity);
@@ -717,6 +737,13 @@ void Processor::loadFromJSON(std::string jsonString) {
             Entry& entry = mProgram.list.back();
             entry.mId = id;
             mCompiler.mIdToIndex.emplace(id, opId);
+            if (dynamic_cast<MidiBuffer*>(entry.op.get()) != nullptr) {
+                mCompiler.mIdToIndex.emplace(id + ".gate", opId + MidiBuffer::Gate);
+                mCompiler.mIdToIndex.emplace(id + ".note", opId + MidiBuffer::Note);
+                mCompiler.mIdToIndex.emplace(id + ".velocity", opId + MidiBuffer::Velocity);
+                mCompiler.mIdToIndex.emplace(id + ".onset", opId + MidiBuffer::Onset);
+                mCompiler.mIdToIndex.emplace(id + ".offset", opId + MidiBuffer::Offset);
+            }
         }
         compileProgram();
     } catch (...) {
@@ -739,20 +766,27 @@ std::string Processor::getOpListAsJSON() {
     std::map<int, std::string> sourceIds;
     std::map<std::string, bool> usedIds;
     for (const Entry& entry : mProgram.list) {
-        if (dynamic_cast<const MidiIn*>(entry.op.get()) == nullptr &&
+        if (entry.mType != "midiIn" &&
             dynamic_cast<const TransportIn*>(entry.op.get()) == nullptr && !entry.mId.empty()) {
             usedIds.emplace(entry.mId, true);
         }
     }
     int generatedId = 0;
     for (const Entry& entry : mProgram.list) {
-        if (dynamic_cast<const MidiIn*>(entry.op.get()) != nullptr) {
+        if (entry.mType == "midiIn") {
             sourceIds.emplace(entry.mIndex + MidiIn::Gate, "midi.gate");
             sourceIds.emplace(entry.mIndex + MidiIn::Note, "midi.note");
             sourceIds.emplace(entry.mIndex + MidiIn::Velocity, "midi.velocity");
             sourceIds.emplace(entry.mIndex + MidiIn::Onset, "midi.onset");
             sourceIds.emplace(entry.mIndex + MidiIn::Offset, "midi.offset");
             continue;
+        }
+        if (dynamic_cast<const MidiBuffer*>(entry.op.get()) != nullptr) {
+            sourceIds.emplace(entry.mIndex + MidiBuffer::Gate, entry.mId + ".gate");
+            sourceIds.emplace(entry.mIndex + MidiBuffer::Note, entry.mId + ".note");
+            sourceIds.emplace(entry.mIndex + MidiBuffer::Velocity, entry.mId + ".velocity");
+            sourceIds.emplace(entry.mIndex + MidiBuffer::Onset, entry.mId + ".onset");
+            sourceIds.emplace(entry.mIndex + MidiBuffer::Offset, entry.mId + ".offset");
         }
         if (dynamic_cast<const TransportIn*>(entry.op.get()) != nullptr) {
             sourceIds.emplace(entry.mIndex + TransportIn::BPM, "transport.bpm");
@@ -773,7 +807,7 @@ std::string Processor::getOpListAsJSON() {
 
     for (const Entry& entry : mProgram.list) {
         // MIDI is represented by audioVM.py as the implicit midi.* sources.
-        if (dynamic_cast<const MidiIn*>(entry.op.get()) != nullptr ||
+        if (entry.mType == "midiIn" ||
             dynamic_cast<const TransportIn*>(entry.op.get()) != nullptr) {
             continue;
         }
@@ -898,7 +932,7 @@ void Processor::processPolyRange(PolyRange& range, int numSamples) {
     }
 }
 
-bool Processor::MidiEventFIFO::push(MidiEvent event) {
+bool MidiEventFifo::push(MidiEvent event) {
     const size_t write = mWrite.load(std::memory_order_relaxed);
     const size_t next = (write + 1) % Capacity;
     if (next == mRead.load(std::memory_order_acquire)) return false;
@@ -907,7 +941,7 @@ bool Processor::MidiEventFIFO::push(MidiEvent event) {
     return true;
 }
 
-bool Processor::MidiEventFIFO::pop(MidiEvent& event) {
+bool MidiEventFifo::pop(MidiEvent& event) {
     const size_t read = mRead.load(std::memory_order_relaxed);
     if (read == mWrite.load(std::memory_order_acquire)) return false;
     event = mEvents[read];
@@ -915,42 +949,56 @@ bool Processor::MidiEventFIFO::pop(MidiEvent& event) {
     return true;
 }
 
-void Processor::MidiEventFIFO::clear() {
+void MidiEventFifo::clear() {
     const size_t write = mWrite.load(std::memory_order_acquire);
     mRead.store(write, std::memory_order_release);
 }
 
 void Processor::clearMidiEvents() {
-    mMidiEventFIFO.clear();
+    for (const int bufferId : mProgram.mMidiBufferIds) {
+        static_cast<MidiBuffer*>(mProgram.list[bufferId].op.get())->clearEvents();
+    }
 }
 
 void Processor::midiEvent(char b0, char b1, char b2) {
-    // Keep the oldest events if the host outruns the audio callback.  The
-    // following producer attempt can retry after the audio thread advances.
-    mMidiEventFIFO.push({
-        static_cast<unsigned char>(b0),
-        static_cast<unsigned char>(b1),
-        static_cast<unsigned char>(b2),
-    });
+    midiEvent("midi", b0, b1, b2);
 }
 
-void Processor::consumeMidiEvents() {
-    MidiEvent event;
-    while (mMidiEventFIFO.pop(event)) {
-        applyMidiEvent(event.status, event.data1, event.data2);
+bool Processor::midiEvent(const std::string& bufferId, char b0, char b1, char b2) {
+    for (const int index : mProgram.mMidiBufferIds) {
+        Entry& entry = mProgram.list[index];
+        if (entry.mId != bufferId) continue;
+        return static_cast<MidiBuffer*>(entry.op.get())->write({
+            static_cast<unsigned char>(b0),
+            static_cast<unsigned char>(b1),
+            static_cast<unsigned char>(b2),
+        });
     }
+    return false;
 }
 
-void Processor::applyMidiEvent(unsigned char b0, unsigned char b1, unsigned char b2) {
-    if (mProgram.mMidiInId < 0) {
-        return; // no midi
+bool Processor::setMidiOutput(const std::string& bufferId) {
+    for (const int index : mProgram.mMidiBufferIds) {
+        if (mProgram.list[index].mId == bufferId) {
+            mProgram.mMidiOutputId = index;
+            return true;
+        }
     }
-    Entry &E = mProgram.list[mProgram.mMidiInId];
+    return false;
+}
+
+bool Processor::readMidiOutput(MidiEvent& event) {
+    if (mProgram.mMidiOutputId < 0) return false;
+    return static_cast<MidiBuffer*>(mProgram.list[mProgram.mMidiOutputId].op.get())->read(event);
+}
+
+void Processor::applyMidiEvent(int midiBufferId, MidiEvent event) {
+    Entry &E = mProgram.list[midiBufferId];
     auto &O = E.mOutputs;
     //O[MidiIn::Channel].value() = b0 & 0x0f; // TODO: handle channel
-    const int note = b1;
-    const int velocity = b2;
-    int msg = b0 & 0xf0;
+    const int note = event.data1;
+    const int velocity = event.data2;
+    int msg = event.status & 0xf0;
     if (msg == kMidiNoteOn && velocity == 0) msg = kMidiNoteOff;
     switch (msg) {
         case kMidiNoteOn: {
@@ -958,8 +1006,8 @@ void Processor::applyMidiEvent(unsigned char b0, unsigned char b1, unsigned char
             O[MidiIn::Note].set(note);
             O[MidiIn::Velocity].set(velocity);
             O[MidiIn::Onset].set(1.f);
-            mCurrMidiNote = note;
             for (PolyRange& range : mPolyPrograms) {
+                if (range.midiBufferId != midiBufferId) continue;
                 Voice* selected = nullptr;
                 for (Voice& voice : range.voices) {
                     if (!voice.active) {
@@ -986,11 +1034,12 @@ void Processor::applyMidiEvent(unsigned char b0, unsigned char b1, unsigned char
             break;
         }
         case kMidiNoteOff: {
-            if (note == mCurrMidiNote) {
+            if (static_cast<int>(O[MidiIn::Note].value()) == note) {
                 O[MidiIn::Gate].set(0.f);
             }
             O[MidiIn::Offset].set(1.f);
             for (PolyRange& range : mPolyPrograms) {
+                if (range.midiBufferId != midiBufferId) continue;
                 for (Voice& voice : range.voices) {
                     if (voice.active && voice.note == note) {
                         voice.mMidiValues[MidiIn::Gate] = 0.f;
@@ -1004,6 +1053,17 @@ void Processor::applyMidiEvent(unsigned char b0, unsigned char b1, unsigned char
             break;
         }
     };
+}
+
+void Processor::consumeMidiEvents() {
+    for (const int bufferId : mProgram.mMidiBufferIds) {
+        auto* buffer = static_cast<MidiBuffer*>(mProgram.list[bufferId].op.get());
+        MidiEvent event;
+        while (buffer->consume(event)) {
+            applyMidiEvent(bufferId, event);
+            buffer->publish(event);
+        }
+    }
 }
 
 void Processor::updateTransportOutputs() {

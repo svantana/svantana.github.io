@@ -22,7 +22,7 @@ struct AudioIn : public FullRateOp {
 struct AudioOut : public FullRateOp {
     int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? 1 : 0; }
 };
-struct MidiIn : public BlockRateOp {
+struct MidiBuffer : public BlockRateOp {
     // Onset and Offset are one-processing-block triggers set by note-on and
     // note-off events.  Keep the established output indices intact so manual
     // programs that address the original MIDI outputs remain compatible.
@@ -32,7 +32,17 @@ struct MidiIn : public BlockRateOp {
         cStr o[] = {"gate", "note", "velocity", "onset", "offset"};
         return dir == Port::Out ? o[index] : "";
     }
+    bool write(MidiEvent event) { return mIncomingEvents.push(event); }
+    bool read(MidiEvent& event) { return mProcessedEvents.pop(event); }
+    bool consume(MidiEvent& event) { return mIncomingEvents.pop(event); }
+    void publish(MidiEvent event) { mProcessedEvents.push(event); }
+    void clearEvents() { mIncomingEvents.clear(); mProcessedEvents.clear(); }
+
+private:
+    MidiEventFifo mIncomingEvents;
+    MidiEventFifo mProcessedEvents;
 };
+using MidiIn = MidiBuffer;
 struct TransportIn : public BlockRateOp {
     enum Type { BPM, BeatPos, Play, LoopBeats, NumTypes };
     int getNumPorts(Port::Dir dir) override { return (dir == Port::Out) ? NumTypes : 0; }
