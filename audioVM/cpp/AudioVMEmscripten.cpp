@@ -2,8 +2,6 @@
 
 #include <emscripten/emscripten.h>
 
-#include <vector>
-
 namespace {
 
 // Returned JSON remains valid until the next audiovm_get_*_json call.
@@ -73,15 +71,12 @@ EMSCRIPTEN_KEEPALIVE void audiovm_process(AudioVM::Processor* processor,
                                           int numSamples,
                                           int inputChannels,
                                           int outputChannels) {
-    std::vector<float*> inputPointers(inputChannels);
-    std::vector<float*> outputPointers(outputChannels);
-    for (int channel = 0; channel < inputChannels; ++channel) {
-        inputPointers[channel] = input + static_cast<size_t>(channel) * numSamples;
-    }
-    for (int channel = 0; channel < outputChannels; ++channel) {
-        outputPointers[channel] = output + static_cast<size_t>(channel) * numSamples;
-    }
-    processor->process(inputPointers.data(), outputPointers.data(), numSamples);
+    // Channel counts are fixed by audiovm_setup.  They remain parameters for
+    // backwards-compatible JS calls, but pointer arrays now live in Processor
+    // rather than being allocated for every 128-frame callback.
+    (void)inputChannels;
+    (void)outputChannels;
+    processor->processPlanar(input, output, numSamples);
 }
 
 } // extern "C"

@@ -30,6 +30,9 @@ public:
     void midiEvent(char b0, char b1, char b2);
     /* Accepts arbitrary buffer sizes */
     void process(float *const* inBufs, float **outBufs, int numSamples);
+    // Planar buffers used by the WebAssembly boundary.  Pointer arrays are
+    // retained by the processor so the audio callback does not allocate.
+    void processPlanar(float* input, float* output, int numSamples);
     
     int getNumControls();
     float getControlValue(int index);
@@ -46,6 +49,7 @@ private:
     int mBlockSize, mNumInputChannels, mNumOutputChannels;
     float mSamplerate;
     int mCurrMidiNote;
+    std::vector<float*> mInputPointers, mOutputPointers;
     
     void processBlock(float *const* inBufs, float **outBufs);
 
@@ -56,6 +60,7 @@ private:
         std::string mId;
         std::string mType;
         int mIndex;
+        bool mIsIfStart = false;
     };
     struct Program {
         void clear();
@@ -92,6 +97,9 @@ private:
     std::vector<PolyRange> mPolyPrograms;
     // Indexed by the program index of an IfStart; -1 for non-start entries.
     std::vector<int> mIfEndByStart;
+    // Maps a program index to its polyphonic range, or -1.  Only start
+    // indices are populated, making the hot loop an O(1) lookup.
+    std::vector<int> mPolyRangeByStart;
     unsigned long long mVoiceAge = 0;
 
     void resetVoice(Voice& voice);

@@ -2,6 +2,7 @@
 #include "libs/picojson.h"
 #include <assert.h>
 #include <cmath>
+#include <cstring>
 #include <limits>
 
 #include "ops/CoreOps.h"
@@ -72,12 +73,15 @@ void Processor::setup(float samplerate, int numInputChannels, int numOutputChann
     mNumInputChannels = numInputChannels;
     mNumOutputChannels = numOutputChannels;
     mBlockSize = blockSize;
+    mInputPointers.resize(numInputChannels);
+    mOutputPointers.resize(numOutputChannels);
 }
 
 void Processor::clearProgram() {
     mProgram.list.clear();
     mPolyPrograms.clear();
     mIfEndByStart.clear();
+    mPolyRangeByStart.clear();
     mVoiceAge = 0;
 }
 int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
@@ -303,6 +307,10 @@ bool Processor::compileProgram() {
     if (openRange >= 0) {
         throw std::runtime_error("polyStart has no matching polyEnd");
     }
+    mPolyRangeByStart.assign(mProgram.list.size(), -1);
+    for (int rangeIndex = 0; rangeIndex < static_cast<int>(mPolyPrograms.size()); ++rangeIndex) {
+        mPolyRangeByStart[mPolyPrograms[rangeIndex].startIndex] = rangeIndex;
+    }
 
     // Resolve conditional ranges once at compile time.  This keeps the audio
     // loop allocation-free and lets a false condition jump over an entire
@@ -337,6 +345,9 @@ bool Processor::compileProgram() {
     }
     if (!openIfs.empty()) {
         throw std::runtime_error("ifStart has no matching ifEnd");
+    }
+    for (int index = 0; index < static_cast<int>(mProgram.list.size()); ++index) {
+        mProgram.list[index].mIsIfStart = mIfEndByStart[index] >= 0;
     }
 
     // Bind write endpoints to the state owned by their read endpoint.  A
@@ -425,6 +436,7 @@ bool Processor::compileProgram() {
                 clone.mIndex = source.mIndex;
                 clone.mId = source.mId;
                 clone.mType = source.mType;
+                clone.mIsIfStart = source.mIsIfStart;
                 clone.mInputIds = source.mInputIds;
                 clone.op = makeOpWithId(source.mType);
                 clone.op->mSamplerate = mSamplerate;
@@ -807,7 +819,8 @@ void Processor::processPolyRange(PolyRange& range, int numSamples) {
         for (int offset = 0; offset < static_cast<int>(voice.list.size()); ++offset) {
             Entry& entry = voice.list[offset];
             const int programIndex = entry.mIndex / OpSpacing;
-            if (auto* ifStart = dynamic_cast<IfStart*>(entry.op.get())) {
+            if (entry.mIsIfStart) {
+                auto* ifStart = static_cast<IfStart*>(entry.op.get());
                 ifStart->process(entry.mInputs.data(), entry.mOutputs.data(), numSamples);
                 if (ifStart->active()) continue;
                 const int endIndex = mIfEndByStart[programIndex];
@@ -909,27 +922,21 @@ void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
             for (int ch = 0; ch < mNumInputChannels && inBufs; ch++) {
                 float *dst = mProgram.list[id/OpSpacing].mOutputs[id%OpSpacing].dataWrap(ch);
                 const float *src = &inBufs[ch][ioPos];
-                for (int i = 0; i < blockSize; i++) {
-                    dst[i] = src[i];
-                }
+                std::memcpy(dst, src, static_cast<size_t>(blockSize) * sizeof(float));
             }
         }
         
         for (int n = 0; n < (int)mProgram.list.size(); n++) {
-            PolyRange* range = nullptr;
-            for (PolyRange& candidate : mPolyPrograms) {
-                if (candidate.startIndex == n) {
-                    range = &candidate;
-                    break;
-                }
-            }
-            if (range != nullptr) {
-                processPolyRange(*range, blockSize);
-                n = range->endIndex;
+            const int rangeIndex = mPolyRangeByStart[n];
+            if (rangeIndex >= 0) {
+                PolyRange& range = mPolyPrograms[rangeIndex];
+                processPolyRange(range, blockSize);
+                n = range.endIndex;
                 continue;
             }
             Entry &E = mProgram.list[n];
-            if (auto* ifStart = dynamic_cast<IfStart*>(E.op.get())) {
+            if (E.mIsIfStart) {
+                auto* ifStart = static_cast<IfStart*>(E.op.get());
                 ifStart->process(E.mInputs.data(), E.mOutputs.data(), blockSize);
                 if (ifStart->active()) continue;
                 const int endIndex = mIfEndByStart[n];
@@ -951,9 +958,7 @@ void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
             for (int ch = 0; ch < mNumOutputChannels; ch++) {
                 const float *src = mProgram.list[id/OpSpacing].mOutputs[id%OpSpacing].dataWrap(ch);
                 float *dst = &outBufs[ch][ioPos];
-                for (int i = 0; i < blockSize; i++) {
-                    dst[i] = src[i];
-                }
+                std::memcpy(dst, src, static_cast<size_t>(blockSize) * sizeof(float));
             }
         }
         // MIDI inputs are control-rate, so an event trigger is observable for
@@ -972,6 +977,23 @@ void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
         }
         ioPos += blockSize;
     }
+}
+
+void Processor::processPlanar(float* input, float* output, int numSamples) {
+    if (input == nullptr) {
+        for (int channel = 0; channel < mNumOutputChannels; ++channel) {
+            mOutputPointers[channel] = output + static_cast<size_t>(channel) * numSamples;
+        }
+        process(nullptr, mOutputPointers.data(), numSamples);
+        return;
+    }
+    for (int channel = 0; channel < mNumInputChannels; ++channel) {
+        mInputPointers[channel] = input + static_cast<size_t>(channel) * numSamples;
+    }
+    for (int channel = 0; channel < mNumOutputChannels; ++channel) {
+        mOutputPointers[channel] = output + static_cast<size_t>(channel) * numSamples;
+    }
+    process(mInputPointers.data(), mOutputPointers.data(), numSamples);
 }
 
 void Processor::registerType(const std::string& name, OpCreator creator) {

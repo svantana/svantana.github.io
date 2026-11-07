@@ -7,6 +7,7 @@ class AudioVMProcessor extends AudioWorkletProcessor {
     this.processor = 0;
     this.inputPointer = 0;
     this.outputPointer = 0;
+    this.heap = null;
     this.blockSize = 128;
     this.outputChannels = 2;
     this.smoothedCpuLoad = 0;
@@ -60,6 +61,7 @@ class AudioVMProcessor extends AudioWorkletProcessor {
         this.wasm._free(jsonPointer);
         this.inputPointer = this.wasm._malloc(this.blockSize * 4);
         this.outputPointer = this.wasm._malloc(this.blockSize * this.outputChannels * 4);
+        this.heap = new Float32Array(this.wasm.HEAPU8.buffer);
         this.port.postMessage({ type: 'loaded', requestId: message.requestId, sampleRate, blockSize: this.blockSize });
       } else if (message.type === 'control' && this.processor) {
         this.wasm._audiovm_set_control_value(this.processor, message.index, message.value);
@@ -81,11 +83,14 @@ class AudioVMProcessor extends AudioWorkletProcessor {
     const frames = output[0].length;
     const input = inputs[0] || [];
     const start = Date.now();
-    let heap = new Float32Array(this.wasm.HEAPU8.buffer);
+    let heap = this.heap;
+    // A module compiled with memory growth can replace its backing buffer.
+    if (heap.buffer !== this.wasm.HEAPU8.buffer) {
+      heap = this.heap = new Float32Array(this.wasm.HEAPU8.buffer);
+    }
     heap.fill(0, this.inputPointer >> 2, (this.inputPointer >> 2) + frames);
     if (input[0]) heap.set(input[0], this.inputPointer >> 2);
     this.wasm._audiovm_process(this.processor, this.inputPointer, this.outputPointer, frames, 1, this.outputChannels);
-    heap = new Float32Array(this.wasm.HEAPU8.buffer);
     for (let channel = 0; channel < output.length; ++channel) {
       const offset = (this.outputPointer >> 2) + channel * frames;
       output[channel].set(heap.subarray(offset, offset + frames));
