@@ -1,4 +1,5 @@
 import sys
+import json
 from pathlib import Path
 import unittest
 
@@ -7,6 +8,21 @@ from audioVM import VM
 
 
 class OperatorCallTests(unittest.TestCase):
+    def test_set_emits_top_level_json_properties(self):
+        vm = VM()
+        vm.set("blocksize", 16)
+        vm.set({"name": "test", "enabled": True})
+
+        program = json.loads(vm.get_json())
+        self.assertEqual(program["blocksize"], 16)
+        self.assertEqual(program["name"], "test")
+        self.assertTrue(program["enabled"])
+
+    def test_set_rejects_invalid_key_form(self):
+        vm = VM()
+        with self.assertRaisesRegex(TypeError, "string key or a dictionary"):
+            vm.set([("blocksize", 16)])
+
     def test_call_sets_mapping_input_and_returns_operator(self):
         vm = VM()
         osc = vm.op("oscSaw", {"note": 60})

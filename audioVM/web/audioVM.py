@@ -2,6 +2,7 @@
 # generates an audio processing program in python. inputs are either constants or references to earlier output buffers
 
 from contextlib import contextmanager
+import json
 
 class Operator:
     def __init__(self, vm, nodeType, name=None, input=None):
@@ -119,6 +120,19 @@ class VM:
         self.typeCounts = {}
         self.polyphony = polyphony
         self.midiObj = Midi(self)
+        self.settings = {}
+
+    def set(self, key, value=None):
+        """Set one or more top-level properties in the generated program JSON."""
+        if isinstance(key, dict):
+            if value is not None:
+                raise TypeError("set() does not accept a value when its first argument is a dictionary")
+            self.settings.update(key)
+        elif isinstance(key, str):
+            self.settings[key] = value
+        else:
+            raise TypeError("set() expects a string key or a dictionary")
+        return self
 
     def op(self, nodeType, input=None, id=None):
         if nodeType not in self.typeCounts:
@@ -210,7 +224,10 @@ class VM:
         return self.when(condition, timeOut)
     
     def get_json(self):
-        s = '{\n\t"version": 1,\n\t"polyphony":'+str(self.polyphony)+',\n\t"program": [\n'
+        s = '{\n\t"version": 1,\n\t"polyphony":'+str(self.polyphony)
+        for key, value in self.settings.items():
+            s += ',\n\t' + json.dumps(key) + ': ' + json.dumps(value)
+        s += ',\n\t"program": [\n'
         for p in self.program:
             if type(p) is not Operator:
                 print("warning!")
@@ -225,7 +242,10 @@ class VM:
                     i = str(i).replace("'",'"')
                 s += ', "input": ' + i
             s += '},\n'
-        s = s[:-2] + "\n\t]\n}\n"
+        if self.program:
+            s = s[:-2] + "\n\t]\n}\n"
+        else:
+            s += "\t]\n}\n"
         return s
     def flatten_json(s):
         return s.replace('\n','').replace('\t','').replace('"','\\"')

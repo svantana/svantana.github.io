@@ -1,6 +1,8 @@
 #include "AudioVM.h"
 #include "libs/picojson.h"
 #include <assert.h>
+#include <cmath>
+#include <limits>
 
 #include "ops/CoreOps.h"
 
@@ -518,6 +520,21 @@ void Processor::loadFromJSON(std::string jsonString) {
         throw std::runtime_error("Invalid program JSON: missing array property 'program'");
     }
 
+    int blockSize = mBlockSize;
+    const auto blockSizeIt = root.find("blocksize");
+    if (blockSizeIt != root.end()) {
+        if (!blockSizeIt->second.is<double>()) {
+            throw std::runtime_error("Invalid program JSON: property 'blocksize' must be a positive integer");
+        }
+        const double requestedBlockSize = blockSizeIt->second.get<double>();
+        if (!std::isfinite(requestedBlockSize) || requestedBlockSize < 1 ||
+            requestedBlockSize > std::numeric_limits<int>::max() ||
+            std::floor(requestedBlockSize) != requestedBlockSize) {
+            throw std::runtime_error("Invalid program JSON: property 'blocksize' must be a positive integer");
+        }
+        blockSize = static_cast<int>(requestedBlockSize);
+    }
+
     const picojson::array& program = programIt->second.get<picojson::array>();
 
     // Construct the new graph separately from the active one.  A failed load
@@ -527,6 +544,8 @@ void Processor::loadFromJSON(std::string jsonString) {
     std::vector<PolyRange> previousPolyPrograms = std::move(mPolyPrograms);
     std::vector<int> previousIfEndByStart = std::move(mIfEndByStart);
     const unsigned long long previousVoiceAge = mVoiceAge;
+    const int previousBlockSize = mBlockSize;
+    mBlockSize = blockSize;
     mProgram = Program();
     mProgram.list.reserve(program.size());
     mCompiler = Compiler();
@@ -652,6 +671,7 @@ void Processor::loadFromJSON(std::string jsonString) {
         mPolyPrograms = std::move(previousPolyPrograms);
         mIfEndByStart = std::move(previousIfEndByStart);
         mVoiceAge = previousVoiceAge;
+        mBlockSize = previousBlockSize;
         throw;
     }
 }
