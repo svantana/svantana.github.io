@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <unordered_map>
 #include "Operator.h"
 
 namespace AudioVM {
@@ -47,9 +48,10 @@ public:
 
     // use this to register your operator types
     typedef std::function<OpPtr()> OpCreator;
-    void registerType(const std::string& name, OpCreator creator);
+    void registerType(const std::string& name, OpCreator creator, std::string description);
 private:
     std::unordered_map<std::string, OpCreator> mOpCreators;
+    std::unordered_map<std::string, std::string> mOpDescriptions;
     OpPtr makeOpWithId(const std::string& name) const;
     static const int OpSpacing = 10;
     

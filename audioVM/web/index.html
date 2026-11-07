@@ -15,12 +15,35 @@
     select { max-width:180px; border:1px solid var(--border); border-radius:5px; background:#282c32; color:var(--text); padding:7px 28px 7px 9px; font:inherit; }
     select:disabled { cursor:wait; opacity:.55; }
     #play.playing { background:var(--accent); color:#102116; border-color:var(--accent); }
-    main { display:grid; grid-template-columns:minmax(320px, 1.2fr) minmax(280px, .8fr); grid-template-rows:minmax(0, 1fr); height:100vh; overflow:hidden; }
+    main { display:grid; grid-template-columns:minmax(210px, 280px) minmax(320px, 1.2fr) minmax(280px, .8fr); grid-template-rows:minmax(0, 1fr); height:100vh; overflow:hidden; transition:grid-template-columns .18s ease; }
+    main.ops-collapsed { grid-template-columns:42px minmax(320px, 1.2fr) minmax(280px, .8fr); }
     section { min-width:0; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
     section + section { border-left:1px solid var(--border); }
     .section-head { display:flex; align-items:center; min-height:44px; padding:8px 14px; border-bottom:1px solid var(--border); background:var(--panel); }
     .section-head strong { font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
     .section-head span { margin-left:auto; color:var(--muted); font-size:12px; }
+    #operator-sidebar { background:#15171b; }
+    #operator-sidebar .section-head { flex:none; padding:7px 8px; gap:7px; }
+    #operator-sidebar .section-head strong { overflow:hidden; white-space:nowrap; }
+    #operator-sidebar-toggle { flex:none; width:26px; height:26px; padding:0; font-size:15px; }
+    #operator-sidebar-count { overflow:hidden; white-space:nowrap; }
+    #operator-search { width:calc(100% - 16px); margin:8px; border:1px solid var(--border); border-radius:5px; background:#111317; color:var(--text); padding:7px 8px; font:inherit; }
+    #operator-list { flex:1; min-height:0; overflow:auto; padding:0 8px 12px; }
+    .operator-item { border-bottom:1px solid #292d33; }
+    .operator-item summary { display:flex; align-items:center; min-height:33px; cursor:pointer; font:12px ui-monospace, monospace; list-style:none; }
+    .operator-item summary::-webkit-details-marker { display:none; }
+    .operator-item summary::before { width:14px; color:var(--muted); content:'›'; font:16px/1 sans-serif; }
+    .operator-item[open] summary::before { content:'⌄'; }
+    .operator-info { margin:0 0 8px 14px; color:#bac3cf; font:11px/1.55 ui-monospace, monospace; word-break:break-word; }
+    .operator-info p { margin:0; }
+    .operator-description { margin-bottom:4px !important; color:#bac3cf; font-family:ui-sans-serif, system-ui, sans-serif; }
+    .operator-info-label { color:var(--muted); }
+    .port-rate-block { color:var(--accent); }
+    .port-rate-full { color:var(--danger); }
+    .port-rate-keep { color:#9299a5; }
+    .operator-empty { padding:8px 0; color:var(--muted); font-size:12px; }
+    main.ops-collapsed #operator-sidebar .section-head { justify-content:center; }
+    main.ops-collapsed #operator-sidebar .section-head strong, main.ops-collapsed #operator-sidebar-count, main.ops-collapsed #operator-search, main.ops-collapsed #operator-list { display:none; }
     .editor { flex:1; min-height:0; display:flex; background:#14161a; }
     .code { font:13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size:2; }
     #gutter { flex:0 0 46px; overflow:hidden; padding:16px 9px 40px 0; border-right:1px solid var(--border); color:#69717d; text-align:right; user-select:none; white-space:pre; }
@@ -87,11 +110,20 @@
     .piano-key:hover { border-color:var(--accent); }
     .piano-key.active { background:var(--accent); color:#112116; border-color:var(--accent); }
     .piano-key.black.active { background:#76c995; color:#102116; }
-    @media (max-width:720px) { main { grid-template-columns:1fr; grid-template-rows:minmax(340px, 56vh) auto; } section + section { border:0; border-top:1px solid var(--border); } #controls { min-height:220px; } }
+    @media (max-width:720px) { main, main.ops-collapsed { grid-template-columns:1fr; grid-template-rows:auto minmax(340px, 56vh) auto; } #operator-sidebar { max-height:42vh; } section + section { border:0; border-top:1px solid var(--border); } #controls { min-height:220px; } }
   </style>
 </head>
 <body>
   <main>
+    <section id="operator-sidebar" aria-label="AudioVM operator reference">
+      <div class="section-head">
+        <button id="operator-sidebar-toggle" type="button" aria-label="Collapse operator reference" aria-expanded="true">‹</button>
+        <strong>Operators</strong>
+        <span id="operator-sidebar-count"></span>
+      </div>
+      <input id="operator-search" type="search" placeholder="Search operators" aria-label="Search operators">
+      <div id="operator-list" aria-live="polite"><p class="operator-empty">Loading operators…</p></div>
+    </section>
     <section>
       <div class="editor code">
         <div id="gutter" aria-hidden="true">1</div>
@@ -164,6 +196,7 @@
   </main>
   <script type="module">
     import { PythonPatchRunner, starterPatch } from './python-runner.js';
+    import createAudioVM from './audiovm.js';
 
     const editor = document.querySelector('#program');
     const loadButton = document.querySelector('#load');
@@ -200,12 +233,99 @@
     const pianoSpectrumScale = document.querySelector('#spectrum-scale-piano');
     const keyboardPanel = document.querySelector('.keyboard-panel');
     const piano = document.querySelector('#piano');
+    const main = document.querySelector('main');
+    const operatorSidebarToggle = document.querySelector('#operator-sidebar-toggle');
+    const operatorSearch = document.querySelector('#operator-search');
+    const operatorList = document.querySelector('#operator-list');
+    const operatorCount = document.querySelector('#operator-sidebar-count');
     const keyboardSemitones = new Map(Object.entries({ a:0, w:1, s:2, e:3, d:4, f:5, t:6, g:7, y:8, h:9, u:10, j:11, k:12, o:13, l:14, p:15 }));
     let pianoKeys = new Map();
     let pianoFrequencyStops = [];
     let pianoSpectrumStart = 0;
     let pianoSpectrumSpan = 1;
+    let operatorDefinitions = [];
     editor.value = starterPatch;
+
+    const renderOperatorList = () => {
+      const query = operatorSearch.value.trim().toLowerCase();
+      const visible = operatorDefinitions.filter(definition =>
+        JSON.stringify(definition).toLowerCase().includes(query));
+      operatorCount.textContent = `${visible.length}`;
+      operatorList.replaceChildren();
+      if (!visible.length) {
+        const empty = document.createElement('p');
+        empty.className = 'operator-empty';
+        empty.textContent = operatorDefinitions.length ? 'No matching operators.' : 'Loading operators…';
+        operatorList.append(empty);
+        return;
+      }
+      for (const definition of visible) {
+        const item = document.createElement('details');
+        item.className = 'operator-item';
+        const title = document.createElement('summary');
+        title.textContent = definition.id;
+        const info = document.createElement('div');
+        info.className = 'operator-info';
+        const rateNames = ['block', 'full', 'keep'];
+        const addPorts = (label, ports = []) => {
+          const paragraph = document.createElement('p');
+          const labelText = document.createElement('span');
+          labelText.className = 'operator-info-label';
+          labelText.textContent = `${label}: `;
+          paragraph.append(labelText);
+          if (!ports.length) {
+            paragraph.append('—');
+            return paragraph;
+          }
+          ports.forEach((port, index) => {
+            if (index) paragraph.append(', ');
+            const name = document.createElement('span');
+            name.className = `port-rate-${rateNames[port.rate] || 'keep'}`;
+            name.textContent = port.name;
+            paragraph.append(name);
+          });
+          return paragraph;
+        };
+        if (definition.description) {
+          const description = document.createElement('p');
+          description.className = 'operator-description';
+          description.textContent = definition.description;
+          info.append(description);
+        }
+        info.append(addPorts('IN', definition.inputs), addPorts('OUT', definition.outputs));
+        item.append(title, info);
+        operatorList.append(item);
+      }
+    };
+    const readWasmString = (wasm, pointer) => {
+      const bytes = wasm.HEAPU8;
+      let end = pointer;
+      while (bytes[end]) end++;
+      return new TextDecoder().decode(bytes.subarray(pointer, end));
+    };
+    const loadOperatorDefinitions = async () => {
+      try {
+        const wasm = await createAudioVM();
+        const processor = wasm._audiovm_create();
+        try {
+          operatorDefinitions = JSON.parse(readWasmString(wasm, wasm._audiovm_get_op_definitions_json(processor))).operators || [];
+        } finally {
+          wasm._audiovm_destroy(processor);
+        }
+        renderOperatorList();
+      } catch (cause) {
+        operatorList.innerHTML = '<p class="operator-empty">Operator reference unavailable.</p>';
+        console.warn('Could not load AudioVM operator definitions:', cause);
+      }
+    };
+    operatorSearch.addEventListener('input', renderOperatorList);
+    operatorSidebarToggle.addEventListener('click', () => {
+      const collapsed = main.classList.toggle('ops-collapsed');
+      operatorSidebarToggle.textContent = collapsed ? '›' : '‹';
+      operatorSidebarToggle.setAttribute('aria-label', collapsed ? 'Expand operator reference' : 'Collapse operator reference');
+      operatorSidebarToggle.setAttribute('aria-expanded', String(!collapsed));
+    });
+    loadOperatorDefinitions();
 
     const keywords = new Set(['and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'if', 'import', 'in', 'is', 'lambda', 'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield']);
     const builtins = new Set(['True', 'False', 'None', 'print', 'range', 'len', 'str', 'int', 'float', 'dict', 'list', 'set', 'tuple', 'type', 'isinstance']);

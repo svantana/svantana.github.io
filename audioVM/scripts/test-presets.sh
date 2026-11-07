@@ -18,7 +18,14 @@ cd "$project_dir"
   "$project_dir/tests/test_runtime_when.cpp" \
   -o "$temp_dir/test-runtime-when"
 
+"${CXX:-c++}" \
+  -std=c++17 -O3 -ffast-math \
+  "$project_dir/cpp/AudioVM.cpp" \
+  "$project_dir/tests/test_op_definitions.cpp" \
+  -o "$temp_dir/test-op-definitions"
+
 "$temp_dir/test-runtime-when"
+"$temp_dir/test-op-definitions"
 
 presets=()
 while IFS= read -r -d '' preset; do

@@ -9,7 +9,10 @@ public:
         return (dir==Port::In) ? i[index] : o[index];
     }
     Port::Rate getPortRate(Port::Dir dir, int index) override {
-        return (dir==Port::Out && index==Output) ? Port::Full : Port::Block;
+        // The signal input and output are sample-rate; frequency, resonance,
+        // and reset are control-rate parameters.
+        return (dir == Port::Out || (dir == Port::In && index == Input))
+            ? Port::Full : Port::Block;
     }
     int getNumPorts(Port::Dir dir) override {
         return (dir == Port::Out) ? NumOutputs : NumInputs;

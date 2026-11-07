@@ -2,6 +2,7 @@
 #include "libs/picojson.h"
 #include <assert.h>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 
@@ -16,56 +17,67 @@ using namespace AudioVM;
 
 const char *kIdAudioIn = "audioIn", *kIdAudioOut = "audioOut";
 
+namespace OpCreatorHelper {
+
+template <class Op>
+AudioVM::Processor::OpCreator make() {
+    return [] { return std::make_unique<Op>(); };
+}
+
+} // namespace
+
 Processor::Processor()
 {
-    registerType(kIdAudioIn , [] { return std::make_unique<AudioIn>(); });
-    registerType(kIdAudioOut, [] { return std::make_unique<AudioOut>(); });
-    registerType("midiIn", [] { return std::make_unique<MidiBuffer>(); });
-    registerType("midiBuffer", [] { return std::make_unique<MidiBuffer>(); });
-    registerType("transportIn", [] { return std::make_unique<TransportIn>(); });
-    registerType("polyStart", [] { return std::make_unique<PolyStart>(); });
-    registerType("polyEnd", [] { return std::make_unique<PolyEnd>(); });
-    registerType("ifStart", [] { return std::make_unique<IfStart>(); });
-    registerType("ifEnd", [] { return std::make_unique<IfEnd>(); });
-    registerType("control", [] { return std::make_unique<Control>(); });
-    registerType("const", [] { return std::make_unique<ConstOp>(); });
-    registerType("buffer", [] { return std::make_unique<BufferOperator>(); });
-    registerType("delayRead", [] { return std::make_unique<DelayRead>(); });
-    registerType("delayWrite", [] { return std::make_unique<DelayWrite>(); });
-    registerType("iadd", [] { return std::make_unique<InplaceBinaryOp<Add>>(); });
-    registerType("isub", [] { return std::make_unique<InplaceBinaryOp<Sub>>(); });
-    registerType("imul", [] { return std::make_unique<InplaceBinaryOp<Mul>>(); });
-    registerType("idiv", [] { return std::make_unique<InplaceBinaryOp<Div>>(); });
-    registerType("toAudio", [] { return std::make_unique<ControlToAudio>(); });
+    using namespace OpCreatorHelper;
+    
+    registerType(kIdAudioIn, make<AudioIn>(), "Provides the host audio input signal.");
+    registerType(kIdAudioOut, make<AudioOut>(), "Sends a signal to the host audio output.");
+    registerType("midiIn", make<MidiBuffer>(), "Provides the latest MIDI gate, note, velocity, and event triggers.");
+    registerType("midiBuffer", make<MidiBuffer>(), "Buffers MIDI events for routing and inspection.");
+    registerType("transportIn", make<TransportIn>(), "Provides transport tempo, beat position, play state, and loop length.");
+    registerType("polyStart", make<PolyStart>(), "Begins a polyphonic voice-processing region.");
+    registerType("polyEnd", make<PolyEnd>(), "Ends a polyphonic voice-processing region.");
+    registerType("ifStart", make<IfStart>(), "Begins a conditionally processed region with an optional release timeout.");
+    registerType("ifEnd", make<IfEnd>(), "Ends a conditionally processed region.");
+    registerType("control", make<Control>(), "Exposes a block-rate value as a user-adjustable control.");
+    registerType("const", make<ConstOp>(), "Outputs a constant block-rate value.");
+    registerType("buffer", make<BufferOperator>(), "Creates a writable full-rate buffer for feedback and in-place operations.");
+    registerType("delayRead", make<DelayRead>(), "Reads a delayed full-rate signal, optionally writing an incoming signal to the delay line.");
+    registerType("delayWrite", make<DelayWrite>(), "Writes a full-rate signal to a delay line opened by delayRead.");
+    registerType("iadd", make<InplaceBinaryOp<Add>>(), "Adds a value into a writable buffer in place.");
+    registerType("isub", make<InplaceBinaryOp<Sub>>(), "Subtracts a value from a writable buffer in place.");
+    registerType("imul", make<InplaceBinaryOp<Mul>>(), "Multiplies a writable buffer in place.");
+    registerType("idiv", make<InplaceBinaryOp<Div>>(), "Divides a writable buffer in place.");
+    registerType("toAudio", make<ControlToAudio>(), "Converts a block-rate value to a smoothly changing full-rate signal.");
     // math functions
-    registerType("exp", [] { return std::make_unique<MathExp>(); });
-    registerType("floor", [] { return std::make_unique<MathFloor>(); });
-    registerType("round", [] { return std::make_unique<MathRound>(); });
-    registerType("ceil", [] { return std::make_unique<MathCeil>(); });
+    registerType("exp", make<MathExp>(), "Applies the natural exponential function.");
+    registerType("floor", make<MathFloor>(), "Rounds each value down to the nearest integer.");
+    registerType("round", make<MathRound>(), "Rounds each value to the nearest integer.");
+    registerType("ceil", make<MathCeil>(), "Rounds each value up to the nearest integer.");
     
     // binary ops
-    registerType("add", [] { return std::make_unique<MathBinary<Add>>(); });
-    registerType("sub", [] { return std::make_unique<MathBinary<Sub>>(); });
-    registerType("mul", [] { return std::make_unique<MathBinary<Mul>>(); });
-    registerType("div", [] { return std::make_unique<MathBinary<Div>>(); });
-    registerType("pow", [] { return std::make_unique<MathBinary<Pow>>(); });
-    registerType("mod", [] { return std::make_unique<MathBinary<Mod>>(); });
-    registerType("equal", [] { return std::make_unique<MathBinary<Equal>>(); });
-    registerType("notEqual", [] { return std::make_unique<MathBinary<NotEqual>>(); });
-    registerType("less", [] { return std::make_unique<MathBinary<Less>>(); });
-    registerType("lessEqual", [] { return std::make_unique<MathBinary<LessEqual>>(); });
-    registerType("greater", [] { return std::make_unique<MathBinary<Greater>>(); });
-    registerType("greaterEqual", [] { return std::make_unique<MathBinary<GreaterEqual>>(); });
+    registerType("add", make<MathBinary<Add>>(), "Adds two values.");
+    registerType("sub", make<MathBinary<Sub>>(), "Subtracts the second value from the first.");
+    registerType("mul", make<MathBinary<Mul>>(), "Multiplies two values.");
+    registerType("div", make<MathBinary<Div>>(), "Divides the first value by the second.");
+    registerType("pow", make<MathBinary<Pow>>(), "Raises the first value to the power of the second.");
+    registerType("mod", make<MathBinary<Mod>>(), "Returns the floating-point remainder of two values.");
+    registerType("equal", make<MathBinary<Equal>>(), "Outputs 1 when two values are equal, otherwise 0.");
+    registerType("notEqual", make<MathBinary<NotEqual>>(), "Outputs 1 when two values differ, otherwise 0.");
+    registerType("less", make<MathBinary<Less>>(), "Outputs 1 when the first value is less than the second.");
+    registerType("lessEqual", make<MathBinary<LessEqual>>(), "Outputs 1 when the first value is less than or equal to the second.");
+    registerType("greater", make<MathBinary<Greater>>(), "Outputs 1 when the first value is greater than the second.");
+    registerType("greaterEqual", make<MathBinary<GreaterEqual>>(), "Outputs 1 when the first value is greater than or equal to the second.");
 
-    registerType("oscSin"  , [] { return std::make_unique<OscSin>(); });
-    registerType("oscSaw"  , [] { return std::make_unique<OscSaw>(); });
-    registerType("oscNoise", [] { return std::make_unique<OscNoise>(); });
-    registerType("filterLP", [] { return std::make_unique<FilterLP>(); });
-    registerType("filterBP", [] { return std::make_unique<FilterBP>(); });
-    registerType("filterHP", [] { return std::make_unique<FilterHP>(); });
-    registerType("envADSR" , [] { return std::make_unique<EnvADSR>(); });
-    registerType("envExp"  , [] { return std::make_unique<EnvExp>(); });
-    registerType("envFollow", [] { return std::make_unique<EnvFollower>(); });
+    registerType("oscSin", make<OscSin>(), "Generates a sine wave from frequency or MIDI note input.");
+    registerType("oscSaw", make<OscSaw>(), "Generates a sawtooth wave from frequency or MIDI note input.");
+    registerType("oscNoise", make<OscNoise>(), "Generates white noise.");
+    registerType("filterLP", make<FilterLP>(), "Applies a resonant low-pass filter to a full-rate signal.");
+    registerType("filterBP", make<FilterBP>(), "Applies a resonant band-pass filter to a full-rate signal.");
+    registerType("filterHP", make<FilterHP>(), "Applies a resonant high-pass filter to a full-rate signal.");
+    registerType("envADSR", make<EnvADSR>(), "Generates an attack, decay, sustain, and release envelope.");
+    registerType("envExp", make<EnvExp>(), "Generates a repeating exponential decay envelope.");
+    registerType("envFollow", make<EnvFollower>(), "Tracks the amplitude envelope of an incoming signal.");
 
     mProgram.list.reserve(128);
 }
@@ -170,6 +182,16 @@ int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
         assert(sourceIndex >= 0 && sourceIndex < static_cast<int>(mProgram.list.size()));
         const Entry& source = mProgram.list[sourceIndex];
         assert(sourcePort >= 0 && sourcePort < static_cast<int>(source.mOutputs.size()));
+        // Port metadata is also used by the editor. Warn when a full buffer
+        // is wired into a control-rate input: the operator may only read its
+        // first sample, and the exported definition would otherwise hide a
+        // rate mismatch like this one.
+        if (mBlockSize > 1 && entry.op->getPortRate(Port::In, input) == Port::Block &&
+            source.mOutputs[sourcePort].numSamples == mBlockSize) {
+            std::fprintf(stderr, "AudioVM warning: full-rate %s.%s connected to block-rate %s.%s\n",
+                         source.mType.c_str(), source.op->getPortName(Port::Out, sourcePort).c_str(),
+                         operatorId.c_str(), entry.op->getPortName(Port::In, input).c_str());
+        }
         entry.mInputs[input] = source.mOutputs[sourcePort];
         entry.mInputs[input].connected = true;
     }
@@ -857,6 +879,7 @@ std::string Processor::getOpDefinitionsJSON() const {
         OpPtr op = makeOpWithId(operatorId);
         picojson::object definition;
         definition["id"] = picojson::value(operatorId);
+        definition["description"] = picojson::value(mOpDescriptions.at(operatorId));
 
         const auto makePorts = [&](Port::Dir direction) {
             picojson::array ports;
@@ -1178,11 +1201,12 @@ void Processor::processPlanar(float* input, float* output, int numSamples) {
     process(mInputPointers.data(), mOutputPointers.data(), numSamples);
 }
 
-void Processor::registerType(const std::string& name, OpCreator creator) {
+void Processor::registerType(const std::string& name, OpCreator creator, std::string description) {
     auto [it, inserted] = mOpCreators.emplace(name, std::move(creator));
     if (!inserted) {
         throw std::runtime_error("Duplicate processor type: " + name);
     }
+    mOpDescriptions.emplace(name, std::move(description));
 }
 
 OpPtr Processor::makeOpWithId(const std::string& name) const {
