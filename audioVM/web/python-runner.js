@@ -60,7 +60,7 @@ sys.modules["audioVM"] = audioVM
     async #loadAudioVMSource() {
         const response = await fetch(audioVMUrl);
         if (!response.ok) {
-            throw new Error(`Could not load audioVM.py (${response.status}). Run build-wasm.sh first.`);
+            throw new Error(`Could not load audioVM.py (${response.status}). Run scripts/build-wasm.sh first.`);
         }
         return await response.text();
     }

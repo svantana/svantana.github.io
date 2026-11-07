@@ -106,6 +106,7 @@ void Processor::setLoop(float numBeats) {
 }
 
 void Processor::clearProgram() {
+    clearMidiEvents();
     mProgram.list.clear();
     mPolyPrograms.clear();
     mIfEndByStart.clear();
@@ -564,6 +565,10 @@ void Processor::loadFromJSON(std::string jsonString) {
         throw std::runtime_error("Invalid program JSON: missing array property 'program'");
     }
 
+    // Events belong to the graph that received them.  Do not let a held or
+    // queued event from an old patch affect the newly loaded program.
+    clearMidiEvents();
+
     int blockSize = mBlockSize;
     const auto blockSizeIt = root.find("blocksize");
     if (blockSizeIt != root.end()) {
@@ -893,16 +898,46 @@ void Processor::processPolyRange(PolyRange& range, int numSamples) {
     }
 }
 
+void Processor::clearMidiEvents() {
+    const size_t write = mMidiWrite.load(std::memory_order_acquire);
+    mMidiRead.store(write, std::memory_order_release);
+}
+
 void Processor::midiEvent(char b0, char b1, char b2) {
+    const size_t write = mMidiWrite.load(std::memory_order_relaxed);
+    const size_t next = (write + 1) % MidiEventCapacity;
+    // Keep the oldest events if the host outruns the audio callback.  The
+    // following producer attempt can retry after the audio thread advances.
+    if (next == mMidiRead.load(std::memory_order_acquire)) return;
+    mMidiEvents[write] = {
+        static_cast<unsigned char>(b0),
+        static_cast<unsigned char>(b1),
+        static_cast<unsigned char>(b2),
+    };
+    mMidiWrite.store(next, std::memory_order_release);
+}
+
+void Processor::consumeMidiEvents() {
+    size_t read = mMidiRead.load(std::memory_order_relaxed);
+    const size_t write = mMidiWrite.load(std::memory_order_acquire);
+    while (read != write) {
+        const MidiEvent event = mMidiEvents[read];
+        read = (read + 1) % MidiEventCapacity;
+        applyMidiEvent(event.status, event.data1, event.data2);
+    }
+    mMidiRead.store(read, std::memory_order_release);
+}
+
+void Processor::applyMidiEvent(unsigned char b0, unsigned char b1, unsigned char b2) {
     if (mProgram.mMidiInId < 0) {
         return; // no midi
     }
     Entry &E = mProgram.list[mProgram.mMidiInId];
     auto &O = E.mOutputs;
     //O[MidiIn::Channel].value() = b0 & 0x0f; // TODO: handle channel
-    const int note = static_cast<unsigned char>(b1);
-    const int velocity = static_cast<unsigned char>(b2);
-    int msg = static_cast<unsigned char>(b0) & 0xf0;
+    const int note = b1;
+    const int velocity = b2;
+    int msg = b0 & 0xf0;
     if (msg == kMidiNoteOn && velocity == 0) msg = kMidiNoteOff;
     switch (msg) {
         case kMidiNoteOn: {
@@ -938,7 +973,7 @@ void Processor::midiEvent(char b0, char b1, char b2) {
             break;
         }
         case kMidiNoteOff: {
-            if (b1 == mCurrMidiNote) {
+            if (note == mCurrMidiNote) {
                 O[MidiIn::Gate].set(0.f);
             }
             O[MidiIn::Offset].set(1.f);
@@ -979,6 +1014,11 @@ void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
     int maxBlockSize = mBlockSize;
     for (int ioPos = 0; ioPos < numSamples;) {
         int blockSize = std::min(maxBlockSize, numSamples - ioPos);
+
+        // Apply all host MIDI received since the preceding audio block on the
+        // audio thread.  Multiple note-ons are processed in FIFO order, so a
+        // polyphonic range can allocate one voice per event.
+        consumeMidiEvents();
 
         // Transport values are block-rate controls.  Expose the position at
         // the start of this block, then advance after every operator has

@@ -105,6 +105,7 @@
         <button id="save" type="button">Save</button>
         <button id="load" disabled>Run ⌘⮐</button>
         <button id="play" disabled>Play</button>
+        <button id="web-midi" type="button">Enable MIDI</button>
         <div id="audio-stats" hidden role="status" aria-label="Audio engine statistics">
           <span>CPU</span><span id="cpu-load">0%</span><span id="audio-format"></span>
         </div>
@@ -168,6 +169,7 @@
     const loadButton = document.querySelector('#load');
     const saveButton = document.querySelector('#save');
     const playButton = document.querySelector('#play');
+    const webMidiButton = document.querySelector('#web-midi');
     const audioStats = document.querySelector('#audio-stats');
     const cpuLoad = document.querySelector('#cpu-load');
     const audioFormat = document.querySelector('#audio-format');
@@ -262,6 +264,7 @@
     const activeMidiSources = new Map();
     const pointerNotes = new Map();
     let baseOctave = 4;
+    let webMidiAccess;
     const transport = { bpm: 120, play: false, beatPos: 0, loopBeats: 4 };
 
     const showError = message => { error.textContent = message; error.style.display = 'block'; };
@@ -269,6 +272,27 @@
     const updateActionAvailability = () => {
       loadButton.disabled = !resourcesReady;
       presetSelect.disabled = !resourcesReady || !presetFilesReady;
+    };
+    const updateWebMidiButton = () => {
+      if (!webMidiAccess) return;
+      const count = [...webMidiAccess.inputs.values()].length;
+      webMidiButton.textContent = count ? `MIDI · ${count}` : 'MIDI enabled';
+      webMidiButton.disabled = false;
+    };
+    const attachWebMidiInputs = () => {
+      if (!webMidiAccess) return;
+      for (const input of webMidiAccess.inputs.values()) {
+        input.onmidimessage = event => {
+          if (!processor || !audioNode || event.data.length < 1) return;
+          const [status, data1 = 0, data2 = 0] = event.data;
+          if (status < 0x80) return;
+          audioNode.port.postMessage({ type: 'midi', status, data1, data2 });
+          if ((status & 0xf0) === 0x90 && data2 > 0) {
+            start().catch(cause => showError(`Could not start audio: ${cause.message}`));
+          }
+        };
+      }
+      updateWebMidiButton();
     };
     const loadPresets = async () => {
       try {
@@ -856,6 +880,26 @@
     playButton.addEventListener('click', () => {
       if (playButton.classList.contains('playing')) stop();
       else start().catch(cause => showError(`Could not start audio: ${cause.message}`));
+    });
+    webMidiButton.addEventListener('click', async () => {
+      if (!navigator.requestMIDIAccess) {
+        showError('Web MIDI is not supported by this browser.');
+        return;
+      }
+      try {
+        webMidiButton.disabled = true;
+        webMidiButton.textContent = 'Enabling MIDI…';
+        if (!webMidiAccess) {
+          webMidiAccess = await navigator.requestMIDIAccess();
+          webMidiAccess.onstatechange = attachWebMidiInputs;
+        }
+        attachWebMidiInputs();
+        status.textContent = 'Web MIDI enabled';
+      } catch (cause) {
+        webMidiButton.disabled = false;
+        webMidiButton.textContent = 'Enable MIDI';
+        showError(`Could not enable Web MIDI: ${cause.message || cause}`);
+      }
     });
     presetSelect.addEventListener('change', async () => {
       if (!presetSelect.value) return;

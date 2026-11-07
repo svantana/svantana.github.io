@@ -4,6 +4,7 @@
 #include <string>
 #include <map>
 #include <array>
+#include <atomic>
 #include "Operator.h"
 
 namespace AudioVM {
@@ -54,6 +55,18 @@ private:
     int mBlockSize, mNumInputChannels, mNumOutputChannels;
     float mSamplerate;
     int mCurrMidiNote;
+    struct MidiEvent {
+        unsigned char status;
+        unsigned char data1;
+        unsigned char data2;
+    };
+    // MIDI may arrive independently of the audio callback.  One producer
+    // (the host MIDI input) and the audio thread consume this fixed-size ring
+    // without allocating or locking.
+    static constexpr size_t MidiEventCapacity = 256;
+    std::array<MidiEvent, MidiEventCapacity> mMidiEvents{};
+    std::atomic<size_t> mMidiWrite{0};
+    std::atomic<size_t> mMidiRead{0};
     struct Transport {
         float bpm = 120.f;
         float beatPos = 0.f;
@@ -116,6 +129,9 @@ private:
 
     void resetVoice(Voice& voice);
     void processPolyRange(PolyRange& range, int numSamples);
+    void applyMidiEvent(unsigned char status, unsigned char data1, unsigned char data2);
+    void consumeMidiEvents();
+    void clearMidiEvents();
     void updateTransportOutputs();
     void advanceTransport(int numSamples);
     
