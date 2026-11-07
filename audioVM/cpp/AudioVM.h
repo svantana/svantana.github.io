@@ -28,6 +28,11 @@ public:
     
     // realtime processing interface
     void midiEvent(char b0, char b1, char b2);
+    void setBPM(float bpm);
+    void setPlay(bool doPlay);
+    void setBeatPos(float beatPos);
+    float getBeatPos() const;
+    void setLoop(float numBeats);
     /* Accepts arbitrary buffer sizes */
     void process(float *const* inBufs, float **outBufs, int numSamples);
     // Planar buffers used by the WebAssembly boundary.  Pointer arrays are
@@ -49,6 +54,12 @@ private:
     int mBlockSize, mNumInputChannels, mNumOutputChannels;
     float mSamplerate;
     int mCurrMidiNote;
+    struct Transport {
+        float bpm = 120.f;
+        float beatPos = 0.f;
+        float loopBeats = 4.f;
+        bool playing = false;
+    } mTransport;
     std::vector<float*> mInputPointers, mOutputPointers;
     
     void processBlock(float *const* inBufs, float **outBufs);
@@ -70,6 +81,7 @@ private:
         std::vector<float> mIoBuffer;
         std::vector<int> mAudioInIds, mAudioOutIds, mControlIds;
         int mMidiInId = -1;
+        int mTransportInId = -1;
     };
     Program mProgram;
 
@@ -104,6 +116,8 @@ private:
 
     void resetVoice(Voice& voice);
     void processPolyRange(PolyRange& range, int numSamples);
+    void updateTransportOutputs();
+    void advanceTransport(int numSamples);
     
     struct Compiler {
         std::map<std::string, int> mIdToIndex;

@@ -71,6 +71,16 @@ class OperatorCallTests(unittest.TestCase):
         self.assertIn('"type": "ifStart"', vm.get_json())
         self.assertIn('"type": "ifEnd"', vm.get_json())
 
+    def test_transport_exposes_implicit_sources(self):
+        vm = VM()
+        transport = vm.transport()
+        vm.op("oscSaw", {"note": transport.bpm + transport.beatPos})
+
+        self.assertEqual(transport.play.name, "transport.play")
+        self.assertEqual(transport.loopBeats.name, "transport.loopBeats")
+        self.assertIn('"transport.bpm"', vm.get_json())
+        self.assertIn('"transport.beatPos"', vm.get_json())
+
 
 if __name__ == "__main__":
     unittest.main()

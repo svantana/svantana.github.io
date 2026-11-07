@@ -114,12 +114,21 @@ class Midi: # convenience class for midi inputs
         for out in outs:
             setattr(self, out, Operator(vm, "const", "midi."+out))
 
+class Transport:
+    """Block-rate transport values supplied by the AudioVM host."""
+    def __init__(self, vm):
+        self.bpm = Operator(vm, "const", "transport.bpm")
+        self.beatPos = Operator(vm, "const", "transport.beatPos")
+        self.play = Operator(vm, "const", "transport.play")
+        self.loopBeats = Operator(vm, "const", "transport.loopBeats")
+
 class VM:
     def __init__(self, polyphony=1):
         self.program = []
         self.typeCounts = {}
         self.polyphony = polyphony
         self.midiObj = Midi(self)
+        self.transportObj = Transport(self)
         self.settings = {}
 
     def set(self, key, value=None):
@@ -193,6 +202,10 @@ class VM:
     def midi(self):
         #self.op("midi", input={}) # TODO: any midi settings?
         return self.midiObj
+
+    def transport(self):
+        """Return the engine-global, block-rate transport source."""
+        return self.transportObj
 
     @contextmanager
     def poly(self, count, timeOut=0):

@@ -82,5 +82,27 @@ int main() {
             return 1;
         }
     }
+
+    AudioVM::Processor transportProcessor;
+    transportProcessor.setup(16.f, 1, 1, 16);
+    transportProcessor.loadFromJSON(R"({"version":1,"program":[
+        {"type":"toAudio","id":"position","input":"transport.beatPos"},
+        {"type":"audioOut","id":"out","input":"position"}
+    ]})");
+    transportProcessor.setBPM(60.f);
+    transportProcessor.setLoop(2.f);
+    transportProcessor.setPlay(true);
+    float transportOutput[16]{};
+    float* transportOutputs[] = {transportOutput};
+    transportProcessor.process(nullptr, transportOutputs, 16);
+    if (std::abs(transportOutput[15]) > 1e-6f || std::abs(transportProcessor.getBeatPos() - 1.f) > 1e-6f) {
+        std::cerr << "transport did not expose the initial beat or advance one beat\n";
+        return 1;
+    }
+    transportProcessor.process(nullptr, transportOutputs, 16);
+    if (std::abs(transportOutput[15] - 1.f) > 1e-6f || std::abs(transportProcessor.getBeatPos()) > 1e-6f) {
+        std::cerr << "transport loop did not wrap at its requested length\n";
+        return 1;
+    }
     return 0;
 }

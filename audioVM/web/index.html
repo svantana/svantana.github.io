@@ -50,6 +50,17 @@
     #audio-input-bar[hidden] { display:none; }
     #audio-input-bar label { color:var(--muted); font-size:12px; }
     #audio-input-bar select { flex:1; min-width:0; }
+    #transport-bar { flex:none; min-height:58px; padding:10px 14px; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--border); background:var(--panel); }
+    #transport-bar[hidden] { display:none; }
+    #transport-bar label { color:var(--muted); font-size:12px; }
+    #transport-bar input { width:68px; min-width:0; border:1px solid var(--border); border-radius:5px; background:#282c32; color:var(--text); padding:6px 7px; font:inherit; }
+    #transport-bar .transport-stepper { display:flex; width:82px; min-width:0; }
+    #transport-bar .transport-stepper input { width:60px; border-radius:5px 0 0 5px; }
+    #transport-bar .transport-stepper-buttons { display:flex; width:22px; flex-direction:column; }
+    #transport-bar .transport-stepper-buttons button { height:19px; border-radius:0; padding:0; font-size:10px; line-height:1; }
+    #transport-bar .transport-stepper-buttons button:first-child { border-radius:0 5px 0 0; }
+    #transport-bar .transport-stepper-buttons button + button { border-top:0; border-radius:0 0 5px 0; }
+    #transport-toggle.running { background:var(--accent); color:#102116; border-color:var(--accent); }
     .knob { --knob-angle:-135deg; position:relative; flex:none; width:38px; height:38px; border:2px solid var(--border); border-radius:50%; background:radial-gradient(circle at 35% 30%, #3b4048, #20242a 68%); box-shadow:inset 0 1px rgba(255,255,255,.12); cursor:ns-resize; touch-action:none; }
     .knob::after { position:absolute; top:5px; left:calc(50% - 1px); width:2px; height:13px; border-radius:1px; background:var(--accent); content:""; transform:rotate(var(--knob-angle)); transform-origin:1px 14px; }
     .knob:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
@@ -102,6 +113,21 @@
     </section>
     <section id="right-panel" tabindex="0" aria-label="AudioVM controls and piano keyboard">
       <span id="control-count" hidden>0 controls</span>
+      <div id="transport-bar" hidden aria-label="Transport">
+        <button id="transport-toggle" type="button" aria-label="Play transport">▶</button>
+        <label for="transport-bpm">BPM</label>
+        <input id="transport-bpm" type="number" min="1" max="999" step="1" value="120" inputmode="numeric" lang="en-US">
+        <label for="transport-position">Beat</label>
+        <span class="transport-stepper">
+          <input id="transport-position" type="text" value="0" inputmode="decimal" aria-label="Beat position, using a period as the decimal separator">
+          <span class="transport-stepper-buttons">
+            <button type="button" data-transport-position-step="1" aria-label="Increase beat position">▴</button>
+            <button type="button" data-transport-position-step="-1" aria-label="Decrease beat position">▾</button>
+          </span>
+        </span>
+        <label for="transport-loop">Loop</label>
+        <input id="transport-loop" type="number" min="0" step="1" value="4" inputmode="numeric" lang="en-US" aria-label="Loop length in beats; zero disables looping">
+      </div>
       <div id="audio-input-bar" hidden>
         <label for="audio-input-source">Input</label>
         <select id="audio-input-source" aria-label="Audio input source">
@@ -153,6 +179,11 @@
     const highlight = document.querySelector('#highlight');
     const gutter = document.querySelector('#gutter');
     const rightPanel = document.querySelector('#right-panel');
+    const transportBar = document.querySelector('#transport-bar');
+    const transportToggle = document.querySelector('#transport-toggle');
+    const transportBpm = document.querySelector('#transport-bpm');
+    const transportPosition = document.querySelector('#transport-position');
+    const transportLoop = document.querySelector('#transport-loop');
     const audioInputBar = document.querySelector('#audio-input-bar');
     const audioInputSource = document.querySelector('#audio-input-source');
     const audioInputVolume = document.querySelector('#audio-input-volume');
@@ -231,6 +262,7 @@
     const activeMidiSources = new Map();
     const pointerNotes = new Map();
     let baseOctave = 4;
+    const transport = { bpm: 120, play: false, beatPos: 0, loopBeats: 4 };
 
     const showError = message => { error.textContent = message; error.style.display = 'block'; };
     const clearError = () => { error.textContent = ''; error.style.display = 'none'; };
@@ -335,6 +367,28 @@
       if (usesMidi) requestAnimationFrame(renderPiano);
       if (!usesMidi) releaseAllNotes();
     };
+    const containsTransportReference = value => {
+      if (typeof value === 'string') return value.startsWith('transport.');
+      if (Array.isArray(value)) return value.some(containsTransportReference);
+      return value && typeof value === 'object' && Object.values(value).some(containsTransportReference);
+    };
+    const renderTransport = () => {
+      if (document.activeElement !== transportBpm) transportBpm.value = transport.bpm;
+      if (document.activeElement !== transportPosition) transportPosition.value = transport.beatPos.toFixed(3);
+      if (document.activeElement !== transportLoop) transportLoop.value = transport.loopBeats;
+      transportToggle.textContent = transport.play ? '❚❚' : '▶';
+      transportToggle.classList.toggle('running', transport.play);
+      transportToggle.setAttribute('aria-label', transport.play ? 'Pause transport' : 'Play transport');
+    };
+    const postTransport = changes => {
+      Object.assign(transport, changes);
+      renderTransport();
+      if (audioNode && processor) audioNode.port.postMessage({ type: 'transport', ...changes });
+    };
+    const updateTransportVisibility = graph => {
+      transportBar.hidden = !graph.program.some(node => containsTransportReference(node.input));
+      if (!transportBar.hidden) renderTransport();
+    };
     const updateAudioInputVisibility = graph => {
       const usesAudioInput = graph.program.some(node => node.type === 'audioIn');
       audioInputBar.hidden = !usesAudioInput;
@@ -377,6 +431,10 @@
           const cpu = Math.min(100, Math.max(0, message.cpu));
           cpuLoad.textContent = `${cpu.toFixed(cpu < 10 ? 1 : 0)}%`;
           audioFormat.textContent = `${(message.sampleRate / 1000).toFixed(1)} kHz · ${(1000 * message.blockSize / message.sampleRate).toFixed(1)} ms`;
+          if (Number.isFinite(message.beatPos)) {
+            transport.beatPos = message.beatPos;
+            if (!transportBar.hidden) renderTransport();
+          }
           return;
         }
         const request = workletRequests.get(message.requestId);
@@ -404,6 +462,37 @@
       audioStats.hidden = false;
       playButton.textContent = 'Stop'; playButton.classList.add('playing');
     };
+    const toggleTransport = () => {
+      const play = !transport.play;
+      postTransport({ play });
+      if (play) start().catch(cause => showError(`Could not start audio: ${cause.message}`));
+    };
+    transportToggle.addEventListener('click', toggleTransport);
+    transportBpm.addEventListener('change', () => {
+      const bpm = Number(transportBpm.value);
+      if (Number.isFinite(bpm) && bpm > 0) postTransport({ bpm }); else renderTransport();
+    });
+    transportPosition.addEventListener('change', () => {
+      const beatPos = Number(transportPosition.value);
+      if (Number.isFinite(beatPos)) postTransport({ beatPos }); else renderTransport();
+    });
+    const stepTransportPosition = amount => {
+      const beatPos = Number(transportPosition.value);
+      postTransport({ beatPos: (Number.isFinite(beatPos) ? beatPos : transport.beatPos) + amount });
+    };
+    document.querySelectorAll('[data-transport-position-step]').forEach(button => {
+      button.addEventListener('click', () => stepTransportPosition(Number(button.dataset.transportPositionStep)));
+    });
+    transportPosition.addEventListener('keydown', event => {
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        stepTransportPosition(event.key === 'ArrowUp' ? 1 : -1);
+      }
+    });
+    transportLoop.addEventListener('change', () => {
+      const loopBeats = Number(transportLoop.value);
+      if (Number.isFinite(loopBeats) && loopBeats >= 0) postTransport({ loopBeats }); else renderTransport();
+    });
     const midiNoteForKey = key => 12 * (baseOctave + 1) + keyboardSemitones.get(key);
     const updatePianoKey = midi => pianoKeys.get(midi)?.classList.toggle('active', [...activeMidiSources.values()].includes(midi));
     function updatePianoFrequencyStops() {
@@ -668,6 +757,12 @@
       );
     }
     rightPanel.addEventListener('keydown', event => {
+      if (event.code === 'Space' && !transportBar.hidden &&
+          !event.target.matches('input, select, button')) {
+        event.preventDefault();
+        toggleTransport();
+        return;
+      }
       if (keyboardPanel.hidden) return;
       const key = event.key.toLowerCase();
       if (key === 'z' || key === 'x') {
@@ -716,8 +811,11 @@
         await postToWorklet({ type: 'load', json: JSON.stringify(parsed), wasmBinary }, [wasmBinary]);
         stop();
         processor = true;
+        Object.assign(transport, { bpm: 120, play: false, beatPos: 0, loopBeats: 4 });
+        postTransport(transport);
         renderControls(parsed);
         updatePianoVisibility(parsed);
+        updateTransportVisibility(parsed);
         updateAudioInputVisibility(parsed);
         playButton.disabled = false;
         status.textContent = 'Patch loaded';

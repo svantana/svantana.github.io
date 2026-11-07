@@ -21,6 +21,7 @@ Processor::Processor()
     registerType(kIdAudioIn , [] { return std::make_unique<AudioIn>(); });
     registerType(kIdAudioOut, [] { return std::make_unique<AudioOut>(); });
     registerType("midiIn", [] { return std::make_unique<MidiIn>(); });
+    registerType("transportIn", [] { return std::make_unique<TransportIn>(); });
     registerType("polyStart", [] { return std::make_unique<PolyStart>(); });
     registerType("polyEnd", [] { return std::make_unique<PolyEnd>(); });
     registerType("ifStart", [] { return std::make_unique<IfStart>(); });
@@ -75,6 +76,33 @@ void Processor::setup(float samplerate, int numInputChannels, int numOutputChann
     mBlockSize = blockSize;
     mInputPointers.resize(numInputChannels);
     mOutputPointers.resize(numOutputChannels);
+}
+
+void Processor::setBPM(float bpm) {
+    if (std::isfinite(bpm) && bpm > 0.f) mTransport.bpm = bpm;
+}
+
+void Processor::setPlay(bool doPlay) {
+    mTransport.playing = doPlay;
+}
+
+void Processor::setBeatPos(float beatPos) {
+    if (!std::isfinite(beatPos)) return;
+    mTransport.beatPos = beatPos;
+    if (mTransport.loopBeats > 0.f) {
+        mTransport.beatPos = std::fmod(mTransport.beatPos, mTransport.loopBeats);
+        if (mTransport.beatPos < 0.f) mTransport.beatPos += mTransport.loopBeats;
+    }
+}
+
+float Processor::getBeatPos() const {
+    return mTransport.beatPos;
+}
+
+void Processor::setLoop(float numBeats) {
+    if (!std::isfinite(numBeats)) return;
+    mTransport.loopBeats = std::max(0.f, numBeats);
+    setBeatPos(mTransport.beatPos);
 }
 
 void Processor::clearProgram() {
@@ -177,6 +205,7 @@ bool Processor::compileProgram() {
     mProgram.mAudioInIds.clear();
     mProgram.mControlIds.clear();
     mProgram.mMidiInId = -1;
+    mProgram.mTransportInId = -1;
 
     int size = 1; // Keep a zero value for unconnected control-rate inputs.
     for (const Entry& entry : mProgram.list) {
@@ -215,6 +244,9 @@ bool Processor::compileProgram() {
         }
         if (dynamic_cast<MidiIn*>(entry.op.get())) {
             mProgram.mMidiInId = n;
+        }
+        if (dynamic_cast<TransportIn*>(entry.op.get())) {
+            mProgram.mTransportInId = n;
         }
     }
 
@@ -572,6 +604,11 @@ void Processor::loadFromJSON(std::string jsonString) {
         mCompiler.mIdToIndex.emplace("midi.velocity", midiInId + MidiIn::Velocity);
         mCompiler.mIdToIndex.emplace("midi.onset", midiInId + MidiIn::Onset);
         mCompiler.mIdToIndex.emplace("midi.offset", midiInId + MidiIn::Offset);
+        const int transportInId = addOperator("transportIn");
+        mCompiler.mIdToIndex.emplace("transport.bpm", transportInId + TransportIn::BPM);
+        mCompiler.mIdToIndex.emplace("transport.beatPos", transportInId + TransportIn::BeatPos);
+        mCompiler.mIdToIndex.emplace("transport.play", transportInId + TransportIn::Play);
+        mCompiler.mIdToIndex.emplace("transport.loopBeats", transportInId + TransportIn::LoopBeats);
 
         for (size_t index = 0; index < program.size(); ++index) {
             const picojson::value& node = program[index];
@@ -697,7 +734,8 @@ std::string Processor::getOpListAsJSON() {
     std::map<int, std::string> sourceIds;
     std::map<std::string, bool> usedIds;
     for (const Entry& entry : mProgram.list) {
-        if (dynamic_cast<const MidiIn*>(entry.op.get()) == nullptr && !entry.mId.empty()) {
+        if (dynamic_cast<const MidiIn*>(entry.op.get()) == nullptr &&
+            dynamic_cast<const TransportIn*>(entry.op.get()) == nullptr && !entry.mId.empty()) {
             usedIds.emplace(entry.mId, true);
         }
     }
@@ -709,6 +747,13 @@ std::string Processor::getOpListAsJSON() {
             sourceIds.emplace(entry.mIndex + MidiIn::Velocity, "midi.velocity");
             sourceIds.emplace(entry.mIndex + MidiIn::Onset, "midi.onset");
             sourceIds.emplace(entry.mIndex + MidiIn::Offset, "midi.offset");
+            continue;
+        }
+        if (dynamic_cast<const TransportIn*>(entry.op.get()) != nullptr) {
+            sourceIds.emplace(entry.mIndex + TransportIn::BPM, "transport.bpm");
+            sourceIds.emplace(entry.mIndex + TransportIn::BeatPos, "transport.beatPos");
+            sourceIds.emplace(entry.mIndex + TransportIn::Play, "transport.play");
+            sourceIds.emplace(entry.mIndex + TransportIn::LoopBeats, "transport.loopBeats");
             continue;
         }
         std::string id = entry.mId;
@@ -723,7 +768,8 @@ std::string Processor::getOpListAsJSON() {
 
     for (const Entry& entry : mProgram.list) {
         // MIDI is represented by audioVM.py as the implicit midi.* sources.
-        if (dynamic_cast<const MidiIn*>(entry.op.get()) != nullptr) {
+        if (dynamic_cast<const MidiIn*>(entry.op.get()) != nullptr ||
+            dynamic_cast<const TransportIn*>(entry.op.get()) != nullptr) {
             continue;
         }
 
@@ -911,11 +957,33 @@ void Processor::midiEvent(char b0, char b1, char b2) {
         }
     };
 }
+
+void Processor::updateTransportOutputs() {
+    if (mProgram.mTransportInId < 0) return;
+    auto& outputs = mProgram.list[mProgram.mTransportInId].mOutputs;
+    outputs[TransportIn::BPM].set(mTransport.bpm);
+    outputs[TransportIn::BeatPos].set(mTransport.beatPos);
+    outputs[TransportIn::Play].set(mTransport.playing ? 1.f : 0.f);
+    outputs[TransportIn::LoopBeats].set(mTransport.loopBeats);
+}
+
+void Processor::advanceTransport(int numSamples) {
+    if (!mTransport.playing || numSamples <= 0) return;
+    mTransport.beatPos += numSamples * mTransport.bpm / (60.f * mSamplerate);
+    if (mTransport.loopBeats > 0.f && mTransport.beatPos >= mTransport.loopBeats) {
+        mTransport.beatPos = std::fmod(mTransport.beatPos, mTransport.loopBeats);
+    }
+}
     
 void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
     int maxBlockSize = mBlockSize;
     for (int ioPos = 0; ioPos < numSamples;) {
         int blockSize = std::min(maxBlockSize, numSamples - ioPos);
+
+        // Transport values are block-rate controls.  Expose the position at
+        // the start of this block, then advance after every operator has
+        // observed it.
+        updateTransportOutputs();
 
         for (int n = 0; n < (int)mProgram.mAudioInIds.size(); n++) {
             int id = mProgram.mAudioInIds[n];
@@ -975,6 +1043,7 @@ void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
                 voice.mMidiValues[MidiIn::Offset] = 0.f;
             }
         }
+        advanceTransport(blockSize);
         ioPos += blockSize;
     }
 }

@@ -63,6 +63,26 @@ EMSCRIPTEN_KEEPALIVE void audiovm_midi_event(AudioVM::Processor* processor,
     processor->midiEvent(static_cast<char>(status), static_cast<char>(data1), static_cast<char>(data2));
 }
 
+EMSCRIPTEN_KEEPALIVE void audiovm_set_bpm(AudioVM::Processor* processor, float bpm) {
+    processor->setBPM(bpm);
+}
+
+EMSCRIPTEN_KEEPALIVE void audiovm_set_play(AudioVM::Processor* processor, int doPlay) {
+    processor->setPlay(doPlay != 0);
+}
+
+EMSCRIPTEN_KEEPALIVE void audiovm_set_beat_pos(AudioVM::Processor* processor, float beatPos) {
+    processor->setBeatPos(beatPos);
+}
+
+EMSCRIPTEN_KEEPALIVE float audiovm_get_beat_pos(AudioVM::Processor* processor) {
+    return processor->getBeatPos();
+}
+
+EMSCRIPTEN_KEEPALIVE void audiovm_set_loop(AudioVM::Processor* processor, float numBeats) {
+    processor->setLoop(numBeats);
+}
+
 // Input and output point to planar channel buffers in Wasm memory. Their
 // channel counts must match the values passed to audiovm_setup.
 EMSCRIPTEN_KEEPALIVE void audiovm_process(AudioVM::Processor* processor,

@@ -33,6 +33,14 @@ struct MidiIn : public BlockRateOp {
         return dir == Port::Out ? o[index] : "";
     }
 };
+struct TransportIn : public BlockRateOp {
+    enum Type { BPM, BeatPos, Play, LoopBeats, NumTypes };
+    int getNumPorts(Port::Dir dir) override { return (dir == Port::Out) ? NumTypes : 0; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        cStr o[] = {"bpm", "beatPos", "play", "loopBeats"};
+        return dir == Port::Out ? o[index] : "";
+    }
+};
 struct PolyStart : public BlockRateOp {
     enum In { NumVoices, TimeOut, NumInputs };
     int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? NumInputs : 0; }

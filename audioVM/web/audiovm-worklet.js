@@ -67,6 +67,11 @@ class AudioVMProcessor extends AudioWorkletProcessor {
         this.wasm._audiovm_set_control_value(this.processor, message.index, message.value);
       } else if (message.type === 'midi' && this.processor) {
         this.wasm._audiovm_midi_event(this.processor, message.status, message.data1, message.data2);
+      } else if (message.type === 'transport' && this.processor) {
+        if (Number.isFinite(message.bpm)) this.wasm._audiovm_set_bpm(this.processor, message.bpm);
+        if (typeof message.play === 'boolean') this.wasm._audiovm_set_play(this.processor, message.play ? 1 : 0);
+        if (Number.isFinite(message.beatPos)) this.wasm._audiovm_set_beat_pos(this.processor, message.beatPos);
+        if (Number.isFinite(message.loopBeats)) this.wasm._audiovm_set_loop(this.processor, message.loopBeats);
       }
     } catch (cause) {
       this.port.postMessage({ type: 'error', requestId: message.requestId, message: cause.message || String(cause) });
@@ -101,7 +106,10 @@ class AudioVMProcessor extends AudioWorkletProcessor {
     const smoothing = 1 - Math.exp(-frames / (sampleRate * this.cpuSmoothingSeconds));
     this.smoothedCpuLoad += smoothing * (callbackLoad - this.smoothedCpuLoad);
     if (currentTime - this.lastStatsTime >= 0.25) {
-      this.port.postMessage({ type: 'stats', cpu: Math.max(0, this.smoothedCpuLoad), sampleRate, blockSize: frames });
+        this.port.postMessage({
+          type: 'stats', cpu: Math.max(0, this.smoothedCpuLoad), sampleRate, blockSize: frames,
+          beatPos: this.wasm._audiovm_get_beat_pos(this.processor),
+        });
       this.lastStatsTime = currentTime;
     }
     return true;
