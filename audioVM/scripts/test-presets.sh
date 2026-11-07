@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/audiovm-presets.XXXXXX")"
 trap 'rm -rf "$temp_dir"' EXIT
 cd "$project_dir"
@@ -9,7 +9,7 @@ cd "$project_dir"
 "${CXX:-c++}" \
   -std=c++17 -O3 -ffast-math \
   "$project_dir/cpp/AudioVM.cpp" \
-  "$project_dir/cpp/TestPresets.cpp" \
+  "$project_dir/tests/TestPresets.cpp" \
   -o "$temp_dir/test-presets"
 
 "${CXX:-c++}" \
@@ -40,6 +40,6 @@ for preset in "${presets[@]}"; do
     python3 tests/compile_preset.py "$preset" \
     | "$temp_dir/test-presets" "$preset")"
   IFS=$'\t' read -r controls peak realtime_factor <<< "$result"
-  printf "%-${path_width}s  %2s controls  peak %9.6f  realtime-factor %.4fx\n" \
+  printf "%-${path_width}s  %2s controls  peak:%6.4f  RT-%%: %.4f\n" \
     "$preset" "$controls" "$peak" "$realtime_factor"
 done
