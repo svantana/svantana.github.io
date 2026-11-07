@@ -77,10 +77,9 @@ struct BufferOperator : public FullRateOp {
     }
 };
 
-// A delay is deliberately split in two: DelayRead owns the circular-buffer
-// state and DelayWrite receives a compiler-linked reference to it.  This
-// makes feedback explicit in the linear execution order without introducing
-// a graph cycle.  The reader must run before the writer.
+// DelayRead is a normal delay when its Input port is connected.  With Input
+// disconnected, it exposes the line for an explicit DelayWrite later in the
+// program, making feedback explicit without introducing a graph cycle.
 struct DelayLineState {
     std::vector<float> samples;
     size_t writeHead = 0;
@@ -93,7 +92,7 @@ struct DelayLineState {
 
 class DelayRead : public Operator {
 public:
-    enum In { TimeSeconds, MaxSeconds, NumInputs };
+    enum In { Input, TimeSeconds, MaxSeconds, NumInputs };
     enum Out { Output, NumOutputs };
 
     DelayRead() : mState(std::make_shared<DelayLineState>()) {}
@@ -102,12 +101,13 @@ public:
         return dir == Port::In ? NumInputs : NumOutputs;
     }
     std::string getPortName(Port::Dir dir, int index) override {
-        static const cStr inputs[] = {"time", "maxSeconds"};
+        static const cStr inputs[] = {"input", "time", "maxSeconds"};
         static const cStr outputs[] = {"output"};
         return dir == Port::In ? inputs[index] : outputs[index];
     }
     Port::Rate getPortRate(Port::Dir dir, int index) override {
-        return dir == Port::Out ? Port::Full : Port::Block;
+        if (dir == Port::Out) return Port::Full;
+        return index == Input ? Port::Full : Port::Block;
     }
 
     // Called only by the compiler, before audio processing starts.
@@ -128,12 +128,27 @@ public:
             throw std::runtime_error("delayRead was not configured");
         }
         const int requestedSamples = static_cast<int>(std::lround(in[TimeSeconds].value() * mSamplerate));
-        // Block-wise feedback is only well-defined when this block cannot
-        // read data that its paired writer will produce later in the block.
-        const int delaySamples = std::clamp(requestedSamples, N, mMaxSamples);
         const size_t size = mState->samples.size();
-        const size_t start = (mState->writeHead + size - static_cast<size_t>(delaySamples)) % size;
         float* dst = out[Output].data();
+        if (in[Input].hasData()) {
+            // Standard delay mode is sample scheduled: commit the input
+            // before reading the tap, so delays shorter than one block work.
+            const float* src = in[Input].data();
+            const int sourceSamples = in[Input].numSamples;
+            const int delaySamples = std::clamp(requestedSamples, 1, mMaxSamples);
+            for (int n = 0; n < N; ++n) {
+                mState->samples[mState->writeHead] = src[sourceSamples == 1 ? 0 : n];
+                const size_t readHead = (mState->writeHead + size - static_cast<size_t>(delaySamples)) % size;
+                dst[n] = mState->samples[readHead];
+                mState->writeHead = (mState->writeHead + 1) % size;
+            }
+            return;
+        }
+
+        // Reader-only mode is paired with a later DelayWrite, so the tap
+        // cannot observe samples that the writer has not produced yet.
+        const int delaySamples = std::clamp(requestedSamples, N, mMaxSamples);
+        const size_t start = (mState->writeHead + size - static_cast<size_t>(delaySamples)) % size;
         for (int n = 0; n < N; ++n) {
             dst[n] = mState->samples[(start + static_cast<size_t>(n)) % size];
         }

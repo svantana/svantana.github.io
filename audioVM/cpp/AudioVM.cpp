@@ -132,6 +132,7 @@ int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
         const Entry& source = mProgram.list[sourceIndex];
         assert(sourcePort >= 0 && sourcePort < static_cast<int>(source.mOutputs.size()));
         entry.mInputs[input] = source.mOutputs[sourcePort];
+        entry.mInputs[input].connected = true;
     }
 
     const int numOuts = entry.op->getNumPorts(Port::Out);
@@ -183,10 +184,12 @@ bool Processor::compileProgram() {
             const int sourceId = input < static_cast<int>(entry.mInputIds.size()) ? entry.mInputIds[input] : -1;
             if (sourceId < 0) {
                 entry.mInputs[input].ptr = &mProgram.mIoBuffer[0];
+                entry.mInputs[input].connected = false;
                 continue;
             }
             const Entry& source = mProgram.list[sourceId / OpSpacing];
             entry.mInputs[input].ptr = source.mOutputs[sourceId % OpSpacing].ptr;
+            entry.mInputs[input].connected = true;
         }
         for (Buffer& output : entry.mOutputs) {
             output.ptr = &mProgram.mIoBuffer[pos];
@@ -224,7 +227,9 @@ bool Processor::compileProgram() {
             throw std::runtime_error("delayRead maxSeconds must be a constant");
         }
         delay->configure(maxSeconds->mValue);
-        if (delay->maxSeconds() * mSamplerate < static_cast<float>(mBlockSize)) {
+        const bool hasInput = entry.mInputIds.size() > DelayRead::Input &&
+            entry.mInputIds[DelayRead::Input] >= 0;
+        if (!hasInput && delay->maxSeconds() * mSamplerate < static_cast<float>(mBlockSize)) {
             throw std::runtime_error("delayRead maxSeconds must be at least one processing block");
         }
     }
@@ -330,6 +335,19 @@ bool Processor::compileProgram() {
         if (rangeForIndex(index) < 0) writer->link(reader->state());
     }
 
+    // A DelayRead either writes from its regular input or is paired with one
+    // DelayWrite.  Allowing both would advance the same delay line twice per
+    // block and produce ambiguous feedback timing.
+    for (int index = 0; index < static_cast<int>(mProgram.list.size()); ++index) {
+        const Entry& entry = mProgram.list[index];
+        if (dynamic_cast<const DelayRead*>(entry.op.get()) == nullptr) continue;
+        const bool hasInput = entry.mInputIds.size() > DelayRead::Input &&
+            entry.mInputIds[DelayRead::Input] >= 0;
+        if (hasInput && delayWriterCounts.count(index) != 0) {
+            throw std::runtime_error("delayRead with an input cannot also have a delayWrite");
+        }
+    }
+
     for (PolyRange& range : mPolyPrograms) {
         for (int index = range.startIndex + 1; index < range.endIndex; ++index) {
             const Entry& entry = mProgram.list[index];
@@ -408,6 +426,7 @@ bool Processor::compileProgram() {
                         ? clone.mInputIds[input] : -1;
                     if (sourceId < 0) {
                         clone.mInputs[input].ptr = &voice.mIoBuffer[0];
+                        clone.mInputs[input].connected = false;
                         continue;
                     }
                     const int sourceIndex = sourceId / OpSpacing;
@@ -419,6 +438,7 @@ bool Processor::compileProgram() {
                     } else {
                         clone.mInputs[input] = mProgram.list[sourceIndex].mOutputs[sourcePort];
                     }
+                    clone.mInputs[input].connected = true;
                 }
             }
 

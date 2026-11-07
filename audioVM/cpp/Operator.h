@@ -10,6 +10,12 @@ namespace AudioVM {
         }
         int numSamples = 1, numChannels = 1;
         float *ptr;
+        // Input buffers always receive a valid pointer during compilation,
+        // including disconnected ports (which point at the shared zero). The
+        // connection flag therefore carries graph topology independently of
+        // the signal storage.
+        bool connected = false;
+        bool hasData() const { return connected; }
         float& value() { return *ptr; }
         void set(float v) { *ptr = v; }
         float *data(int channel = 0) {
