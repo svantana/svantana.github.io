@@ -22,6 +22,31 @@ int main() {
         }
     }
 
+    // An envelope must not create a pulse until its gate has a rising edge.
+    AudioVM::Processor envelopeProcessor;
+    envelopeProcessor.setup(44100.f, 1, 1, 16);
+    envelopeProcessor.loadFromJSON(R"({"version":1,"program":[
+        {"type":"control","id":"gate","input":0},
+        {"type":"envExp","id":"envelope","input":{"gate":"gate","decay":0.1}},
+        {"type":"toAudio","id":"signal","input":"envelope"},
+        {"type":"audioOut","id":"out","input":"signal"}
+    ]})");
+    float envelopeOutput[16]{};
+    float* envelopeOutputs[] = {envelopeOutput};
+    envelopeProcessor.process(nullptr, envelopeOutputs, 16);
+    for (float sample : envelopeOutput) {
+        if (sample != 0.f) {
+            std::cerr << "idle exponential envelope produced a pulse\n";
+            return 1;
+        }
+    }
+    envelopeProcessor.setControlValue(0, 1.f);
+    envelopeProcessor.process(nullptr, envelopeOutputs, 16);
+    if (*std::max_element(envelopeOutput, envelopeOutput + 16) <= 0.f) {
+        std::cerr << "triggered exponential envelope produced silence\n";
+        return 1;
+    }
+
     AudioVM::Processor processor;
     processor.setup(44100.f, 1, 1, 16);
     processor.loadFromJSON(R"({"version":1,"polyphony":1,"program":[

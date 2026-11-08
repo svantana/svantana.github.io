@@ -82,17 +82,42 @@ public:
     }
     void process(Buffer *i, Buffer *o, int N) override {
         float dt = N / mSamplerate;
-        float gate = i[Gate].value(), tHalf = .31f * i[DecayTime].value(), repeats = i[Repeats].value();
-        mPhase = (gate > mGate) ? -1e-20f : mPhase;
+        const float gate = i[Gate].value();
+        const bool triggered = gate > .5f && mGate <= .5f;
         mGate = gate;
-        float phaseStep = dt / std::max(1e-20f, i[RepeatTime].value());
-        float prevStep = ceilf(mPhase);
-        mPhase += phaseStep * (mPhase <= repeats);
-        mVal = (mPhase > prevStep) ? 1 : (mVal > 1e-30f) * mVal * tHalf / (tHalf + dt);
+        if (triggered) {
+            mVal = 1.f;
+            mPhase = 0.f;
+            mActive = true;
+        }
+        if (!mActive) {
+            o[Output].set(0.f);
+            return;
+        }
+
+        const float tHalf = std::max(1e-20f, .31f * i[DecayTime].value());
+        const int repeats = std::max(0, static_cast<int>(std::floor(i[Repeats].value())));
+        const float repeatTime = i[RepeatTime].value();
+        if (!triggered) {
+            // A missing repeatTime means a one-shot envelope, not an
+            // immediate repeat.  Only schedule repeats when both values were
+            // explicitly supplied and the requested repeat count remains.
+            if (repeatTime > 0.f && repeats > 0 && mPhase < repeats) {
+                const float previousPhase = mPhase;
+                mPhase = std::min(static_cast<float>(repeats), mPhase + dt / repeatTime);
+                if (std::floor(mPhase) > std::floor(previousPhase)) mVal = 1.f;
+            }
+            mVal *= tHalf / (tHalf + dt);
+        }
         o[Output].set(mVal);
+        if (mVal <= 1e-30f && (repeatTime <= 0.f || mPhase >= repeats)) {
+            mVal = 0.f;
+            mActive = false;
+        }
     }
 private:
-    float mVal, mGate, mPhase;
+    float mVal = 0.f, mGate = 0.f, mPhase = 0.f;
+    bool mActive = false;
 };
 
 class EnvFollower : public Operator {
