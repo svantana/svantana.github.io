@@ -692,6 +692,10 @@ void Processor::loadFromJSON(std::string jsonString) {
             // The Python builder permits positional inputs (a string or array)
             // and named inputs (a dictionary).  Use a prototype to translate
             // dictionary keys into the destination operator's input indices.
+            if (mOpCreators.count(type) == 0) {
+                throw std::runtime_error(context + "unknown operator type '" + type +
+                    "'. Check its spelling or the available operator list.");
+            }
             OpPtr prototype = makeOpWithId(type);
             const int numInputPorts = prototype->getNumPorts(Port::In);
             std::vector<int> inputs;

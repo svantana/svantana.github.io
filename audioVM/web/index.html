@@ -364,7 +364,7 @@
       () => editorPanel.getBoundingClientRect().width,
       width => main.style.setProperty('--editor-width', `${width}px`),
       () => main.clientWidth - document.querySelector('#operator-sidebar').getBoundingClientRect().width - 280 - 12);
-    loadOperatorDefinitions();
+    const operatorDefinitionsReady = loadOperatorDefinitions();
 
     const keywords = new Set(['and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'if', 'import', 'in', 'is', 'lambda', 'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield']);
     const builtins = new Set(['True', 'False', 'None', 'print', 'range', 'len', 'str', 'int', 'float', 'dict', 'list', 'set', 'tuple', 'type', 'isinstance']);
@@ -978,6 +978,15 @@
       let parsed;
       try { parsed = JSON.parse(await python.compile(editor.value, message => { status.textContent = message; })); }
       catch (cause) { showError(`Python patch error: ${cause.message}`); status.textContent = 'Python error'; return; }
+      await operatorDefinitionsReady;
+      const knownOperators = new Set(operatorDefinitions.map(definition => definition.id));
+      const unknownOperatorIndex = parsed.program?.findIndex(node => !knownOperators.has(node?.type)) ?? -1;
+      if (knownOperators.size > 0 && unknownOperatorIndex >= 0) {
+        const type = parsed.program[unknownOperatorIndex]?.type;
+        showError(`AudioVM could not load this patch: Invalid program JSON at program[${unknownOperatorIndex}]: unknown operator type '${type}'. Check its spelling or the available operator list.`);
+        status.textContent = 'Load failed';
+        return;
+      }
       try {
         status.textContent = 'Preparing audio worklet…';
         stop();

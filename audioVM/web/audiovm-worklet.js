@@ -57,8 +57,12 @@ class AudioVMProcessor extends AudioWorkletProcessor {
         this.processor = this.wasm._audiovm_create();
         this.wasm._audiovm_setup(this.processor, sampleRate, 1, this.outputChannels, this.blockSize);
         const jsonPointer = this.writeString(message.json);
-        this.wasm._audiovm_load_from_json(this.processor, jsonPointer);
+        const loaded = this.wasm._audiovm_load_from_json(this.processor, jsonPointer);
         this.wasm._free(jsonPointer);
+        if (!loaded) {
+          const message = this.wasm.UTF8ToString(this.wasm._audiovm_get_last_error());
+          throw new Error(message || 'AudioVM rejected the patch.');
+        }
         this.inputPointer = this.wasm._malloc(this.blockSize * 4);
         this.outputPointer = this.wasm._malloc(this.blockSize * this.outputChannels * 4);
         this.heap = new Float32Array(this.wasm.HEAPU8.buffer);

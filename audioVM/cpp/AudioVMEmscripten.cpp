@@ -6,6 +6,10 @@ namespace {
 
 // Returned JSON remains valid until the next audiovm_get_*_json call.
 std::string jsonResult;
+// Returned error text remains valid until the next Wasm API call that can
+// fail. Keep C++ exceptions from crossing the JavaScript/Wasm boundary so
+// the worklet can display the original compiler diagnostic.
+std::string lastError;
 
 } // namespace
 
@@ -27,9 +31,20 @@ EMSCRIPTEN_KEEPALIVE void audiovm_setup(AudioVM::Processor* processor,
     processor->setup(sampleRate, inputChannels, outputChannels, blockSize);
 }
 
-EMSCRIPTEN_KEEPALIVE void audiovm_load_from_json(AudioVM::Processor* processor,
-                                                 const char* json) {
-    processor->loadFromJSON(json);
+EMSCRIPTEN_KEEPALIVE int audiovm_load_from_json(AudioVM::Processor* processor,
+                                                const char* json) {
+    try {
+        processor->loadFromJSON(json);
+        lastError.clear();
+        return 1;
+    } catch (const std::exception& error) {
+        lastError = error.what();
+        return 0;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* audiovm_get_last_error() {
+    return lastError.c_str();
 }
 
 EMSCRIPTEN_KEEPALIVE const char* audiovm_get_op_list_json(AudioVM::Processor* processor) {

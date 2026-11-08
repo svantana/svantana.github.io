@@ -5,6 +5,23 @@
 #include <iostream>
 
 int main() {
+    AudioVM::Processor invalidOperatorProcessor;
+    invalidOperatorProcessor.setup(44100.f, 1, 1, 16);
+    try {
+        invalidOperatorProcessor.loadFromJSON(R"({"version":1,"program":[
+            {"type":"oscMystery","id":"unknown"}
+        ]})");
+        std::cerr << "unknown operator type was accepted\n";
+        return 1;
+    } catch (const std::exception& error) {
+        const std::string message = error.what();
+        if (message.find("program[0]") == std::string::npos ||
+            message.find("oscMystery") == std::string::npos) {
+            std::cerr << "unknown operator error was not informative: " << message << "\n";
+            return 1;
+        }
+    }
+
     AudioVM::Processor processor;
     processor.setup(44100.f, 1, 1, 16);
     processor.loadFromJSON(R"({"version":1,"polyphony":1,"program":[
