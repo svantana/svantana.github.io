@@ -43,6 +43,12 @@ class AudioVMProcessor extends AudioWorkletProcessor {
     return pointer;
   }
 
+  readString(pointer) {
+    let end = pointer;
+    while (this.wasm.HEAPU8[end]) ++end;
+    return new TextDecoder().decode(this.wasm.HEAPU8.subarray(pointer, end));
+  }
+
   async handleMessage(message) {
     try {
       if (message.type === 'load') {
@@ -60,7 +66,7 @@ class AudioVMProcessor extends AudioWorkletProcessor {
         const loaded = this.wasm._audiovm_load_from_json(this.processor, jsonPointer);
         this.wasm._free(jsonPointer);
         if (!loaded) {
-          const message = this.wasm.UTF8ToString(this.wasm._audiovm_get_last_error());
+          const message = this.readString(this.wasm._audiovm_get_last_error());
           throw new Error(message || 'AudioVM rejected the patch.');
         }
         this.inputPointer = this.wasm._malloc(this.blockSize * 4);

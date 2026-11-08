@@ -76,6 +76,7 @@ Processor::Processor()
     registerType("filterLP", make<FilterLP>(), "Applies a resonant low-pass filter to a full-rate signal.");
     registerType("filterBP", make<FilterBP>(), "Applies a resonant band-pass filter to a full-rate signal.");
     registerType("filterHP", make<FilterHP>(), "Applies a resonant high-pass filter to a full-rate signal.");
+    registerType("smoother", make<Smoother>(), "Applies a first order smoothing to a control signal.");
     registerType("envADSR", make<EnvADSR>(), "Generates an attack, decay, sustain, and release envelope.");
     registerType("envExp", make<EnvExp>(), "Generates a repeating exponential decay envelope.");
     registerType("envFollow", make<EnvFollower>(), "Tracks the amplitude envelope of an incoming signal.");

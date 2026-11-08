@@ -32,6 +32,7 @@ em++ \
   -s EXPORT_NAME=createAudioVM \
   -s ENVIRONMENT=web,worker \
   -s ALLOW_MEMORY_GROWTH=1 \
+  -s DISABLE_EXCEPTION_CATCHING=0 \
   -s FILESYSTEM=0 \
   -s NO_EXIT_RUNTIME=1 \
   -s INCOMING_MODULE_JS_API='["wasmBinary"]' \

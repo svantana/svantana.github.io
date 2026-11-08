@@ -43,6 +43,18 @@ class OperatorCallTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "already has an input"):
             node("anotherOsc")
 
+    def test_call_places_a_computed_input_before_its_consumer(self):
+        vm = VM()
+        osc1 = vm.op("oscSaw", {"note": 60})
+        osc2 = vm.op("oscSaw", {"note": 67})
+
+        filtered = vm.op("filterLP", {"frequency": 1e3})(osc1 + osc2)
+
+        self.assertEqual([op.type for op in vm.program], [
+            "oscSaw", "oscSaw", "add", "filterLP",
+        ])
+        self.assertEqual(filtered.input["input"], "add1")
+
     def test_delay_emits_linked_read_and_write_endpoints(self):
         vm = VM()
         string = vm.delay(0.1, id="string")

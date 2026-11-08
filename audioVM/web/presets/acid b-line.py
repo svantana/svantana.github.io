@@ -6,11 +6,13 @@ midi = vm.midi()
 pCutoff = vm.control("cutoff", 0.5)
 pRez = vm.control("resonance", 0.5)
 pEnv = vm.control("filter envelope", 0.7)
+pGlide = vm.control("glide", 0.1)
 
-osc = vm.op("oscSaw", {"note": midi.note})
+envA = vm.op("envExp", {"gate":midi.onset, "decay": 0.1 + 2.0 * midi.gate})
+envF = vm.op("envExp", {"gate":midi.gate, "decay": 0.5})
 
-envA = vm.op("envADSR", {"gate":midi.gate, "a":0.01, "d":2, "s":0, "r":0.1})
-envF = vm.op("envADSR", {"gate":midi.gate, "a":0, "d":0.5, "s":0.0, "r":0.1})
+glideNote = vm.op("smoother", {"time": pGlide})(midi.note)
+osc = vm.op("oscSaw", {"note": glideNote})
 
 filterHz = (0.2 + 0.8 * pCutoff + (pEnv - 0.5) * envF) ** 4 * 5e3
 

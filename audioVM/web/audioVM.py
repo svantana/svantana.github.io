@@ -71,6 +71,13 @@ class Operator:
                 raise ValueError("Cannot mix different DSP vms")
             input = input.name
         self.input["input"] = input
+        # Python evaluates ``vm.op(... )`` before evaluating the argument to
+        # this second call.  An expression such as ``filter(osc1 + osc2)``
+        # therefore appends its ``add`` node after the filter.  Move the
+        # filter to the end so every input still precedes its consumer.
+        if self.vm.program[-1] is not self:
+            self.vm.program[:] = [op for op in self.vm.program if op is not self]
+            self.vm.program.append(self)
         return self
 
 class Delay:

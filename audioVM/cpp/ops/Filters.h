@@ -1,3 +1,9 @@
+#pragma once
+
+#include "../Operator.h"
+
+using namespace AudioVM;
+
 class FilterLP : public Operator {
 public:
     enum In  { Input, FreqHz, Resonance, Reset, NumInputs };
@@ -50,8 +56,8 @@ public:
         Coefs C;
         float f = std::min(.5f, i[FreqHz].value() / mSamplerate);
         C.k = 2 * f * (3.1415f - 2.15f * 2*f);
-        float d = 1 - i[Resonance].value();
-        C.d = std::min(2 * d, .99f / C.k);
+        float d = std::max(0.f, 1 - i[Resonance].value());
+        C.d = std::min(4 * d * d, .99f / C.k);
         return C;
     }
 };
@@ -122,4 +128,28 @@ public:
     }
 private:
     float sL, sB, envL, satL, cK = 0.f, cDamp = 0.f;
+};
+
+struct Smoother : public BlockRateOp {
+    enum In  { Input, SmoothTime, NumInputs };
+    enum Out { Output, NumOutputs };
+    std::string getPortName(Port::Dir dir, int index) override {
+        cStr i[]={"input","time"};
+        cStr o[]={"output"};
+        return (dir==Port::In) ? i[index] : o[index];
+    }
+    int getNumPorts(Port::Dir dir) override {
+        return (dir == Port::Out) ? NumOutputs : NumInputs;
+    }
+
+    void process(Buffer *i, Buffer *o, int N) override {
+        float x = i[Input].value(), &y = o[Output].value();
+        float time = i[SmoothTime].value(), t = N / mSamplerate;
+        float step = t / std::max(1e-30f, t + .25f * time);
+        y += step * (x - y);
+    }
+    void reset() override {
+        mState = 0.f;
+    }
+    float mState;
 };
