@@ -1,5 +1,6 @@
 #include "../cpp/AudioVM.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 
@@ -190,6 +191,42 @@ int main() {
     }
     if (!directIsAudible) {
         std::cerr << "direct MIDI synth produced silence\n";
+        return 1;
+    }
+
+    // A direct oscillator must reach audioOut unchanged. This also guards
+    // against accidental gain being introduced by channel/output routing.
+    AudioVM::Processor sineProcessor;
+    sineProcessor.setup(44100.f, 1, 1, 128);
+    sineProcessor.loadFromJSON(R"({"version":1,"program":[
+        {"type":"oscSin","id":"osc","input":{"frequency":110}},
+        {"type":"audioOut","id":"out","input":"osc"}
+    ]})");
+    float sineOutput[44100]{};
+    float* sineOutputs[] = {sineOutput};
+    sineProcessor.process(nullptr, sineOutputs, 44100);
+    float sinePeak = 0.f;
+    for (float sample : sineOutput) sinePeak = std::max(sinePeak, std::abs(sample));
+    if (sinePeak < 0.99f || sinePeak > 1.01f) {
+        std::cerr << "oscSin direct output peak was " << sinePeak << ", expected approximately 1\n";
+        return 1;
+    }
+
+    AudioVM::Processor scaledSineProcessor;
+    scaledSineProcessor.setup(44100.f, 1, 1, 128);
+    scaledSineProcessor.loadFromJSON(R"({"version":1,"program":[
+        {"type":"oscSin","id":"osc","input":{"frequency":110}},
+        {"type":"const","id":"gain","input":0.5},
+        {"type":"mul","id":"scaled","input":["osc","gain"]},
+        {"type":"audioOut","id":"out","input":"scaled"}
+    ]})");
+    float scaledSineOutput[44100]{};
+    float* scaledSineOutputs[] = {scaledSineOutput};
+    scaledSineProcessor.process(nullptr, scaledSineOutputs, 44100);
+    float scaledSinePeak = 0.f;
+    for (float sample : scaledSineOutput) scaledSinePeak = std::max(scaledSinePeak, std::abs(sample));
+    if (scaledSinePeak < 0.495f || scaledSinePeak > 0.505f) {
+        std::cerr << "scaled oscSin output peak was " << scaledSinePeak << ", expected approximately 0.5\n";
         return 1;
     }
     return 0;

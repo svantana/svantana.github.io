@@ -633,12 +633,15 @@
       audioStats.hidden = true;
       playButton.textContent = 'Play'; playButton.classList.remove('playing');
     };
-    const start = async () => {
-      if (!processor || !audioNode) return;
-      if (!audioConnected) {
+    const connectOutput = () => {
+      if (!audioConnected && outputAnalyser && audioContext) {
         outputAnalyser.connect(audioContext.destination);
         audioConnected = true;
       }
+    };
+    const start = async () => {
+      if (!processor || !audioNode) return;
+      connectOutput();
       await audioContext.resume();
       cpuLoad.textContent = '0%';
       audioFormat.textContent = `${(audioContext.sampleRate / 1000).toFixed(1)} kHz · ${(1000 * 128 / audioContext.sampleRate).toFixed(1)} ms`;
@@ -981,10 +984,7 @@
         releaseAllNotes();
         await ensureAudioWorklet();
         status.textContent = 'Activating audio worklet…';
-        if (!audioConnected) {
-          audioNode.connect(audioContext.destination);
-          audioConnected = true;
-        }
+        connectOutput();
         await audioContext.resume();
         status.textContent = 'Sending patch to audio worklet…';
         processor = false;

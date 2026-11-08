@@ -17,20 +17,16 @@ public:
     int getNumPorts(Port::Dir dir) override {
         return (dir == Port::Out) ? NumOutputs : NumInputs;
     }
-    // static inline float doSVF(Coefs &C, State &S) // todo: combine lp/bp/hp
+
     void process(Buffer *i, Buffer *o, int N) override {
         Coefs T = getCoefs(i), C = mCoefs;
         if (i[Reset].value() > .5f) {
             mState.reset();
         }
         State S = mState; // local copy
-        float *x = i[Input][0], *y = o[Output][0], step = 1.f / o[0].numSamples;
+        float *x = i[Input][0], *y = o[Output][0], cStep = 1.f / mBlockSize;
         for (int n = 0; n < N; n++) {
-            C.k += step * (T.k - C.k);
-            C.d += step * (T.d - C.d);
-            float hp = x[n] - S.l - C.d * S.b;
-            S.b += C.k * hp;
-            S.l += C.k * S.b;
+            doSVF(x[n], S, C, T, cStep);
             y[n] = S.l;
         }
         mState = S;
@@ -41,6 +37,15 @@ public:
     }
     struct State { float l, b; void reset() {l=b=0;} } mState;
     struct Coefs { float k, d; } mCoefs;
+    
+    static inline float doSVF(float x, State &S, Coefs &C, Coefs T, float cStep) {
+        C.k += cStep * (T.k - C.k);
+        C.d += cStep * (T.d - C.d);
+        float hp = x - S.l - C.d * S.b;
+        S.b += C.k * hp;
+        S.l += C.k * S.b;
+        return hp;
+    }
     Coefs getCoefs(Buffer *i) {
         Coefs C;
         float f = std::min(.5f, i[FreqHz].value() / mSamplerate);
@@ -57,13 +62,9 @@ public:
     void process(Buffer *i, Buffer *o, int N) override {
         Coefs T = getCoefs(i), C = mCoefs;
         State S = mState; // local copy
-        float *x = i[Input][0], *y = o[Output][0], step = 1.f / o[0].numSamples;
+        float *x = i[Input][0], *y = o[Output][0], cStep = 1.f / mBlockSize;
         for (int n = 0; n < N; n++) {
-            C.k += step * (T.k - C.k);
-            C.d += step * (T.d - C.d);
-            float hp = x[n] - S.l - C.d * S.b;
-            S.b += C.k * hp;
-            S.l += C.k * S.b;
+            doSVF(x[n], S, C, T, cStep);
             y[n] = S.b;
         }
         mState = S;
@@ -77,14 +78,9 @@ public:
     void process(Buffer *i, Buffer *o, int N) override {
         Coefs T = getCoefs(i), C = mCoefs;
         State S = mState; // local copy
-        float *x = i[Input][0], *y = o[Output][0], step = 1.f / o[0].numSamples;
+        float *x = i[Input][0], *y = o[Output][0], cStep = 1.f / mBlockSize;
         for (int n = 0; n < N; n++) {
-            C.k += step * (T.k - C.k);
-            C.d += step * (T.d - C.d);
-            float hp = x[n] - S.l - C.d * S.b;
-            S.b += C.k * hp;
-            S.l += C.k * S.b;
-            y[n] = hp;
+            y[n] = doSVF(x[n], S, C, T, cStep);
         }
         mState = S;
         mCoefs = C;
