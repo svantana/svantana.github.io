@@ -11,6 +11,7 @@ x = vm.op("audioIn")
 
 env = vm.op("envFollow", input={"attack": pAttack, "release": pRelease})(x)
 
-x = x / (pThres + env)
+envScale = 1 / (0.1 + pThres)
+x = x / (pThres + env * envScale)
 
 vm.op("audioOut", x)

@@ -5,8 +5,12 @@
 using namespace AudioVM;
 
 // some basic ops to get started
-static float convertNoteToHz(float note) {
+static inline float convertNoteToHz(float note) {
     return (note > 0) * 440 * exp2f((note-69)/12);
+}
+static inline float fastUnitSinUnsafe(float x) {
+    float b = x * (1-x);
+    return b * (.5f-x) * (12.63816744f + b * (35.870132f + 56.16403226f * b));
 }
 
 class OscSin : public Operator {
@@ -22,10 +26,6 @@ public:
     Port::Rate getPortRate(Port::Dir dir, int index) override {
         return (dir==Port::Out && index==Output) ? Port::Full : Port::Block;
     }
-    static inline float fastUnitSinUnsafe(float x) {
-        float b = x * (1-x);
-        return b * (.5f-x) * (12.63816744f + b * (35.870132f + 56.16403226f * b));
-    }
     void process(Buffer *i, Buffer *o, int N) override {
         if (i[Reset].value() > 0.5f) {
             mUnitPhase = 0.f;
@@ -38,6 +38,39 @@ public:
             mUnitPhase += phaseStep;
             mUnitPhase -= floorf(mUnitPhase);
             o->data()[n] = fastUnitSinUnsafe(mUnitPhase);
+        }
+        mPhaseStep = phaseStep;
+    }
+private:
+    float mUnitPhase = 0.f, mPhaseStep = 0.f;
+};
+class FMOp : public Operator {
+public:
+    enum In  { FMSource, FreqHz, NoteNumber, Reset, NumInputs };
+    enum Out { Output, NumOutputs };
+    int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? NumInputs : NumOutputs; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        cStr i[]={"input", "frequency", "note", "reset"};
+        cStr o[]={"output"};
+        return (dir == Port::In) ? i[index] : o[index];
+    }
+    Port::Rate getPortRate(Port::Dir dir, int index) override {
+        return (dir==Port::Out && index==Output || dir==Port::In && index==FMSource) ? Port::Full : Port::Block;
+    }
+    void process(Buffer *i, Buffer *o, int N) override {
+        if (i[Reset].value() > 0.5f) {
+            mUnitPhase = 0.f;
+        }
+        float note = i[NoteNumber].value();
+        float hz = convertNoteToHz(note) + i[FreqHz].value();
+        float phaseStep = mPhaseStep, stepTrg = hz / mSamplerate, stepStep = 1 / mBlockSize;
+        float *fm = i[FMSource].data();
+        for (int n = 0; n < N; n++) {
+            phaseStep += stepStep * (stepTrg - phaseStep);
+            mUnitPhase += phaseStep;
+            mUnitPhase -= floorf(mUnitPhase);
+            float phase = mUnitPhase + fm[n];
+            o->data()[n] = fastUnitSinUnsafe(phase - floorf(phase));
         }
         mPhaseStep = phaseStep;
     }

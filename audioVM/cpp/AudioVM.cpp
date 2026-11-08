@@ -72,6 +72,7 @@ Processor::Processor()
     registerType("oscSin", make<OscSin>(), "Generates a sine wave from frequency or MIDI note input.");
     registerType("oscSaw", make<OscSaw>(), "Generates a sawtooth wave from frequency or MIDI note input.");
     registerType("oscNoise", make<OscNoise>(), "Generates white noise.");
+    registerType("oscFM", make<FMOp>(), "FM modulated sinewave oscillator");
     registerType("filterLP", make<FilterLP>(), "Applies a resonant low-pass filter to a full-rate signal.");
     registerType("filterBP", make<FilterBP>(), "Applies a resonant band-pass filter to a full-rate signal.");
     registerType("filterHP", make<FilterHP>(), "Applies a resonant high-pass filter to a full-rate signal.");
@@ -513,6 +514,11 @@ bool Processor::compileProgram() {
                 clone.mInputIds = source.mInputIds;
                 clone.op = makeOpWithId(source.mType);
                 clone.op->mSamplerate = mSamplerate;
+                // Voice operators are constructed independently of the
+                // master graph, so give them the same processing-block
+                // configuration before init().  Several DSP ops smooth
+                // parameters over mBlockSize samples.
+                clone.op->mBlockSize = mBlockSize;
                 clone.op->init();
                 if (const auto* sourceDelay = dynamic_cast<const DelayRead*>(source.op.get())) {
                     auto* cloneDelay = dynamic_cast<DelayRead*>(clone.op.get());
