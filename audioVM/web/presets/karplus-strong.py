@@ -25,7 +25,7 @@ with vm.poly(count=8, timeOut=1.0):
     envA = vm.op("envExp", {"gate": midi.onset, "decay": 0.01 + 0.1 * pFriction}) / (5 + 10 * pFriction)
     excite = vm.op("oscNoise") * envA
     sum += excite
-    sum -= vm.op("delayRead", {"time": lag * (.05 + .9 * pPos), "maxSeconds": 0.1})(excite)
+    sum -= vm.op("delay", {"time": lag * (.05 + .9 * pPos), "maxSeconds": 0.1})(excite)
     
   string.write(sum)
   mix += sum

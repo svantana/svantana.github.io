@@ -46,8 +46,8 @@ Processor::Processor()
     registerType("array", make<ConstOp>(), "Stores an immutable floating-point lookup table in VM memory.");
     registerType("interp", make<InterpOp>(), "Linearly interpolates an array at floating-point indices, extrapolating at both ends.");
     registerType("buffer", make<BufferOperator>(), "Creates a writable full-rate buffer for feedback and in-place operations.");
-    registerType("delayRead", make<DelayRead>(), "Reads a delayed full-rate signal, optionally writing an incoming signal to the delay line.");
-    registerType("delayWrite", make<DelayWrite>(), "Writes a full-rate signal to a delay line opened by delayRead.");
+    registerType("delay", make<Delay>(), "Reads a delayed full-rate signal, optionally writing an incoming signal to the delay line.");
+    registerType("delayWrite", make<DelayWrite>(), "Writes a full-rate signal to a delay line opened by delay.");
     registerType("iadd", make<InplaceBinaryOp<Add>>(), "Adds a value into a writable buffer in place.");
     registerType("isub", make<InplaceBinaryOp<Sub>>(), "Subtracts a value from a writable buffer in place.");
     registerType("imul", make<InplaceBinaryOp<Mul>>(), "Multiplies a writable buffer in place.");
@@ -309,23 +309,23 @@ bool Processor::compileProgram() {
     // thread.  Keep it as a regular constant input in JSON so the builder
     // does not need a second property syntax.
     for (Entry& entry : mProgram.list) {
-        auto* delay = dynamic_cast<DelayRead*>(entry.op.get());
+        auto* delay = dynamic_cast<Delay*>(entry.op.get());
         if (delay == nullptr) continue;
-        if (entry.mInputIds.size() <= DelayRead::MaxSeconds ||
-            entry.mInputIds[DelayRead::MaxSeconds] < 0) {
-            throw std::runtime_error("delayRead requires a constant maxSeconds input");
+        if (entry.mInputIds.size() <= Delay::MaxSeconds ||
+            entry.mInputIds[Delay::MaxSeconds] < 0) {
+            throw std::runtime_error("delay requires a constant maxSeconds input");
         }
-        const int maxSourceId = entry.mInputIds[DelayRead::MaxSeconds];
+        const int maxSourceId = entry.mInputIds[Delay::MaxSeconds];
         const Entry& maxSource = mProgram.list[maxSourceId / OpSpacing];
         const auto* maxSeconds = dynamic_cast<const ConstOp*>(maxSource.op.get());
         if (maxSeconds == nullptr) {
-            throw std::runtime_error("delayRead maxSeconds must be a constant");
+            throw std::runtime_error("delay maxSeconds must be a constant");
         }
         delay->configure(maxSeconds->mValue);
-        const bool hasInput = entry.mInputIds.size() > DelayRead::Input &&
-            entry.mInputIds[DelayRead::Input] >= 0;
+        const bool hasInput = entry.mInputIds.size() > Delay::Input &&
+            entry.mInputIds[Delay::Input] >= 0;
         if (!hasInput && delay->maxSeconds() * mSamplerate < static_cast<float>(mBlockSize)) {
-            throw std::runtime_error("delayRead maxSeconds must be at least one processing block");
+            throw std::runtime_error("delay maxSeconds must be at least one processing block");
         }
     }
 
@@ -471,31 +471,31 @@ bool Processor::compileProgram() {
         }
         const int readIndex = entry.mInputIds[DelayWrite::Delay] / OpSpacing;
         if (readIndex >= index || readIndex < 0 || readIndex >= static_cast<int>(mProgram.list.size())) {
-            throw std::runtime_error("delayWrite must refer to an earlier delayRead");
+            throw std::runtime_error("delayWrite must refer to an earlier delay");
         }
-        auto* reader = dynamic_cast<DelayRead*>(mProgram.list[readIndex].op.get());
+        auto* reader = dynamic_cast<Delay*>(mProgram.list[readIndex].op.get());
         if (reader == nullptr) {
-            throw std::runtime_error("delayWrite delay argument must refer to a delayRead");
+            throw std::runtime_error("delayWrite delay argument must refer to a delay");
         }
         if (rangeForIndex(readIndex) != rangeForIndex(index)) {
-            throw std::runtime_error("delayRead and delayWrite must be in the same polyphonic scope");
+            throw std::runtime_error("delay and delayWrite must be in the same polyphonic scope");
         }
         if (++delayWriterCounts[readIndex] != 1) {
-            throw std::runtime_error("a delayRead may have only one delayWrite");
+            throw std::runtime_error("a delay may have only one delayWrite");
         }
         if (rangeForIndex(index) < 0) writer->link(reader->state());
     }
 
-    // A DelayRead either writes from its regular input or is paired with one
+    // A Delay either writes from its regular input or is paired with one
     // DelayWrite.  Allowing both would advance the same delay line twice per
     // block and produce ambiguous feedback timing.
     for (int index = 0; index < static_cast<int>(mProgram.list.size()); ++index) {
         const Entry& entry = mProgram.list[index];
-        if (dynamic_cast<const DelayRead*>(entry.op.get()) == nullptr) continue;
-        const bool hasInput = entry.mInputIds.size() > DelayRead::Input &&
-            entry.mInputIds[DelayRead::Input] >= 0;
+        if (dynamic_cast<const Delay*>(entry.op.get()) == nullptr) continue;
+        const bool hasInput = entry.mInputIds.size() > Delay::Input &&
+            entry.mInputIds[Delay::Input] >= 0;
         if (hasInput && delayWriterCounts.count(index) != 0) {
-            throw std::runtime_error("delayRead with an input cannot also have a delayWrite");
+            throw std::runtime_error("delay with an input cannot also have a delayWrite");
         }
     }
 
@@ -546,8 +546,8 @@ bool Processor::compileProgram() {
                 // parameters over mBlockSize samples.
                 clone.op->mBlockSize = mBlockSize;
                 clone.op->init();
-                if (const auto* sourceDelay = dynamic_cast<const DelayRead*>(source.op.get())) {
-                    auto* cloneDelay = dynamic_cast<DelayRead*>(clone.op.get());
+                if (const auto* sourceDelay = dynamic_cast<const Delay*>(source.op.get())) {
+                    auto* cloneDelay = dynamic_cast<Delay*>(clone.op.get());
                     cloneDelay->configure(sourceDelay->maxSeconds());
                 }
                 if (const auto* constant = dynamic_cast<const ConstOp*>(source.op.get())) {
@@ -621,7 +621,7 @@ bool Processor::compileProgram() {
                 if (readIndex <= range.startIndex || readIndex >= range.endIndex) {
                     throw std::runtime_error("internal error linking polyphonic delay");
                 }
-                auto* reader = dynamic_cast<DelayRead*>(
+                auto* reader = dynamic_cast<Delay*>(
                     voice.list[readIndex - range.startIndex - 1].op.get());
                 if (reader == nullptr) {
                     throw std::runtime_error("internal error linking polyphonic delay reader");

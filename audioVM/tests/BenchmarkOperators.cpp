@@ -50,10 +50,10 @@ std::vector<OperatorDefinition> readDefinitions(AudioVM::Processor& processor) {
     return definitions;
 }
 
-int addDelayRead(AudioVM::Processor& processor, int fullRateInput) {
+int addDelay(AudioVM::Processor& processor, int fullRateInput) {
     const int delayTime = processor.addConstant(0.01f);
     const int maxDelayTime = processor.addConstant(0.25f);
-    return processor.addOperator("delayRead", {fullRateInput, delayTime, maxDelayTime});
+    return processor.addOperator("delay", {fullRateInput, delayTime, maxDelayTime});
 }
 
 void addOperatorGraph(AudioVM::Processor& processor, const OperatorDefinition& definition) {
@@ -65,8 +65,8 @@ void addOperatorGraph(AudioVM::Processor& processor, const OperatorDefinition& d
     // These structural/stateful operations need their normal graph partners
     // in order to pass compilation, but definitions still provide their IDs.
     if (definition.name == "delayWrite") {
-        const int delayRead = addDelayRead(processor, -1);
-        processor.addOperator(definition.name, {delayRead, audioInput});
+        const int delay = addDelay(processor, -1);
+        processor.addOperator(definition.name, {delay, audioInput});
         return;
     }
     if (definition.name == "polyStart") {

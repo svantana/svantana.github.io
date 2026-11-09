@@ -210,7 +210,7 @@ struct BufferOperator : public FullRateOp {
     }
 };
 
-// DelayRead is a normal delay when its Input port is connected.  With Input
+// Delay is a normal delay when its Input port is connected.  With Input
 // disconnected, it exposes the line for an explicit DelayWrite later in the
 // program, making feedback explicit without introducing a graph cycle.
 struct DelayLineState {
@@ -223,12 +223,12 @@ struct DelayLineState {
     }
 };
 
-class DelayRead : public Operator {
+class Delay : public Operator {
 public:
     enum In { Input, TimeSeconds, MaxSeconds, NumInputs };
     enum Out { Output, NumOutputs };
 
-    DelayRead() : mState(std::make_shared<DelayLineState>()) {}
+    Delay() : mState(std::make_shared<DelayLineState>()) {}
 
     int getNumPorts(Port::Dir dir) override {
         return dir == Port::In ? NumInputs : NumOutputs;
@@ -246,7 +246,7 @@ public:
     // Called only by the compiler, before audio processing starts.
     void configure(float maxSeconds) {
         if (!std::isfinite(maxSeconds) || maxSeconds <= 0.f) {
-            throw std::runtime_error("delayRead maxSeconds must be positive and finite");
+            throw std::runtime_error("delay maxSeconds must be positive and finite");
         }
         mMaxSamples = std::max(1, static_cast<int>(std::ceil(maxSeconds * mSamplerate)));
         // One extra location makes a delay equal to maxSeconds addressable.
@@ -258,7 +258,7 @@ public:
 
     void process(Buffer* in, Buffer* out, int N) override {
         if (mState->samples.empty()) {
-            throw std::runtime_error("delayRead was not configured");
+            throw std::runtime_error("delay was not configured");
         }
         const int requestedSamples = static_cast<int>(std::lround(in[TimeSeconds].value() * mSamplerate));
         const size_t size = mState->samples.size();
@@ -295,7 +295,7 @@ private:
 
 class DelayWrite : public Operator {
 public:
-    // Delay is a compile-time link to DelayRead.  Its buffer is unused at
+    // Delay is a compile-time link to Delay. Its buffer is unused at
     // runtime; Input contains the audio that will be committed to the line.
     enum In { Delay, Input, NumInputs };
 
@@ -311,7 +311,7 @@ public:
     void link(std::shared_ptr<DelayLineState> state) { mState = std::move(state); }
     void process(Buffer* in, Buffer*, int N) override {
         if (!mState || mState->samples.empty()) {
-            throw std::runtime_error("delayWrite is not linked to a delayRead");
+            throw std::runtime_error("delayWrite is not linked to a delay");
         }
         const size_t size = mState->samples.size();
         const float* src = in[Input].data();

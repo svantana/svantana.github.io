@@ -101,7 +101,7 @@ class Delay:
     def read(self, time):
         if self._read is not None:
             raise TypeError("A delay may only have one read endpoint; reuse its output")
-        self._read = self.vm.op("delayRead", {
+        self._read = self.vm.op("delay", {
             "time": time,
             "maxSeconds": self.maxSeconds,
         }, id=self.name + ".read")

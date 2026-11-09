@@ -61,10 +61,10 @@ class OperatorCallTests(unittest.TestCase):
         tap = string.read(0.01)
         string.write(tap)
 
-        self.assertEqual(tap.type, "delayRead")
+        self.assertEqual(tap.type, "delay")
         self.assertEqual(vm.program[-1].type, "delayWrite")
         self.assertEqual(vm.program[-1].input["delay"], "string.read")
-        self.assertIn('"type": "delayRead", "id": "string.read"', vm.get_json())
+        self.assertIn('"type": "delay", "id": "string.read"', vm.get_json())
 
     def test_delay_requires_read_before_write(self):
         vm = VM()
