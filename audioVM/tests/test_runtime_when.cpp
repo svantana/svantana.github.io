@@ -317,5 +317,35 @@ int main() {
             return 1;
         }
     }
+
+    // Values are persistent scalar registers. Reads snapshot their current
+    // contents, and several writes in one block are visible in program order.
+    AudioVM::Processor valueProcessor;
+    valueProcessor.setup(44100.f, 1, 1, 16);
+    valueProcessor.loadFromJSON(R"({"version":1,"program":[
+        {"type":"value","id":"counter","input":2},
+        {"type":"const","id":"one","input":1},
+        {"type":"value","id":"first","input":"counter"},
+        {"type":"add","id":"next1","input":["first","one"]},
+        {"type":"valueWrite","id":"write1","input":["counter","next1"]},
+        {"type":"value","id":"second","input":"counter"},
+        {"type":"add","id":"next2","input":["second","one"]},
+        {"type":"valueWrite","id":"write2","input":["counter","next2"]},
+        {"type":"value","id":"result","input":"counter"},
+        {"type":"toAudio","id":"signal","input":"result"},
+        {"type":"audioOut","id":"out","input":"signal"}
+    ]})");
+    float valueOutput[16]{};
+    float* valueOutputs[] = {valueOutput};
+    valueProcessor.process(nullptr, valueOutputs, 16);
+    if (std::abs(valueOutput[15] - 4.f) > 1e-6f) {
+        std::cerr << "value did not apply multiple ordered writes\n";
+        return 1;
+    }
+    valueProcessor.process(nullptr, valueOutputs, 16);
+    if (std::abs(valueOutput[15] - 6.f) > 1e-6f) {
+        std::cerr << "value did not persist between processing blocks\n";
+        return 1;
+    }
     return 0;
 }

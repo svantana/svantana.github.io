@@ -127,6 +127,38 @@ private:
     std::vector<float> mValues;
 };
 
+// A scalar register. With no input its graph-owned output buffer is
+// initialized once and otherwise retains its value between blocks. With an
+// input it copies that input into a new scalar snapshot.
+class Value : public BlockRateOp {
+public:
+    int getNumPorts(Port::Dir) override { return 1; }
+    std::string getPortName(Port::Dir dir, int) override {
+        return dir == Port::In ? "value" : "output";
+    }
+    void setInitial(float initial) { mInitial = initial; }
+    float initial() const { return mInitial; }
+    void initialize(Buffer& output) const { output.value() = mInitial; }
+    void process(Buffer* in, Buffer* out, int) override {
+        if (in[0].hasData()) out[0].value() = in[0].value();
+    }
+private:
+    float mInitial = 0.f;
+};
+
+struct ValueWrite : public BlockRateOp {
+public:
+    enum In { Target, Input, NumInputs };
+    int getNumPorts(Port::Dir dir) override { return dir == Port::In ? NumInputs : 0; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        static const cStr inputs[] = {"target", "input"};
+        return dir == Port::In ? inputs[index] : "";
+    }
+    void process(Buffer* in, Buffer*, int) override {
+        in[Target].value() = in[Input].value();
+    }
+};
+
 // Linearly interpolates a table at zero-based floating-point indices. The
 // first and last table segments extend beyond the table endpoints.
 class InterpOp : public Operator {

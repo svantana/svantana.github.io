@@ -10,15 +10,15 @@ class Operator:
         self.vm = vm
         self.type = nodeType # TODO: check that type and inputs are valid
         self.name = name if name is not None else nodeType
-        if type(input) is Operator:
+        if isinstance(input, Operator):
             input = input.name
         if type(input) is dict:
             for key in input:
-                if type(input[key]) is Operator:
+                if isinstance(input[key], Operator):
                     input[key] = input[key].name
         if type(input) is list:
             for i, item in enumerate(input):
-                if type(item) is Operator:
+                if isinstance(item, Operator):
                     input[i] = item.name
         self.input = input
 
@@ -116,6 +116,19 @@ class Delay:
         return self.vm.op("delayWrite", {"delay": self._read, "input": input},
                           id=self.name + ".write")
 
+class Value(Operator):
+    """A persistent, block-rate scalar with ordered writes."""
+    def __init__(self, vm, initial, name):
+        super().__init__(vm, "value", name, initial)
+
+    def _snapshot(self):
+        """Capture this value at the current point in the generated program."""
+        return self.vm.op("value", self)
+
+    def write(self, input):
+        """Replace this value immediately; the replacement persists to the next block."""
+        return self.vm.op("valueWrite", [self, input])
+
 class Midi: # convenience class for midi inputs
     def __init__(self, vm, name="midi"):
         outs = ["channel", "gate", "onset", "offset", "note", "velocity", "pitchbend", "modwheel"]
@@ -166,6 +179,26 @@ class VM:
     def control(self, name, value=0):
         return self.op("control", id=name, input=value)
 
+    def value(self, initial=0, id=None):
+        """Create a persistent scalar value.
+
+        It can be used in expressions like a normal scalar; each expression
+        snapshots its current value in program order. ``write()`` updates it
+        immediately and it retains its most recently written value between
+        processing blocks.
+        """
+        if not isinstance(initial, (int, float)) or not math.isfinite(initial):
+            raise TypeError("value initial must be a finite number")
+        if id is not None and (not isinstance(id, str) or not id):
+            raise TypeError("value id must be a non-empty string")
+        if "value" not in self.typeCounts:
+            self.typeCounts["value"] = 0
+        self.typeCounts["value"] += 1
+        name = id if id is not None else "value" + str(self.typeCounts["value"])
+        obj = Value(self, initial, name)
+        self.program.append(obj)
+        return obj
+
     def array(self, values):
         """Create an immutable float lookup table stored in VM memory."""
         if not isinstance(values, (list, tuple)):
@@ -190,6 +223,11 @@ class VM:
         return Delay(self, maxSeconds, id)
 
     def as_op(self, value):
+        if isinstance(value, Value):
+            if value.vm is not self:
+                raise ValueError("Cannot mix different DSP vms")
+            return value._snapshot()
+
         if isinstance(value, Operator):
             if value.vm is not self:
                 raise ValueError("Cannot mix different DSP vms")
@@ -274,7 +312,7 @@ class VM:
             s += ',\n\t' + json.dumps(key) + ': ' + json.dumps(value)
         s += ',\n\t"program": [\n'
         for p in self.program:
-            if type(p) is not Operator:
+            if not isinstance(p, Operator):
                 print("warning!")
                 print(p)
                 continue

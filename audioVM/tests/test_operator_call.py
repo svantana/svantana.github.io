@@ -102,6 +102,22 @@ class OperatorCallTests(unittest.TestCase):
         self.assertEqual(vm.program[0].name, "arp")
         self.assertIn('"arp.note"', vm.get_json())
 
+    def test_value_reads_implicitly_in_expressions_and_writes_in_order(self):
+        vm = VM()
+        previous_gate = vm.value(0, id="prevMidiGate")
+        before = previous_gate == 0
+        previous_gate.write(1)
+        after = previous_gate == 1
+
+        self.assertEqual([op.type for op in vm.program], [
+            "value", "value", "const", "equal", "valueWrite",
+            "value", "const", "equal",
+        ])
+        self.assertEqual(vm.program[4].input, ["prevMidiGate", 1])
+        self.assertIn('"type": "value", "id": "prevMidiGate", "input": 0', vm.get_json())
+        self.assertEqual(before.type, "equal")
+        self.assertEqual(after.type, "equal")
+
 
 if __name__ == "__main__":
     unittest.main()

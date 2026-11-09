@@ -41,6 +41,8 @@ Processor::Processor()
     registerType("ifEnd", make<IfEnd>(), "Ends a conditionally processed region.");
     registerType("control", make<Control>(), "Exposes a block-rate value as a user-adjustable control.");
     registerType("const", make<ConstOp>(), "Outputs a constant block-rate value.");
+    registerType("value", make<Value>(), "Creates a persistent scalar or captures a scalar input.");
+    registerType("valueWrite", make<ValueWrite>(), "Updates a scalar value in program order.");
     registerType("array", make<ConstOp>(), "Stores an immutable floating-point lookup table in VM memory.");
     registerType("interp", make<InterpOp>(), "Linearly interpolates an array at floating-point indices, extrapolating at both ends.");
     registerType("buffer", make<BufferOperator>(), "Creates a writable full-rate buffer for feedback and in-place operations.");
@@ -296,6 +298,10 @@ bool Processor::compileProgram() {
         if (auto* constant = dynamic_cast<ConstOp*>(entry.op.get());
             constant != nullptr && constant->isVector()) {
             constant->copyTo(entry.mOutputs[0]);
+        }
+        if (auto* value = dynamic_cast<Value*>(entry.op.get()); value != nullptr &&
+            !entry.mInputs[0].hasData()) {
+            value->initialize(entry.mOutputs[0]);
         }
     }
     // Delay capacity is structural rather than a DSP input: it must be known
@@ -553,6 +559,9 @@ bool Processor::compileProgram() {
                     auto* cloneControl = dynamic_cast<Control*>(clone.op.get());
                     cloneControl->mName = control->mName;
                     cloneControl->mValue = control->mValue;
+                } else if (const auto* value = dynamic_cast<const Value*>(source.op.get())) {
+                    auto* cloneValue = dynamic_cast<Value*>(clone.op.get());
+                    cloneValue->setInitial(value->initial());
                 }
                 clone.mInputs.resize(source.mInputs.size());
                 clone.mOutputs = source.mOutputs;
@@ -568,6 +577,10 @@ bool Processor::compileProgram() {
                 if (auto* constant = dynamic_cast<ConstOp*>(clone.op.get());
                     constant != nullptr && constant->isVector()) {
                     constant->copyTo(clone.mOutputs[0]);
+                }
+                if (auto* value = dynamic_cast<Value*>(clone.op.get()); value != nullptr &&
+                    (clone.mInputIds.empty() || clone.mInputIds[0] < 0)) {
+                    value->initialize(clone.mOutputs[0]);
                 }
             }
         }
@@ -781,6 +794,21 @@ void Processor::loadFromJSON(std::string jsonString) {
                     mProgram.list.back().mId = id;
                     mCompiler.mIdToIndex.emplace(id, opId);
                     continue;
+                } else if (type == "value" && inputIt->second.is<double>()) {
+                    const double initial = inputIt->second.get<double>();
+                    if (!std::isfinite(initial) ||
+                        initial < -std::numeric_limits<float>::max() ||
+                        initial > std::numeric_limits<float>::max()) {
+                        throw std::runtime_error(context + "value input must be a finite float");
+                    }
+                    prototype.reset();
+                    const int opId = addOperator("value");
+                    auto* storedValue = dynamic_cast<Value*>(mProgram.list.back().op.get());
+                    assert(storedValue != nullptr);
+                    storedValue->setInitial(static_cast<float>(initial));
+                    mProgram.list.back().mId = id;
+                    mCompiler.mIdToIndex.emplace(id, opId);
+                    continue;
                 } else if (inputIt->second.is<std::string>() || inputIt->second.is<double>()) {
                     inputs.push_back(resolveInputId(inputIt->second));
                 } else if (inputIt->second.is<picojson::array>()) {
@@ -912,6 +940,9 @@ std::string Processor::getOpListAsJSON() {
         } else if (const auto* control = dynamic_cast<const Control*>(entry.op.get())) {
             node["type"] = picojson::value(entry.mType);
             node["input"] = picojson::value(static_cast<double>(control->mValue));
+        } else if (const auto* value = dynamic_cast<const Value*>(entry.op.get())) {
+            node["type"] = picojson::value(entry.mType);
+            node["input"] = picojson::value(static_cast<double>(value->initial()));
         } else if (entry.op->getNumPorts(Port::In) > 0) {
             node["type"] = picojson::value(entry.mType);
             picojson::array inputs;
@@ -989,6 +1020,12 @@ void Processor::resetVoice(Voice& voice) {
     }
     for (float& value : voice.mIoBuffer) {
         value = 0.f;
+    }
+    for (Entry& entry : voice.list) {
+        if (auto* value = dynamic_cast<Value*>(entry.op.get()); value != nullptr &&
+            !entry.mInputs[0].hasData()) {
+            value->initialize(entry.mOutputs[0]);
+        }
     }
 }
 

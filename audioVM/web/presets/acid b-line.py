@@ -11,7 +11,10 @@ pGlide = vm.control("glide", 0.1)
 envA = vm.op("envExp", {"gate":midi.onset, "decay": 0.1 + 2.0 * midi.gate})
 envF = vm.op("envExp", {"gate":midi.gate, "decay": 0.5})
 
-glideNote = vm.op("smoother", {"time": pGlide})(midi.note)
+prevGate = vm.value(0) # use previous gate to determine glide
+notOnset = midi.gate <= prevGate
+prevGate.write(midi.gate)
+glideNote = vm.op("smoother", {"time": pGlide * notOnset})(midi.note)
 osc = vm.op("oscSaw", {"note": glideNote})
 
 filterHz = (0.2 + 0.8 * pCutoff + (pEnv - 0.5) * envF) ** 4 * 5e3
