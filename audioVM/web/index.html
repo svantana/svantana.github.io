@@ -144,10 +144,9 @@
       </div>
       <div class="editor-toolbar">
         <select id="presets" aria-label="Load preset" disabled><option value="">Presets…</option></select>
-        <button id="save" type="button">Save</button>
         <button id="load" disabled>Run ⌘⮐</button>
-        <button id="play" disabled>Play</button>
-        <button id="web-midi" type="button">Enable MIDI</button>
+        <button id="play" disabled aria-label="Play">▶</button>
+        <button id="web-midi" type="button" aria-label="Enable MIDI">🎹</button>
         <div id="audio-stats" hidden role="status" aria-label="Audio engine statistics">
           <span>CPU</span><span id="cpu-load">0%</span><span id="audio-format"></span>
         </div>
@@ -211,7 +210,6 @@
 
     const editor = document.querySelector('#program');
     const loadButton = document.querySelector('#load');
-    const saveButton = document.querySelector('#save');
     const playButton = document.querySelector('#play');
     const webMidiButton = document.querySelector('#web-midi');
     const audioStats = document.querySelector('#audio-stats');
@@ -436,7 +434,8 @@
     const updateWebMidiButton = () => {
       if (!webMidiAccess) return;
       const count = [...webMidiAccess.inputs.values()].length;
-      webMidiButton.textContent = count ? `MIDI · ${count}` : 'MIDI enabled';
+      webMidiButton.textContent = '🎹';
+      webMidiButton.setAttribute('aria-label', count ? `MIDI enabled: ${count} input${count === 1 ? '' : 's'}` : 'MIDI enabled');
       webMidiButton.disabled = false;
     };
     const attachWebMidiInputs = () => {
@@ -634,7 +633,7 @@
       if (outputAnalyser && audioConnected) { outputAnalyser.disconnect(); audioConnected = false; }
       if (audioContext) audioContext.suspend();
       audioStats.hidden = true;
-      playButton.textContent = 'Play'; playButton.classList.remove('playing');
+      playButton.textContent = '▶'; playButton.setAttribute('aria-label', 'Play'); playButton.classList.remove('playing');
     };
     const connectOutput = () => {
       if (!audioConnected && outputAnalyser && audioContext) {
@@ -649,7 +648,7 @@
       cpuLoad.textContent = '0%';
       audioFormat.textContent = `${(audioContext.sampleRate / 1000).toFixed(1)} kHz · ${(1000 * 128 / audioContext.sampleRate).toFixed(1)} ms`;
       audioStats.hidden = false;
-      playButton.textContent = 'Stop'; playButton.classList.add('playing');
+      playButton.textContent = '❚❚'; playButton.setAttribute('aria-label', 'Pause'); playButton.classList.add('playing');
     };
     const toggleTransport = () => {
       const play = !transport.play;
@@ -1012,7 +1011,7 @@
     };
 
     const savePatch = async () => {
-      const filename = 'patch.py';
+      const filename = presetSelect.value || 'patch.py';
       try {
         if ('showSaveFilePicker' in window) {
           const fileHandle = await window.showSaveFilePicker({
@@ -1057,7 +1056,6 @@
     };
 
     loadButton.addEventListener('click', loadPatch);
-    saveButton.addEventListener('click', savePatch);
     playButton.addEventListener('click', () => {
       if (playButton.classList.contains('playing')) stop();
       else start().catch(cause => showError(`Could not start audio: ${cause.message}`));
@@ -1069,7 +1067,8 @@
       }
       try {
         webMidiButton.disabled = true;
-        webMidiButton.textContent = 'Enabling MIDI…';
+        webMidiButton.textContent = '🎹';
+        webMidiButton.setAttribute('aria-label', 'Enabling MIDI');
         if (!webMidiAccess) {
           webMidiAccess = await navigator.requestMIDIAccess();
           webMidiAccess.onstatechange = attachWebMidiInputs;
@@ -1078,7 +1077,8 @@
         status.textContent = 'Web MIDI enabled';
       } catch (cause) {
         webMidiButton.disabled = false;
-        webMidiButton.textContent = 'Enable MIDI';
+        webMidiButton.textContent = '🎹';
+        webMidiButton.setAttribute('aria-label', 'Enable MIDI');
         showError(`Could not enable Web MIDI: ${cause.message || cause}`);
       }
     });
@@ -1087,6 +1087,11 @@
       await loadPreset(presetSelect.value);
     });
     editor.addEventListener('keydown', event => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        savePatch();
+        return;
+      }
       if (event.key === 'Tab') {
         event.preventDefault();
         const indent = '  ';
