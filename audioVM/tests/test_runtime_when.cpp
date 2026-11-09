@@ -271,5 +271,51 @@ int main() {
         std::cerr << "scaled oscSin output peak was " << scaledSinePeak << ", expected approximately 0.5\n";
         return 1;
     }
+
+    // Tables retain all their values in VM memory. Interp must handle both
+    // in-range fractional positions and endpoint-slope extrapolation.
+    AudioVM::Processor interpProcessor;
+    interpProcessor.setup(44100.f, 1, 1, 5);
+    interpProcessor.loadFromJSON(R"({"version":1,"program":[
+        {"type":"array","id":"table","input":[0,10,30]},
+        {"type":"audioIn","id":"index"},
+        {"type":"interp","id":"lookup","input":["table","index"]},
+        {"type":"audioOut","id":"out","input":"lookup"}
+    ]})");
+    float lookupIndices[] = {-1.f, 0.5f, 1.f, 2.f, 3.f};
+    float lookupOutput[5]{};
+    float* lookupInputs[] = {lookupIndices};
+    float* lookupOutputs[] = {lookupOutput};
+    interpProcessor.process(lookupInputs, lookupOutputs, 5);
+    const float expectedLookup[] = {-10.f, 5.f, 10.f, 30.f, 50.f};
+    for (int sample = 0; sample < 5; ++sample) {
+        if (std::abs(lookupOutput[sample] - expectedLookup[sample]) > 1e-6f) {
+            std::cerr << "interp produced " << lookupOutput[sample] << " at sample " << sample
+                      << ", expected " << expectedLookup[sample] << "\n";
+            return 1;
+        }
+    }
+
+    // A normal writable buffer can be used as the lookup table as well.
+    AudioVM::Processor bufferInterpProcessor;
+    bufferInterpProcessor.setup(44100.f, 1, 1, 5);
+    bufferInterpProcessor.loadFromJSON(R"({"version":1,"program":[
+        {"type":"audioIn","id":"source"},
+        {"type":"buffer","id":"table"},
+        {"type":"iadd","id":"fill","input":["table","source"]},
+        {"type":"interp","id":"lookup","input":["table","source"]},
+        {"type":"audioOut","id":"out","input":"lookup"}
+    ]})");
+    float bufferIndices[] = {0.f, 1.f, 2.f, 3.f, 4.f};
+    float bufferLookupOutput[5]{};
+    float* bufferLookupInputs[] = {bufferIndices};
+    float* bufferLookupOutputs[] = {bufferLookupOutput};
+    bufferInterpProcessor.process(bufferLookupInputs, bufferLookupOutputs, 5);
+    for (int sample = 0; sample < 5; ++sample) {
+        if (std::abs(bufferLookupOutput[sample] - static_cast<float>(sample)) > 1e-6f) {
+            std::cerr << "interp did not accept a standard buffer at sample " << sample << "\n";
+            return 1;
+        }
+    }
     return 0;
 }

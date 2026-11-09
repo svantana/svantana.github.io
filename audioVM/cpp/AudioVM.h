@@ -24,6 +24,7 @@ public:
     int addOperator(std::string operatorId, std::vector<int> inputs = {});
     int addControl(std::string name, float value = 0.f);
     int addConstant(float value);
+    int addConstant(std::vector<float> values);
     bool compileProgram();
     
     // realtime processing interface

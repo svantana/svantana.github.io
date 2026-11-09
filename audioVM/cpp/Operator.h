@@ -58,6 +58,15 @@ namespace AudioVM {
             return "";
         }
         virtual Port::Rate getPortRate(Port::Dir dir, int index) { return Port::Keep; }
+        // Most outputs follow their declared rate. Operators such as lookup
+        // tables can override this when a particular input determines length.
+        virtual int getOutputNumSamples(int output, int blockSize,
+                                        const std::vector<Buffer>& inputs) {
+            const Port::Rate rate = getPortRate(Port::Out, output);
+            return rate == Port::Full ? blockSize
+                : rate == Port::Block ? 1
+                : !inputs.empty() ? inputs[0].numSamples : 1;
+        }
         virtual void init() {} // do setup here, if needed
         virtual void reset() {}
         virtual void process(Buffer* inBufs, Buffer* outBufs, int numSamples) {}

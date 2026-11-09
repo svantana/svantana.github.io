@@ -3,6 +3,7 @@
 
 from contextlib import contextmanager
 import json
+import math
 
 class Operator:
     def __init__(self, vm, nodeType, name=None, input=None):
@@ -164,6 +165,20 @@ class VM:
 
     def control(self, name, value=0):
         return self.op("control", id=name, input=value)
+
+    def array(self, values):
+        """Create an immutable float lookup table stored in VM memory."""
+        if not isinstance(values, (list, tuple)):
+            raise TypeError("array() expects a list or tuple of numbers")
+        if len(values) < 2:
+            raise ValueError("array() requires at least two values for linear extrapolation")
+        if not all(isinstance(value, (int, float)) and math.isfinite(value) for value in values):
+            raise TypeError("array() values must all be finite numbers")
+        return self.op("array", list(values))
+
+    def interp(self, array, index):
+        """Look up zero-based floating-point indices with linear extrapolation."""
+        return self.op("interp", [self.as_op(array).name, self.as_op(index).name])
 
     def delay(self, maxSeconds, id=None):
         """Create a feedback delay handle; call read() before write()."""

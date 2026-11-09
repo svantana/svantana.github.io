@@ -41,6 +41,8 @@ Processor::Processor()
     registerType("ifEnd", make<IfEnd>(), "Ends a conditionally processed region.");
     registerType("control", make<Control>(), "Exposes a block-rate value as a user-adjustable control.");
     registerType("const", make<ConstOp>(), "Outputs a constant block-rate value.");
+    registerType("array", make<ConstOp>(), "Stores an immutable floating-point lookup table in VM memory.");
+    registerType("interp", make<InterpOp>(), "Linearly interpolates an array at floating-point indices, extrapolating at both ends.");
     registerType("buffer", make<BufferOperator>(), "Creates a writable full-rate buffer for feedback and in-place operations.");
     registerType("delayRead", make<DelayRead>(), "Reads a delayed full-rate signal, optionally writing an incoming signal to the delay line.");
     registerType("delayWrite", make<DelayWrite>(), "Writes a full-rate signal to a delay line opened by delayRead.");
@@ -201,10 +203,7 @@ int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
     const int numOuts = entry.op->getNumPorts(Port::Out);
     entry.mOutputs.resize(numOuts);
     for (int output = 0; output < numOuts; ++output) {
-        const Port::Rate rate = entry.op->getPortRate(Port::Out, output);
-        const int numSamples = rate == Port::Full ? mBlockSize
-            : rate == Port::Block ? 1
-            : numIns > 0 ? entry.mInputs[0].numSamples : 1;
+        const int numSamples = entry.op->getOutputNumSamples(output, mBlockSize, entry.mInputs);
         entry.mOutputs[output] = Buffer(nullptr, numSamples);
     }
     return entry.mIndex;
@@ -222,6 +221,19 @@ int Processor::addConstant(float value) {
     auto* constant = dynamic_cast<ConstOp*>(mProgram.list.back().op.get());
     assert(constant != nullptr);
     constant->mValue = value;
+    return constantId;
+}
+int Processor::addConstant(std::vector<float> values) {
+    if (values.empty()) {
+        throw std::runtime_error("vector constants must not be empty");
+    }
+    const int constantId = addOperator("const");
+    auto* constant = dynamic_cast<ConstOp*>(mProgram.list.back().op.get());
+    assert(constant != nullptr);
+    constant->setValues(std::move(values));
+    // The buffer is not allocated until compileProgram(), so it is safe to
+    // resize this output after configuring the vector-valued constant.
+    mProgram.list.back().mOutputs[0].numSamples = static_cast<int>(constant->values().size());
     return constantId;
 }
 
@@ -278,7 +290,14 @@ bool Processor::compileProgram() {
             mProgram.mTransportInId = n;
         }
     }
-
+    // Vector constants are immutable. Fill their graph-owned storage while
+    // compiling so the audio callback never needs to copy table data.
+    for (Entry& entry : mProgram.list) {
+        if (auto* constant = dynamic_cast<ConstOp*>(entry.op.get());
+            constant != nullptr && constant->isVector()) {
+            constant->copyTo(entry.mOutputs[0]);
+        }
+    }
     // Delay capacity is structural rather than a DSP input: it must be known
     // before processing starts so delay lines never allocate on the audio
     // thread.  Keep it as a regular constant input in JSON so the builder
@@ -529,6 +548,7 @@ bool Processor::compileProgram() {
                     auto* cloneConstant = dynamic_cast<ConstOp*>(clone.op.get());
                     cloneConstant->mName = constant->mName;
                     cloneConstant->mValue = constant->mValue;
+                    if (constant->isVector()) cloneConstant->setValues(constant->values());
                 } else if (const auto* control = dynamic_cast<const Control*>(source.op.get())) {
                     auto* cloneControl = dynamic_cast<Control*>(clone.op.get());
                     cloneControl->mName = control->mName;
@@ -544,6 +564,10 @@ bool Processor::compileProgram() {
                 for (Buffer& output : clone.mOutputs) {
                     output.ptr = &voice.mIoBuffer[position];
                     position += output.size();
+                }
+                if (auto* constant = dynamic_cast<ConstOp*>(clone.op.get());
+                    constant != nullptr && constant->isVector()) {
+                    constant->copyTo(clone.mOutputs[0]);
                 }
             }
         }
@@ -723,7 +747,29 @@ void Processor::loadFromJSON(std::string jsonString) {
 
             const auto inputIt = object.find("input");
             if (inputIt != object.end()) {
-                if (type == "const" && inputIt->second.is<double>()) {
+                if (type == "array") {
+                    if (!inputIt->second.is<picojson::array>()) {
+                        throw std::runtime_error(context + "array input must be an array of at least two finite numbers");
+                    }
+                    std::vector<float> values;
+                    for (const picojson::value& item : inputIt->second.get<picojson::array>()) {
+                        if (!item.is<double>() || !std::isfinite(item.get<double>())) {
+                            throw std::runtime_error(context + "array input must contain only finite numbers");
+                        }
+                        const float value = static_cast<float>(item.get<double>());
+                        if (!std::isfinite(value)) {
+                            throw std::runtime_error(context + "array input values must fit in a float");
+                        }
+                        values.push_back(value);
+                    }
+                    if (values.size() < 2) {
+                        throw std::runtime_error(context + "array input must contain at least two numbers");
+                    }
+                    const int opId = addConstant(std::move(values));
+                    mProgram.list.back().mId = id;
+                    mCompiler.mIdToIndex.emplace(id, opId);
+                    continue;
+                } else if (type == "const" && inputIt->second.is<double>()) {
                     prototype.reset();
                     const int opId = addConstant(static_cast<float>(inputIt->second.get<double>()));
                     mProgram.list.back().mId = id;
@@ -761,6 +807,9 @@ void Processor::loadFromJSON(std::string jsonString) {
                     throw std::runtime_error(context +
                         "property 'input' must be an operator id, array of ids, or object keyed by input name");
                 }
+            }
+            if (type == "array") {
+                throw std::runtime_error(context + "array requires an input array of at least two finite numbers");
             }
             if (inputs.size() > static_cast<size_t>(numInputPorts)) {
                 throw std::runtime_error(context + "has more inputs than operator '" + type + "' accepts");
@@ -848,14 +897,23 @@ std::string Processor::getOpListAsJSON() {
         picojson::object node;
         const auto id = sourceIds.find(entry.mIndex);
         assert(id != sourceIds.end());
-        node["type"] = picojson::value(entry.mType);
         node["id"] = picojson::value(id->second);
 
         if (const auto* constant = dynamic_cast<const ConstOp*>(entry.op.get())) {
-            node["input"] = picojson::value(static_cast<double>(constant->mValue));
+            if (constant->isVector()) {
+                picojson::array values;
+                for (float value : constant->values()) values.emplace_back(static_cast<double>(value));
+                node["type"] = picojson::value("array");
+                node["input"] = picojson::value(values);
+            } else {
+                node["type"] = picojson::value(entry.mType);
+                node["input"] = picojson::value(static_cast<double>(constant->mValue));
+            }
         } else if (const auto* control = dynamic_cast<const Control*>(entry.op.get())) {
+            node["type"] = picojson::value(entry.mType);
             node["input"] = picojson::value(static_cast<double>(control->mValue));
         } else if (entry.op->getNumPorts(Port::In) > 0) {
+            node["type"] = picojson::value(entry.mType);
             picojson::array inputs;
             const int numInputs = entry.op->getNumPorts(Port::In);
             for (int input = 0; input < numInputs; ++input) {
@@ -867,6 +925,8 @@ std::string Processor::getOpListAsJSON() {
                     : picojson::value(source->second));
             }
             node["input"] = picojson::value(inputs);
+        } else {
+            node["type"] = picojson::value(entry.mType);
         }
         operators.emplace_back(node);
     }

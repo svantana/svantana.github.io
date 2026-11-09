@@ -108,9 +108,61 @@ struct ConstOp : public BlockRateOp {
     int getNumPorts(Port::Dir dir) override {
         return (dir == Port::In) ? 0 : 1;
     }
-    void process(Buffer *i, Buffer *o, int N) override { o[0].value() = mValue; }
-    float mValue;
+    int getOutputNumSamples(int, int, const std::vector<Buffer>&) override {
+        return mValues.empty() ? 1 : static_cast<int>(mValues.size());
+    }
+    void setValues(std::vector<float> values) { mValues = std::move(values); }
+    bool isVector() const { return !mValues.empty(); }
+    const std::vector<float>& values() const { return mValues; }
+    void copyTo(Buffer& output) const {
+        assert(isVector() && output.numSamples == static_cast<int>(mValues.size()));
+        std::copy(mValues.begin(), mValues.end(), output.data());
+    }
+    void process(Buffer *i, Buffer *o, int N) override {
+        if (!isVector()) o[0].value() = mValue;
+    }
+    float mValue = 0.f;
     std::string mName;
+private:
+    std::vector<float> mValues;
+};
+
+// Linearly interpolates a table at zero-based floating-point indices. The
+// first and last table segments extend beyond the table endpoints.
+class InterpOp : public Operator {
+public:
+    enum In { Array, Index, NumInputs };
+    int getNumPorts(Port::Dir dir) override { return dir == Port::In ? NumInputs : 1; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        static const cStr inputs[] = {"array", "index"};
+        return dir == Port::In ? inputs[index] : "output";
+    }
+    int getOutputNumSamples(int, int, const std::vector<Buffer>& inputs) override {
+        return inputs.size() > Index ? inputs[Index].numSamples : 1;
+    }
+    void process(Buffer* in, Buffer* out, int N) override {
+        const int tableSize = in[Array].numSamples;
+        const float* table = in[Array].data();
+        const float* indices = in[Index].data();
+        float* dst = out[0].data();
+        const int count = std::min(N, out[0].numSamples);
+        if (tableSize < 2) {
+            for (int n = 0; n < count; ++n) dst[n] = table[0];
+            return;
+        }
+        for (int n = 0; n < count; ++n) {
+            const float index = indices[in[Index].numSamples == 1 ? 0 : n];
+            if (std::isnan(index)) {
+                dst[n] = index;
+                continue;
+            }
+            int lower = 0;
+            if (index >= static_cast<float>(tableSize - 1)) lower = tableSize - 2;
+            else if (index >= 0.f) lower = static_cast<int>(std::floor(index));
+            const float fraction = index - static_cast<float>(lower);
+            dst[n] = table[lower] + fraction * (table[lower + 1] - table[lower]);
+        }
+    }
 };
 
 // needed for feedback and sums
