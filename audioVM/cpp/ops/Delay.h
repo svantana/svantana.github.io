@@ -253,7 +253,7 @@ struct DelayLineState {
 
 class Delay : public Operator {
 public:
-    enum In { Input, TimeSeconds, MaxSeconds, NumInputs };
+    enum In { Input, TimeSeconds, LowpassFreq, MaxSeconds, NumInputs };
     enum Out { Output, NumOutputs };
 
     Delay() : mState(std::make_shared<DelayLineState>()) {}
@@ -262,7 +262,7 @@ public:
         return dir == Port::In ? NumInputs : NumOutputs;
     }
     std::string getPortName(Port::Dir dir, int index) override {
-        static const cStr inputs[] = {"input", "time", "maxSeconds"};
+        static const cStr inputs[] = {"input", "time", "cutoff", "maxSeconds"};
         static const cStr outputs[] = {"output"};
         return dir == Port::In ? inputs[index] : outputs[index];
     }

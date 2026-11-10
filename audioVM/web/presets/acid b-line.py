@@ -6,10 +6,11 @@ midi = vm.midi()
 pCutoff = vm.control("cutoff", 0.5)
 pRez = vm.control("resonance", 0.5)
 pEnv = vm.control("filter envelope", 0.7)
+pEnvT = vm.control("decay", 0.5)
 pGlide = vm.control("glide", 0.1)
 
 envA = vm.op("envExp", {"gate":midi.onset, "decay": 0.1 + 2.0 * midi.gate})
-envF = vm.op("envExp", {"gate":midi.gate, "decay": 0.5})
+envF = vm.op("envExp", {"gate":midi.gate, "decay": pEnvT})
 
 prevGate = vm.value(0) # use previous gate to determine glide
 notOnset = midi.gate <= prevGate
