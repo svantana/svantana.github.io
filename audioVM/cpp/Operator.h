@@ -72,4 +72,13 @@ namespace AudioVM {
         virtual void process(Buffer* inBufs, Buffer* outBufs, int numSamples) {}
         float mSamplerate, mBlockSize;
     };
+
+#ifndef NDEBUG
+static void DEBUGCHECK(bool x, cStr msg = "(unknown)") {
+    
+}
+#else
+#define DEBUGCHECK(...) (void)
+#endif
+
 }

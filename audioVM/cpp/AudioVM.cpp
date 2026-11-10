@@ -12,6 +12,7 @@
 #include "ops/Envs.h"
 #include "ops/Oscs.h"
 #include "ops/Filters.h"
+#include "ops/Delay.h"
 
 using namespace AudioVM;
 
