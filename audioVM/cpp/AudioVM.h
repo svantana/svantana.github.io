@@ -18,6 +18,10 @@ public:
     void loadFromJSON(std::string jsonString);
     std::string getOpListAsJSON();
     std::string getOpDefinitionsJSON() const;
+    // Exports the current graph as one compiled AudioVM operator.  The first
+    // version deliberately supports the stateless arithmetic subset and
+    // throws for nodes that have not yet been lowered by the exporter.
+    std::string getGeneratedOperatorCode(const std::string& className) const;
 
     // manual program construction
     void clearProgram();

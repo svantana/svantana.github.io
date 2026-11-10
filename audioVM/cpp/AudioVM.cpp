@@ -1,10 +1,13 @@
 #include "AudioVM.h"
 #include "libs/picojson.h"
 #include <assert.h>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 
 #include "ops/CoreOps.h"
 
@@ -1011,6 +1014,252 @@ std::string Processor::getOpDefinitionsJSON() const {
     picojson::object root;
     root["operators"] = picojson::value(operators);
     return picojson::value(root).serialize(true);
+}
+
+std::string Processor::getGeneratedOperatorCode(const std::string& className) const {
+    // This is intentionally a lowering pass, rather than a serialization of
+    // Operator calls.  A generated patch has one virtual call at its boundary
+    // and uses ordinary float expressions inside its sample loop.
+    if (className.empty() ||
+        !(std::isalpha(static_cast<unsigned char>(className[0])) || className[0] == '_') ||
+        !std::all_of(className.begin() + 1, className.end(), [](unsigned char c) {
+            return std::isalnum(c) || c == '_';
+        })) {
+        throw std::runtime_error("Generated operator class name must be a C++ identifier");
+    }
+
+    const auto floatLiteral = [](float value) {
+        std::ostringstream result;
+        result << std::setprecision(std::numeric_limits<float>::max_digits10) << value;
+        std::string text = result.str();
+        if (text.find_first_of(".eE") == std::string::npos) text += ".0";
+        return text + "f";
+    };
+    const auto portName = [](const std::string& value, const std::string& fallback) {
+        return value.empty() ? fallback : value;
+    };
+    const auto cppString = [](const std::string& value) {
+        std::string escaped;
+        escaped.reserve(value.size() + 2);
+        for (const char character : value) {
+            switch (character) {
+            case '\\': escaped += "\\\\"; break;
+            case '\"': escaped += "\\\""; break;
+            case '\n': escaped += "\\n"; break;
+            case '\r': escaped += "\\r"; break;
+            case '\t': escaped += "\\t"; break;
+            default: escaped += character; break;
+            }
+        }
+        return escaped;
+    };
+    const auto isBinary = [](const std::string& type) {
+        return type == "add" || type == "sub" || type == "mul" || type == "div" ||
+               type == "pow" || type == "mod" || type == "equal" || type == "notEqual" ||
+               type == "less" || type == "lessEqual" || type == "greater" || type == "greaterEqual";
+    };
+    const auto isUnary = [](const std::string& type) {
+        return type == "exp" || type == "floor" || type == "round" || type == "ceil";
+    };
+    const auto binaryExpression = [](const std::string& type, const std::string& a,
+                                     const std::string& b) {
+        if (type == "add") return "(" + a + " + " + b + ")";
+        if (type == "sub") return "(" + a + " - " + b + ")";
+        if (type == "mul") return "(" + a + " * " + b + ")";
+        if (type == "div") return "(" + a + " / " + b + ")";
+        if (type == "pow") return "std::pow(" + a + ", " + b + ")";
+        if (type == "mod") return "std::fmod(" + a + ", " + b + ")";
+        if (type == "equal") return "(" + a + " == " + b + " ? 1.f : 0.f)";
+        if (type == "notEqual") return "(" + a + " != " + b + " ? 1.f : 0.f)";
+        if (type == "less") return "(" + a + " < " + b + " ? 1.f : 0.f)";
+        if (type == "lessEqual") return "(" + a + " <= " + b + " ? 1.f : 0.f)";
+        if (type == "greater") return "(" + a + " > " + b + " ? 1.f : 0.f)";
+        return "(" + a + " >= " + b + " ? 1.f : 0.f)";
+    };
+    const auto unaryExpression = [](const std::string& type, const std::string& value) {
+        if (type == "exp") return "std::exp(" + value + ")";
+        if (type == "floor") return "std::floor(" + value + ")";
+        if (type == "round") return "std::round(" + value + ")";
+        return "std::ceil(" + value + ")";
+    };
+
+    std::vector<bool> referenced(mProgram.list.size(), false);
+    for (const Entry& entry : mProgram.list) {
+        for (const int sourceId : entry.mInputIds) {
+            if (sourceId >= 0) referenced[sourceId / OpSpacing] = true;
+        }
+    }
+    const auto isUnusedImplicitSource = [&](int index) {
+        const std::string& type = mProgram.list[index].mType;
+        return !referenced[index] && (type == "midiIn" || type == "transportIn");
+    };
+
+    std::vector<int> audioInputs, controls, audioOutputs, toAudioNodes;
+    std::vector<int> inputPort(mProgram.list.size(), -1);
+    std::vector<int> outputPort(mProgram.list.size(), -1);
+    for (int index = 0; index < static_cast<int>(mProgram.list.size()); ++index) {
+        const Entry& entry = mProgram.list[index];
+        if (isUnusedImplicitSource(index)) continue;
+        const bool supported = entry.mType == "audioIn" || entry.mType == "audioOut" ||
+            entry.mType == "control" || entry.mType == "const" || entry.mType == "toAudio" ||
+            isBinary(entry.mType) || isUnary(entry.mType);
+        if (!supported) {
+            throw std::runtime_error("Cannot generate C++ for operator '" + entry.mType +
+                                     "' yet (at program index " + std::to_string(index) + ")");
+        }
+        if (entry.mOutputs.size() > 1 || (!entry.mOutputs.empty() && entry.mOutputs[0].numChannels != 1)) {
+            throw std::runtime_error("C++ export currently supports mono, single-output operators only");
+        }
+        if (entry.mType == "audioIn") {
+            inputPort[index] = static_cast<int>(audioInputs.size());
+            audioInputs.push_back(index);
+        } else if (entry.mType == "control") {
+            inputPort[index] = static_cast<int>(audioInputs.size() + controls.size());
+            controls.push_back(index);
+        } else if (entry.mType == "audioOut") {
+            outputPort[index] = static_cast<int>(audioOutputs.size());
+            audioOutputs.push_back(index);
+        } else if (entry.mType == "toAudio") {
+            toAudioNodes.push_back(index);
+        }
+        if (entry.mType == "const") {
+            const auto* constant = dynamic_cast<const ConstOp*>(entry.op.get());
+            if (constant == nullptr || constant->isVector()) {
+                throw std::runtime_error("C++ export does not yet support array constants");
+            }
+        }
+    }
+    if (audioOutputs.empty()) throw std::runtime_error("Generated operator needs at least one audioOut node");
+
+    const auto sourceIndex = [&](const Entry& entry, int input) {
+        if (input >= static_cast<int>(entry.mInputIds.size()) || entry.mInputIds[input] < 0) {
+            throw std::runtime_error("C++ export requires every input to be connected");
+        }
+        return entry.mInputIds[input] / OpSpacing;
+    };
+    // Buffer lengths collapse to one at a one-sample block size, so derive
+    // rate from port metadata/topology rather than from numSamples alone.
+    std::vector<int> fullRate(mProgram.list.size(), -1);
+    std::function<bool(int)> isFull = [&](int index) {
+        int& cached = fullRate[index];
+        if (cached >= 0) return cached != 0;
+        const Entry& entry = mProgram.list[index];
+        if (entry.mOutputs.empty()) return false;
+        const Port::Rate rate = entry.op->getPortRate(Port::Out, 0);
+        if (rate == Port::Full) return (cached = 1) != 0;
+        if (rate == Port::Block) return (cached = 0) != 0;
+        // Keep outputs inherit their first connected input's rate.
+        cached = 0;
+        if (!entry.mInputIds.empty() && entry.mInputIds[0] >= 0) {
+            cached = isFull(entry.mInputIds[0] / OpSpacing) ? 1 : 0;
+        }
+        return cached != 0;
+    };
+
+    // Verify rate-normalized topology before emitting code.  This keeps the
+    // generated code simple now and makes future lowering of more operators
+    // independent from the VM's Buffer implementation.
+    for (int index = 0; index < static_cast<int>(mProgram.list.size()); ++index) {
+        const Entry& entry = mProgram.list[index];
+        if (isUnusedImplicitSource(index)) continue;
+        if (isBinary(entry.mType) || isUnary(entry.mType) || entry.mType == "toAudio" ||
+            entry.mType == "audioOut") {
+            for (int input = 0; input < static_cast<int>(entry.mInputs.size()); ++input) {
+                const int source = sourceIndex(entry, input);
+                if ((isBinary(entry.mType) || isUnary(entry.mType)) && isFull(index) != isFull(source)) {
+                    throw std::runtime_error("C++ export found an unnormalized arithmetic rate conversion");
+                }
+            }
+        }
+    }
+
+    std::ostringstream code;
+    code << "// Generated by AudioVM::Processor::getGeneratedOperatorCode.\n"
+         << "#pragma once\n#include \"Operator.h\"\n#include <cmath>\n#include <string>\n\n"
+         << "class " << className << " final : public AudioVM::Operator {\npublic:\n";
+    code << "  int getNumPorts(AudioVM::Port::Dir dir) override { return dir == AudioVM::Port::In ? "
+         << (audioInputs.size() + controls.size()) << " : " << audioOutputs.size() << "; }\n";
+    code << "  AudioVM::Port::Rate getPortRate(AudioVM::Port::Dir dir, int index) override {\n"
+         << "    if (dir == AudioVM::Port::Out) return AudioVM::Port::Full;\n"
+         << "    return index < " << audioInputs.size() << " ? AudioVM::Port::Full : AudioVM::Port::Block;\n"
+         << "  }\n";
+    code << "  std::string getPortName(AudioVM::Port::Dir dir, int index) override {\n";
+    if (!audioInputs.empty() || !controls.empty()) code << "    static const char* const inputs[] = {";
+    bool first = true;
+    for (const int index : audioInputs) {
+        if (!first) code << ", ";
+        code << '\"' << cppString(portName(mProgram.list[index].mId, "audioIn" + std::to_string(index))) << '\"';
+        first = false;
+    }
+    for (const int index : controls) {
+        if (!first) code << ", ";
+        code << '\"' << cppString(portName(mProgram.list[index].mId, "control" + std::to_string(index))) << '\"';
+        first = false;
+    }
+    if (!audioInputs.empty() || !controls.empty()) code << "};\n";
+    code << "    static const char* const outputs[] = {";
+    first = true;
+    for (const int index : audioOutputs) {
+        if (!first) code << ", ";
+        code << '\"' << cppString(portName(mProgram.list[index].mId, "audioOut" + std::to_string(index))) << '\"';
+        first = false;
+    }
+    code << "};\n";
+    if (audioInputs.empty() && controls.empty()) {
+        code << "    return dir == AudioVM::Port::In ? \"\" : outputs[index];\n  }\n";
+    } else {
+        code << "    return dir == AudioVM::Port::In ? inputs[index] : outputs[index];\n  }\n";
+    }
+    code << "  void reset() override {\n";
+    for (const int index : toAudioNodes) code << "    toAudioState" << index << "_ = 0.f;\n";
+    code << "  }\n  void process(AudioVM::Buffer* in, AudioVM::Buffer* out, int N) override {\n";
+
+    // Block-rate values are evaluated once.  Full-rate values are named
+    // locals inside one loop, so arithmetic stays in registers and adjacent
+    // graph operations are easy for the C++ compiler to optimize.
+    for (int index = 0; index < static_cast<int>(mProgram.list.size()); ++index) {
+        const Entry& entry = mProgram.list[index];
+        if (isUnusedImplicitSource(index)) continue;
+        if (entry.mType == "audioIn" || entry.mType == "audioOut" || isFull(index) || entry.mType == "toAudio") continue;
+        std::string expression;
+        if (entry.mType == "control") expression = "in[" + std::to_string(inputPort[index]) + "].value()";
+        else if (entry.mType == "const") expression = floatLiteral(static_cast<const ConstOp*>(entry.op.get())->mValue);
+        else if (isBinary(entry.mType)) expression = binaryExpression(entry.mType,
+            "v" + std::to_string(sourceIndex(entry, 0)), "v" + std::to_string(sourceIndex(entry, 1)));
+        else if (isUnary(entry.mType)) expression = unaryExpression(entry.mType, "v" + std::to_string(sourceIndex(entry, 0)));
+        code << "    const float v" << index << " = " << expression << ";\n";
+    }
+    code << "    for (int sample = 0; sample < N; ++sample) {\n";
+    for (int index = 0; index < static_cast<int>(mProgram.list.size()); ++index) {
+        const Entry& entry = mProgram.list[index];
+        if (isUnusedImplicitSource(index)) continue;
+        if (!isFull(index)) continue;
+        std::string expression;
+        if (entry.mType == "audioIn") expression = "in[" + std::to_string(inputPort[index]) + "].data()[sample]";
+        else if (entry.mType == "toAudio") {
+            const std::string next = "v" + std::to_string(sourceIndex(entry, 0));
+            expression = "toAudioState" + std::to_string(index) + "_ + (" + next + " - toAudioState" +
+                         std::to_string(index) + "_) * (static_cast<float>(sample + 1) / N)";
+        } else if (isBinary(entry.mType)) expression = binaryExpression(entry.mType,
+            "v" + std::to_string(sourceIndex(entry, 0)), "v" + std::to_string(sourceIndex(entry, 1)));
+        else if (isUnary(entry.mType)) expression = unaryExpression(entry.mType, "v" + std::to_string(sourceIndex(entry, 0)));
+        else throw std::runtime_error("C++ export cannot lower full-rate operator '" + entry.mType + "'");
+        code << "      const float v" << index << " = " << expression << ";\n";
+    }
+    for (const int index : audioOutputs) {
+        const int source = sourceIndex(mProgram.list[index], 0);
+        const std::string value = isFull(source) ? "v" + std::to_string(source)
+                                                  : "v" + std::to_string(source);
+        code << "      out[" << outputPort[index] << "].data()[sample] = " << value << ";\n";
+    }
+    code << "    }\n";
+    for (const int index : toAudioNodes) {
+        code << "    toAudioState" << index << "_ = v" << sourceIndex(mProgram.list[index], 0) << ";\n";
+    }
+    code << "  }\nprivate:\n";
+    for (const int index : toAudioNodes) code << "  float toAudioState" << index << "_ = 0.f;\n";
+    code << "};\n";
+    return code.str();
 }
 
 const int kMidiNoteOn = 0x90, kMidiNoteOff = 0x80;
