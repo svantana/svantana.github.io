@@ -27,6 +27,14 @@ inline float lookup(const float *x, int p) {
     const float *t = data[p];
     return t[0]*x[0] + t[1]*x[1] + t[2]*x[2] + t[3]*x[3];
 }
+inline void writePulse(float *buf, int sub_pos, float scale) {
+    float *buf0 = buf + (sub_pos >> Bits);
+    const float* tab = data[sub_pos & Bits];
+    for (int t = 0; t < KernelSize; t++) {
+        buf0[t] += scale * tab[t];
+    }
+}
+
 }
 
 class FilterDelay { // canonical use: read > process > write
@@ -357,4 +365,78 @@ public:
 
 private:
     std::shared_ptr<DelayLineState> mState;
+};
+
+
+class BlitVoice {
+public:
+    static const int MaxBlockSize = 32, MaxNumChannels = 2, MaxPulseSize = 8, MaxNumOscillators = 16, NumOscParts = 2;
+    BlitVoice();
+    ~BlitVoice() {}
+
+    void resetFull();
+    void randomInit(unsigned int &seed);
+    void resetVoiceSoft(float reset_amount = 0);
+    void setOscPhase(int osc, float phase) { m_osc_states[osc].mOscPhase = phase; }
+    void scaleOscPhase(int osc, float scale) { m_osc_states[osc].soft_reset(scale); }
+    void render(float **bufs, int numSamples, int numChannels);
+
+    int m_num_oscillators = 1;
+    int mMainBlockSize = MaxBlockSize;
+    
+    struct Osc {
+        enum ParamId {Frequency, AmpL, AmpR, PulseWidth, PulseAmount, SyncFreq, SyncProb, SyncAmount, SyncRange, FmFreq, FmAmount, NumParams};
+        void soft_reset(float reset_amount);
+        void render_add(float **bufs, int numSamples, int numChannels, float *accBias, float *accBiasStep, bool doOnset);
+        void renderSyncAdd(float *out_buf, int buf_size);
+        
+        float* m_params = nullptr;
+
+        // pulse wave by alternating parts
+        typedef float PhaseType;
+        PhaseType mSyncPhase = 0, mOscPhase=0, mFmPhase=0;
+        float mValues[MaxNumChannels]={0}, mValSteps[MaxNumChannels]={0};
+        int mCurrPart=0;
+        float mCurrOscFreq=0, mBlockSizeSmooth1 = 32, mBlockSizeSmooth2 = 32; // for reading from outside
+    };
+    static const int NumColors = 4; // sin, tri, saw, imp
+    enum ParamId { Color ,
+        OscParam0,
+        LastOscParam = OscParam0 + Osc::NumParams * MaxNumOscillators - 1,
+        NumVoiceParams
+    };
+    float *getOscParams(int o) { return &m_params[OscParam0 + Osc::NumParams * o]; }
+    Osc *getOscState(int o) { return &m_osc_states[o]; }
+    float m_params[NumVoiceParams];
+    bool channelIsActive(int ch);
+private:
+    float render_sync_add(float *out_buf, int buf_size);
+    
+    static inline int osc_parameter_index(int osc, int index=0) { return OscParam0 + Osc::NumParams * osc + index; }
+    
+    Osc m_osc_states[MaxNumOscillators];
+    struct ChannelState {
+        float mStateL=0, mStateB=0, mDC=0;
+        bool isActive() { return mStateL!=0 || mStateB!=0; }
+    } mChannels[MaxNumChannels];
+    //float mPulseSpillover[MaxNumChannels][MaxPulseSize] = {{0.f}};
+    static const int MaxRenderSize = 512, RenderBufSize = 512 + MaxPulseSize;
+    float mRenderBufs[MaxNumChannels][RenderBufSize];
+    int mRenderBufPos = 0;
+    struct FilterCoefs {
+        float s1, s2;
+        void reset() { s1=s2=0; }
+    } mFilterCoefs;
+    bool mNeedsInit = false;
+    int mSamplesSinceInit = 0;
+    float mSamplerate;
+
+#ifndef NDEBUG
+    struct DC_Detector {
+        static const int BufSize = 1<<12;
+        float buf[BufSize] = {0}, lp1=0, lp2=0;
+        long long sampleCount = 0;
+        void reset() { lp1=lp2=0; sampleCount=0; }
+    } mDC_Detectors[MaxNumChannels];
+#endif
 };
