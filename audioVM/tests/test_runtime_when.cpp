@@ -47,6 +47,22 @@ int main() {
         return 1;
     }
 
+    // Delay capacity comes from its initialized input buffer. It need not
+    // inspect the source operator or use a compiler-only configuration path.
+    AudioVM::Processor delayProcessor;
+    delayProcessor.setup(44100.f, 1, 1, 16);
+    delayProcessor.loadFromJSON(R"({"version":1,"program":[
+        {"type":"value","id":"capacity","input":0.1},
+        {"type":"audioIn","id":"input"},
+        {"type":"delay","id":"delay","input":{"input":"input","time":0.01,"maxSeconds":"capacity"}},
+        {"type":"audioOut","id":"out","input":"delay"}
+    ]})");
+    float delayInput[16]{};
+    float delayOutput[16]{};
+    float* delayInputs[] = {delayInput};
+    float* delayOutputs[] = {delayOutput};
+    delayProcessor.process(delayInputs, delayOutputs, 16);
+
     AudioVM::Processor processor;
     processor.setup(44100.f, 1, 1, 16);
     processor.loadFromJSON(R"({"version":1,"polyphony":1,"program":[

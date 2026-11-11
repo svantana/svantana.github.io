@@ -176,7 +176,6 @@ int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
     entry.op = std::move(op);
     entry.op->mSamplerate = mSamplerate;
     entry.op->mBlockSize = mBlockSize;
-    entry.op->init();
     entry.mInputIds = inputIds;
 
     const int numIns = entry.op->getNumPorts(Port::In);
@@ -296,41 +295,24 @@ bool Processor::compileProgram() {
             mProgram.mTransportInId = n;
         }
     }
-    // Vector constants are immutable. Fill their graph-owned storage while
-    // compiling so the audio callback never needs to copy table data.
+    // Populate persistent source storage before operator initialization.
+    // This lets init() consume an input's initial value without knowing what
+    // kind of operator produced it, and keeps those copies off the audio
+    // callback.
     for (Entry& entry : mProgram.list) {
-        if (auto* constant = dynamic_cast<ConstOp*>(entry.op.get());
-            constant != nullptr && constant->isVector()) {
+        if (auto* constant = dynamic_cast<ConstOp*>(entry.op.get()); constant != nullptr) {
             constant->copyTo(entry.mOutputs[0]);
+        }
+        if (auto* control = dynamic_cast<Control*>(entry.op.get()); control != nullptr) {
+            entry.mOutputs[0].set(control->mValue);
         }
         if (auto* value = dynamic_cast<Value*>(entry.op.get()); value != nullptr &&
             !entry.mInputs[0].hasData()) {
             value->initialize(entry.mOutputs[0]);
         }
     }
-    // Delay capacity is structural rather than a DSP input: it must be known
-    // before processing starts so delay lines never allocate on the audio
-    // thread.  Keep it as a regular constant input in JSON so the builder
-    // does not need a second property syntax.
     for (Entry& entry : mProgram.list) {
-        auto* delay = dynamic_cast<Delay*>(entry.op.get());
-        if (delay == nullptr) continue;
-        if (entry.mInputIds.size() <= Delay::MaxSeconds ||
-            entry.mInputIds[Delay::MaxSeconds] < 0) {
-            throw std::runtime_error("delay requires a constant maxSeconds input");
-        }
-        const int maxSourceId = entry.mInputIds[Delay::MaxSeconds];
-        const Entry& maxSource = mProgram.list[maxSourceId / OpSpacing];
-        const auto* maxSeconds = dynamic_cast<const ConstOp*>(maxSource.op.get());
-        if (maxSeconds == nullptr) {
-            throw std::runtime_error("delay maxSeconds must be a constant");
-        }
-        delay->configure(maxSeconds->mValue);
-        const bool hasInput = entry.mInputIds.size() > Delay::Input &&
-            entry.mInputIds[Delay::Input] >= 0;
-        if (!hasInput && delay->maxSeconds() * mSamplerate < static_cast<float>(mBlockSize)) {
-            throw std::runtime_error("delay maxSeconds must be at least one processing block");
-        }
+        entry.op->init(entry.mInputs);
     }
 
     mPolyPrograms.clear();
@@ -546,14 +528,9 @@ bool Processor::compileProgram() {
                 clone.op->mSamplerate = mSamplerate;
                 // Voice operators are constructed independently of the
                 // master graph, so give them the same processing-block
-                // configuration before init().  Several DSP ops smooth
-                // parameters over mBlockSize samples.
+                // configuration. Their init() runs after their buffers are
+                // allocated and wired below.
                 clone.op->mBlockSize = mBlockSize;
-                clone.op->init();
-                if (const auto* sourceDelay = dynamic_cast<const Delay*>(source.op.get())) {
-                    auto* cloneDelay = dynamic_cast<Delay*>(clone.op.get());
-                    cloneDelay->configure(sourceDelay->maxSeconds());
-                }
                 if (const auto* constant = dynamic_cast<const ConstOp*>(source.op.get())) {
                     auto* cloneConstant = dynamic_cast<ConstOp*>(clone.op.get());
                     cloneConstant->mName = constant->mName;
@@ -578,9 +555,11 @@ bool Processor::compileProgram() {
                     output.ptr = &voice.mIoBuffer[position];
                     position += output.size();
                 }
-                if (auto* constant = dynamic_cast<ConstOp*>(clone.op.get());
-                    constant != nullptr && constant->isVector()) {
+                if (auto* constant = dynamic_cast<ConstOp*>(clone.op.get()); constant != nullptr) {
                     constant->copyTo(clone.mOutputs[0]);
+                }
+                if (auto* control = dynamic_cast<Control*>(clone.op.get()); control != nullptr) {
+                    clone.mOutputs[0].set(control->mValue);
                 }
                 if (auto* value = dynamic_cast<Value*>(clone.op.get()); value != nullptr &&
                     (clone.mInputIds.empty() || clone.mInputIds[0] < 0)) {
@@ -631,6 +610,9 @@ bool Processor::compileProgram() {
                     throw std::runtime_error("internal error linking polyphonic delay reader");
                 }
                 writer->link(reader->state());
+            }
+            for (Entry& clone : voice.list) {
+                clone.op->init(clone.mInputs);
             }
         }
     }

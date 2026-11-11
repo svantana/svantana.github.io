@@ -37,6 +37,7 @@ namespace AudioVM {
         bool connected = false;
         bool hasData() const { return connected; }
         float& value() { return *ptr; }
+        const float& value() const { return *ptr; }
         void set(float v) { *ptr = v; }
         float *data(int channel = 0) {
             return ptr + numSamples * channel;
@@ -67,7 +68,10 @@ namespace AudioVM {
                 : rate == Port::Block ? 1
                 : !inputs.empty() ? inputs[0].numSamples : 1;
         }
-        virtual void init() {} // do setup here, if needed
+        // Called after graph buffers have been allocated, wired, and given
+        // their initial values. Operators that need compile-time setup can
+        // inspect their inputs here without depending on compiler internals.
+        virtual void init(const std::vector<Buffer>& inputs) {}
         virtual void reset() {}
         virtual void process(Buffer* inBufs, Buffer* outBufs, int numSamples) {}
         float mSamplerate, mBlockSize;

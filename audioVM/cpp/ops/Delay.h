@@ -271,8 +271,11 @@ public:
         return index == Input ? Port::Full : Port::Block;
     }
 
-    // Called only by the compiler, before audio processing starts.
-    void configure(float maxSeconds) {
+    void init(const std::vector<Buffer>& inputs) override {
+        if (inputs.size() <= MaxSeconds || inputs[MaxSeconds].ptr == nullptr) {
+            throw std::runtime_error("delay requires a maxSeconds input");
+        }
+        const float maxSeconds = inputs[MaxSeconds].value();
         if (!std::isfinite(maxSeconds) || maxSeconds <= 0.f) {
             throw std::runtime_error("delay maxSeconds must be positive and finite");
         }
@@ -280,8 +283,11 @@ public:
         // One extra location makes a delay equal to maxSeconds addressable.
         mState->samples.assign(static_cast<size_t>(mMaxSamples) + 1, 0.f);
         mState->writeHead = 0;
+        if (!inputs[Input].hasData() &&
+            static_cast<float>(mMaxSamples) < mBlockSize) {
+            throw std::runtime_error("delay maxSeconds must be at least one processing block");
+        }
     }
-    float maxSeconds() const { return static_cast<float>(mMaxSamples) / mSamplerate; }
     std::shared_ptr<DelayLineState> state() const { return mState; }
 
     void process(Buffer* in, Buffer* out, int N) override {

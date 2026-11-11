@@ -101,9 +101,6 @@ public:
             dst[n] = mUnitPhase*2-1;
         }
     }
-    void init() override {
-        
-    }
     void reset() override {
         mUnitPhase = 0.f;
     }
@@ -134,7 +131,5 @@ public:
         for (int n = 0; n < N; n++) {
             dst[n] = randSigned();
         }
-    }
-    void init() override {
     }
 };

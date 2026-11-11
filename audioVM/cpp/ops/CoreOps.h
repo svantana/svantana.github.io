@@ -115,8 +115,12 @@ struct ConstOp : public BlockRateOp {
     bool isVector() const { return !mValues.empty(); }
     const std::vector<float>& values() const { return mValues; }
     void copyTo(Buffer& output) const {
-        assert(isVector() && output.numSamples == static_cast<int>(mValues.size()));
-        std::copy(mValues.begin(), mValues.end(), output.data());
+        if (isVector()) {
+            assert(output.numSamples == static_cast<int>(mValues.size()));
+            std::copy(mValues.begin(), mValues.end(), output.data());
+        } else {
+            output.value() = mValue;
+        }
     }
     void process(Buffer *i, Buffer *o, int N) override {
         if (!isVector()) o[0].value() = mValue;
