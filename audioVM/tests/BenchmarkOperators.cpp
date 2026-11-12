@@ -53,7 +53,7 @@ std::vector<OperatorDefinition> readDefinitions(AudioVM::Processor& processor) {
 int addDelay(AudioVM::Processor& processor, int fullRateInput) {
     const int delayTime = processor.addConstant(0.01f);
     const int maxDelayTime = processor.addConstant(0.25f);
-    return processor.addOperator("delay", {fullRateInput, delayTime, maxDelayTime});
+    return processor.addOperator("delay", {fullRateInput, delayTime, -1, maxDelayTime});
 }
 
 void addOperatorGraph(AudioVM::Processor& processor, const OperatorDefinition& definition) {

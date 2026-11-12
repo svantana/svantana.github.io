@@ -40,3 +40,8 @@ em++ \
   -s EXPORTED_RUNTIME_METHODS='["HEAPU8"]' \
   --no-entry \
   -o "$output_dir/audiovm.js"
+
+wasm_bytes="$(wc -c < "$output_dir/audiovm.wasm")"
+js_bytes="$(wc -c < "$output_dir/audiovm.js")"
+total_bytes=$((wasm_bytes + js_bytes))
+printf 'Generated Wasm + JS: %.1f KB\n' "$(awk "BEGIN { print $total_bytes / 1000 }")"

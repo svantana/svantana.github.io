@@ -82,6 +82,7 @@ Processor::Processor()
 
     registerType("oscSin", make<OscSin>(), "Generates a sine wave from frequency or MIDI note input.");
     registerType("oscSaw", make<OscSaw>(), "Generates a sawtooth wave from frequency or MIDI note input.");
+    registerType("oscAnalog", make<OscAnalog>(), "Saw, Square, Pulse, Triangle wave generator with minimal alias");
     registerType("oscNoise", make<OscNoise>(), "Generates white noise.");
     registerType("oscFM", make<FMOp>(), "FM modulated sinewave oscillator");
     registerType("filterLP", make<FilterLP>(), "Applies a resonant low-pass filter to a full-rate signal.");
