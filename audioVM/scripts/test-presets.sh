@@ -6,6 +6,11 @@ temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/audiovm-presets.XXXXXX")"
 trap 'rm -rf "$temp_dir"' EXIT
 cd "$project_dir"
 
+# Keep a single wall-clock seed for this whole run so a failing fuzz case can
+# be repeated by passing the printed value to the preset test binary.
+random_seed="$(date +%s)"
+printf 'Random seed: %s\n' "$random_seed"
+
 "${CXX:-c++}" \
   -std=c++17 -O3 -ffast-math \
   "$project_dir/cpp/AudioVM.cpp" \
@@ -52,7 +57,7 @@ done
 for preset in "${presets[@]}"; do
   result="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$project_dir/python" \
     python3 tests/compile_preset.py "$preset" \
-    | "$temp_dir/test-presets" "$preset")"
+    | "$temp_dir/test-presets" "$preset" "$random_seed")"
   IFS=$'\t' read -r controls peak realtime_factor <<< "$result"
   printf "%-${path_width}s  %2s controls  peak:%6.4f  RT-%%: %.4f\n" \
     "$preset" "$controls" "$peak" "$realtime_factor"

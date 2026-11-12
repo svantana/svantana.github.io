@@ -150,6 +150,59 @@ private:
     float mInitial = 0.f;
 };
 
+// A fixed-size block-rate array.  Unlike a lookup-table ConstOp, this is
+// mutable storage: it is reset to its initial contents once per processing
+// block, then ArrayWrite can update individual elements in program order.
+class ArrayState : public Operator {
+public:
+    int getNumPorts(Port::Dir dir) override { return dir == Port::Out ? 1 : 0; }
+    std::string getPortName(Port::Dir dir, int) override {
+        return dir == Port::Out ? "array" : "";
+    }
+    Port::Rate getPortRate(Port::Dir, int) override { return Port::Keep; }
+    int getOutputNumSamples(int, int, const std::vector<Buffer>&) override {
+        return static_cast<int>(mInitial.size());
+    }
+    void setInitial(std::vector<float> initial) { mInitial = std::move(initial); }
+    const std::vector<float>& initial() const { return mInitial; }
+    void process(Buffer*, Buffer* out, int) override {
+        assert(out[0].numSamples == static_cast<int>(mInitial.size()));
+        std::copy(mInitial.begin(), mInitial.end(), out[0].data());
+    }
+private:
+    std::vector<float> mInitial{0.f};
+};
+
+class ArrayRead : public BlockRateOp {
+public:
+    enum In { Array, Index, NumInputs };
+    int getNumPorts(Port::Dir dir) override { return dir == Port::In ? NumInputs : 1; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        static const cStr inputs[] = {"array", "index"};
+        return dir == Port::In ? inputs[index] : "value";
+    }
+    void process(Buffer* in, Buffer* out, int) override {
+        const int size = in[Array].numSamples;
+        const int index = std::clamp(static_cast<int>(std::floor(in[Index].value())), 0, size - 1);
+        out[0].value() = in[Array].data()[index];
+    }
+};
+
+class ArrayWrite : public BlockRateOp {
+public:
+    enum In { Array, Index, Value, NumInputs };
+    int getNumPorts(Port::Dir dir) override { return dir == Port::In ? NumInputs : 0; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        static const cStr inputs[] = {"array", "index", "value"};
+        return dir == Port::In ? inputs[index] : "";
+    }
+    void process(Buffer* in, Buffer*, int) override {
+        const int size = in[Array].numSamples;
+        const int index = std::clamp(static_cast<int>(std::floor(in[Index].value())), 0, size - 1);
+        in[Array].data()[index] = in[Value].value();
+    }
+};
+
 struct ValueWrite : public BlockRateOp {
 public:
     enum In { Target, Input, NumInputs };

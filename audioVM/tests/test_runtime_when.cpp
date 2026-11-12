@@ -363,5 +363,49 @@ int main() {
         std::cerr << "value did not persist between processing blocks\n";
         return 1;
     }
+
+    // A polyphonic range can reduce multiple simultaneous MIDI events into a
+    // block-reset mutable array, which ordinary monophonic graph sections can
+    // read after the range.  The conditional write is important: old active
+    // voices must not overwrite a newly set slot with a zero onset.
+    AudioVM::Processor arrayProcessor;
+    arrayProcessor.setup(44100.f, 1, 1, 16);
+    arrayProcessor.loadFromJSON(R"({"version":1,"program":[
+        {"type":"arrayState","id":"onsets","input":[0,0,0,0,0,0,0,0,0,0,0,0]},
+        {"type":"polyStart","id":"voices","input":{"count":12}},
+        {"type":"const","id":"twelve","input":12},
+        {"type":"mod","id":"noteClass","input":["midi.note","twelve"]},
+        {"type":"ifStart","id":"hasOnset","input":"midi.onset"},
+        {"type":"arrayWrite","id":"writeOnset","input":["onsets","noteClass","midi.onset"]},
+        {"type":"ifEnd","id":"endOnset"},
+        {"type":"polyEnd","id":"endVoices"},
+        {"type":"arrayRead","id":"kick","input":["onsets",0]},
+        {"type":"arrayRead","id":"snare","input":["onsets",2]},
+        {"type":"add","id":"mixedOnsets","input":["kick","snare"]},
+        {"type":"toAudio","id":"signal","input":"mixedOnsets"},
+        {"type":"audioOut","id":"out","input":"signal"}
+    ]})");
+    arrayProcessor.midiEvent(static_cast<char>(0x90), 60, 100);
+    arrayProcessor.midiEvent(static_cast<char>(0x90), 62, 100);
+    float arrayOutput[16]{};
+    float* arrayOutputs[] = {arrayOutput};
+    arrayProcessor.process(nullptr, arrayOutputs, 16);
+    if (std::abs(arrayOutput[15] - 2.f) > 1e-6f) {
+        std::cerr << "polyphonic array event fan-in lost simultaneous onsets\n";
+        return 1;
+    }
+    arrayProcessor.midiEvent(static_cast<char>(0x90), 60, 100);
+    arrayProcessor.process(nullptr, arrayOutputs, 16);
+    if (std::abs(arrayOutput[15] - 1.f) > 1e-6f) {
+        std::cerr << "an old polyphonic voice cleared a new array onset\n";
+        return 1;
+    }
+    // No events: the array must return to its initial contents, rather than
+    // retaining the onset written by the prior block.
+    arrayProcessor.process(nullptr, arrayOutputs, 16);
+    if (std::abs(arrayOutput[15]) > 1e-6f) {
+        std::cerr << "mutable array did not reset before the next block\n";
+        return 1;
+    }
     return 0;
 }

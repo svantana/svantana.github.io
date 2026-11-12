@@ -129,6 +129,21 @@ class Value(Operator):
         """Replace this value immediately; the replacement persists to the next block."""
         return self.vm.op("valueWrite", [self, input])
 
+class Array:
+    """Fixed-size mutable block array reset to its initial values each block."""
+    def __init__(self, vm, size, initial):
+        self.vm = vm
+        self.size = size
+        self.storage = vm.op("arrayState", [initial] * size)
+
+    def read(self, index):
+        """Read an indexed block-rate scalar, clamping the index to this array."""
+        return self.vm.op("arrayRead", [self.storage, self.vm.as_op(index)])
+
+    def write(self, index, value):
+        """Replace one element immediately; ordered writes are visible to later nodes."""
+        return self.vm.op("arrayWrite", [self.storage, self.vm.as_op(index), self.vm.as_op(value)])
+
 class Midi: # convenience class for midi inputs
     def __init__(self, vm, name="midi"):
         outs = ["channel", "gate", "onset", "offset", "note", "velocity", "pitchbend", "modwheel"]
@@ -199,8 +214,21 @@ class VM:
         self.program.append(obj)
         return obj
 
-    def array(self, values):
-        """Create an immutable float lookup table stored in VM memory."""
+    def array(self, values=None, *, size=None, initial=0):
+        """Create an immutable lookup table or a block-reset mutable array.
+
+        Pass numeric ``values`` for an immutable interpolation table.  Pass
+        ``size`` and optional ``initial`` for indexed storage with ``read()``
+        and ``write()`` methods.
+        """
+        if size is not None:
+            if values is not None:
+                raise TypeError("array() accepts values or size, not both")
+            if not isinstance(size, int) or isinstance(size, bool) or size < 1:
+                raise ValueError("array size must be a positive integer")
+            if not isinstance(initial, (int, float)) or not math.isfinite(initial):
+                raise TypeError("array initial must be a finite number")
+            return Array(self, size, initial)
         if not isinstance(values, (list, tuple)):
             raise TypeError("array() expects a list or tuple of numbers")
         if len(values) < 2:

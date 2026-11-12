@@ -48,6 +48,9 @@ Processor::Processor()
     registerType("value", make<Value>(), "Creates a persistent scalar or captures a scalar input.");
     registerType("valueWrite", make<ValueWrite>(), "Updates a scalar value in program order.");
     registerType("array", make<ConstOp>(), "Stores an immutable floating-point lookup table in VM memory.");
+    registerType("arrayState", make<ArrayState>(), "Creates a fixed-size mutable array reset at the start of each processing block.");
+    registerType("arrayRead", make<ArrayRead>(), "Reads one block-rate value from an indexed mutable array.");
+    registerType("arrayWrite", make<ArrayWrite>(), "Writes one block-rate value to an indexed mutable array.");
     registerType("interp", make<InterpOp>(), "Linearly interpolates an array at floating-point indices, extrapolating at both ends.");
     registerType("buffer", make<BufferOperator>(), "Creates a writable full-rate buffer for feedback and in-place operations.");
     registerType("delay", make<Delay>(), "Reads a delayed full-rate signal, optionally writing an incoming signal to the delay line.");
@@ -492,12 +495,20 @@ bool Processor::compileProgram() {
                 const int sourceId = entry.mInputIds[input];
                 if (sourceId < 0) continue;
                 const int sourceIndex = sourceId / OpSpacing;
-                if (dynamic_cast<const InplaceOp*>(entry.op.get()) != nullptr && input == 0) {
-                    if (dynamic_cast<const BufferOperator*>(mProgram.list[sourceIndex].op.get()) == nullptr) {
-                        throw std::runtime_error("in-place operations require a buffer target");
+                const bool isInplaceTarget = dynamic_cast<const InplaceOp*>(entry.op.get()) != nullptr && input == 0;
+                const bool isArrayWriteTarget = dynamic_cast<const ArrayWrite*>(entry.op.get()) != nullptr &&
+                    input == ArrayWrite::Array;
+                if (isInplaceTarget || isArrayWriteTarget) {
+                    const bool validTarget = isInplaceTarget
+                        ? dynamic_cast<const BufferOperator*>(mProgram.list[sourceIndex].op.get()) != nullptr
+                        : dynamic_cast<const ArrayState*>(mProgram.list[sourceIndex].op.get()) != nullptr;
+                    if (!validTarget) {
+                        throw std::runtime_error(isInplaceTarget
+                            ? "in-place operations require a buffer target"
+                            : "arrayWrite requires an array target");
                     }
                     if (sourceIndex >= range.endIndex || sourceIndex == range.startIndex) {
-                        throw std::runtime_error("polyphonic in-place targets must be local or precede polyStart");
+                        throw std::runtime_error("polyphonic mutable targets must be local or precede polyStart");
                     }
                 }
             }
@@ -543,6 +554,9 @@ bool Processor::compileProgram() {
                 } else if (const auto* value = dynamic_cast<const Value*>(source.op.get())) {
                     auto* cloneValue = dynamic_cast<Value*>(clone.op.get());
                     cloneValue->setInitial(value->initial());
+                } else if (const auto* array = dynamic_cast<const ArrayState*>(source.op.get())) {
+                    auto* cloneArray = dynamic_cast<ArrayState*>(clone.op.get());
+                    cloneArray->setInitial(array->initial());
                 }
                 clone.mInputs.resize(source.mInputs.size());
                 clone.mOutputs = source.mOutputs;
@@ -746,25 +760,33 @@ void Processor::loadFromJSON(std::string jsonString) {
 
             const auto inputIt = object.find("input");
             if (inputIt != object.end()) {
-                if (type == "array") {
+                if (type == "array" || type == "arrayState") {
                     if (!inputIt->second.is<picojson::array>()) {
-                        throw std::runtime_error(context + "array input must be an array of at least two finite numbers");
+                        throw std::runtime_error(context + type + " input must be an array of finite numbers");
                     }
                     std::vector<float> values;
                     for (const picojson::value& item : inputIt->second.get<picojson::array>()) {
                         if (!item.is<double>() || !std::isfinite(item.get<double>())) {
-                            throw std::runtime_error(context + "array input must contain only finite numbers");
+                            throw std::runtime_error(context + type + " input must contain only finite numbers");
                         }
                         const float value = static_cast<float>(item.get<double>());
                         if (!std::isfinite(value)) {
-                            throw std::runtime_error(context + "array input values must fit in a float");
+                            throw std::runtime_error(context + type + " input values must fit in a float");
                         }
                         values.push_back(value);
                     }
-                    if (values.size() < 2) {
-                        throw std::runtime_error(context + "array input must contain at least two numbers");
+                    if ((type == "array" && values.size() < 2) || values.empty()) {
+                        throw std::runtime_error(context + type + " input must contain " +
+                            (type == "array" ? "at least two numbers" : "at least one number"));
                     }
-                    const int opId = addConstant(std::move(values));
+                    const int opId = type == "array" ? addConstant(std::move(values)) : addOperator(type);
+                    if (type == "arrayState") {
+                        auto* array = dynamic_cast<ArrayState*>(mProgram.list.back().op.get());
+                        assert(array != nullptr);
+                        array->setInitial(std::move(values));
+                        mProgram.list.back().mOutputs[0].numSamples =
+                            static_cast<int>(array->initial().size());
+                    }
                     mProgram.list.back().mId = id;
                     mCompiler.mIdToIndex.emplace(id, opId);
                     continue;
@@ -822,7 +844,7 @@ void Processor::loadFromJSON(std::string jsonString) {
                         "property 'input' must be an operator id, array of ids, or object keyed by input name");
                 }
             }
-            if (type == "array") {
+            if (type == "array" || type == "arrayState") {
                 throw std::runtime_error(context + "array requires an input array of at least two finite numbers");
             }
             if (inputs.size() > static_cast<size_t>(numInputPorts)) {

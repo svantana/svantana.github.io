@@ -67,7 +67,8 @@ uint32_t seedFor(const std::string& text) {
 } // namespace
 
 int main(int argc, char* argv[]) {
-    const std::string presetName = argc == 2 ? argv[1] : "<stdin>";
+    const std::string presetName = argc >= 2 ? argv[1] : "<stdin>";
+    const uint32_t runSeed = argc == 3 ? static_cast<uint32_t>(std::stoul(argv[2])) : 0u;
     const std::string json(std::istreambuf_iterator<char>(std::cin), {});
     if (json.empty()) {
         std::cerr << presetName << ": no program JSON received\n";
@@ -75,9 +76,9 @@ int main(int argc, char* argv[]) {
     }
 
     try {
-        // The seed varies with each compiled preset, providing distinct fuzz
-        // streams while keeping a failure reproducible from its JSON input.
-        std::mt19937 random(seedFor(json));
+        // The script provides a wall-clock seed. Mix in the preset JSON so
+        // every preset has a distinct, reproducible fuzz stream for that run.
+        std::mt19937 random(seedFor(json) ^ runSeed);
         const int sampleRate = std::uniform_int_distribution<int>(kMinSampleRate, kMaxSampleRate)(random);
         AudioVM::Processor processor;
         processor.setup(static_cast<float>(sampleRate), kChannels, kChannels, kBlockSize);
