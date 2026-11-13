@@ -1,7 +1,7 @@
 #pragma once
 
 namespace InterpTab {
-static const int Bits = 10, KernelSize = 4, SubSteps = 1<<Bits;
+static const int Bits = 10, KernelSize = 4, SubSteps = 1<<Bits, SubMask = SubSteps-1;
 static float data[SubSteps][KernelSize];
 static int make() {
     int nSub = 1<<Bits;
@@ -24,8 +24,9 @@ inline float lookup(const float *x, int p) {
     return t[0]*x[0] + t[1]*x[1] + t[2]*x[2] + t[3]*x[3];
 }
 inline void writePulse(float *buf, int sub_pos, float scale) {
-    float *buf0 = buf + (sub_pos >> Bits);
-    const float* tab = data[sub_pos & Bits];
+    int i0 = sub_pos >> Bits, iTab = sub_pos & SubMask;
+    float *buf0 = buf + i0;
+    const float* tab = data[iTab];
     for (int t = 0; t < KernelSize; t++) {
         buf0[t] += scale * tab[t];
     }

@@ -56,7 +56,7 @@ public:
         return (dir == Port::In) ? i[index] : o[index];
     }
     Port::Rate getPortRate(Port::Dir dir, int index) override {
-        return (dir==Port::Out && index==Output || dir==Port::In && index==FMSource) ? Port::Full : Port::Block;
+        return ((dir==Port::Out && index==Output) || (dir==Port::In && index==FMSource)) ? Port::Full : Port::Block;
     }
     void process(Buffer *i, Buffer *o, int N) override {
         if (i[Reset].value() > 0.5f) {
@@ -404,14 +404,16 @@ void Voice::render(float **outBufs, int numSamples, int numChannels) {
         osc.render_add(*this, renderPtrs, numSamples, numChannels, bias0, biasStep, mNeedsInit);
     }
     
-    float *pOsc = m_osc_states[0].m_params;
+    float *P = m_params;
     const float oscF0 = std::max(1e-6f, m_osc_states[0].mCurrOscFreq);
-    float width = pOsc[PulseWidth];
-    float uWidth = 2*fabsf(width - roundf(width)), uPulse = std::min(1.f, pOsc[PulseAmount]);
-    float f0Scale = (1 + std::max(0.f, -uPulse)) / std::max(.01f, uWidth);
+    float color = std::clamp(P[Color], 0.f, 1.f);
+    //float width = std::clamp(P[PulseWidth], 0.f, 1.f);
+    //float uWidth = 2*fabsf(width - roundf(width)), uPulse = std::min(1.f, P[PulseAmount]);
+    //float f0Scale = (1 + std::max(0.f, -uPulse)) / std::max(.01f, uWidth);
     FilterCoefs coefTrg;
-    coefTrg.p1 = .995f;
-    coefTrg.p2 = -.5f;
+    float pole = 4 / (4 + oscF0), p2 = .5f / (.5f + oscF0), pHi = -.5f;
+    coefTrg.p1 =  pole * std::min(1.f, 2 - 2*color);
+    coefTrg.p2 = pHi + (p2-pHi) * std::max(0.f, 1-2*color);
     
     if (mNeedsInit) {
         mFilterCoefs = coefTrg;
@@ -509,9 +511,9 @@ public:
         float freqN = hz / mSamplerate;
         
         float *P = mVoice.m_params;
-        P[Voice::Color] = ins[Color].value();
+        P[Voice::Color] = ins[Color].valueOrDefault(0.5f);
         P[Voice::PulseAmount] = ins[PulseAmount].value();
-        P[Voice::PulseWidth] = .01f + .98f * ins[PulseWidth].value();
+        P[Voice::PulseWidth] = .01f + .98f * ins[PulseWidth].valueOrDefault(0.5f);
         
         float unisonCount = std::max(1.f, ins[UnisonCount].value());
         float unisonScale = exp2f(ins[UnisonCents].value() / 1200);
