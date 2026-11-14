@@ -57,20 +57,29 @@ class OperatorCallTests(unittest.TestCase):
 
     def test_delay_emits_linked_read_and_write_endpoints(self):
         vm = VM()
-        string = vm.delay(0.1, id="string")
-        tap = string.read(0.01)
-        string.write(tap)
+        string = vm.delay({"time": 0.01, "maxSeconds": 0.1}, id="string")
+        string.write(string)
 
-        self.assertEqual(tap.type, "delay")
+        self.assertEqual(string.type, "delay")
         self.assertEqual(vm.program[-1].type, "delayWrite")
-        self.assertEqual(vm.program[-1].input["delay"], "string.read")
-        self.assertIn('"type": "delay", "id": "string.read"', vm.get_json())
+        self.assertEqual(vm.program[-1].input["delay"], "string")
+        self.assertIn('"type": "delay", "id": "string"', vm.get_json())
 
-    def test_delay_requires_read_before_write(self):
+    def test_delay_accepts_mapping_inputs_like_other_operators(self):
         vm = VM()
-        string = vm.delay(0.1)
-        with self.assertRaisesRegex(TypeError, "read"):
-            string.write(0)
+        source = vm.op("oscSaw", {"note": 60})
+        delayed = vm.delay({"input": source, "time": 0.01, "maxSeconds": 0.1})
+
+        self.assertEqual(delayed.input, {
+            "input": "oscSaw1",
+            "time": 0.01,
+            "maxSeconds": 0.1,
+        })
+
+    def test_delay_requires_a_dictionary_of_inputs(self):
+        vm = VM()
+        with self.assertRaisesRegex(TypeError, "dictionary"):
+            vm.delay(0.1)
 
     def test_when_emits_conditional_range(self):
         vm = VM()

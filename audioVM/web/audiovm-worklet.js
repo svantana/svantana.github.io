@@ -1,5 +1,32 @@
 import createAudioVM from './audiovm.js';
 
+const decodeUtf8 = bytes => {
+  if (typeof TextDecoder === 'function') return new TextDecoder().decode(bytes);
+
+  let text = '';
+  for (let index = 0; index < bytes.length;) {
+    const first = bytes[index++];
+    if (first < 0x80) {
+      text += String.fromCharCode(first);
+      continue;
+    }
+    const continuation = () => index < bytes.length ? bytes[index++] & 0x3f : 0;
+    let codePoint;
+    if ((first & 0xe0) === 0xc0) {
+      codePoint = (first & 0x1f) << 6 | continuation();
+    } else if ((first & 0xf0) === 0xe0) {
+      codePoint = (first & 0x0f) << 12 | continuation() << 6 | continuation();
+    } else if ((first & 0xf8) === 0xf0) {
+      codePoint = (first & 0x07) << 18 | continuation() << 12 | continuation() << 6 | continuation();
+    } else {
+      text += '\ufffd';
+      continue;
+    }
+    text += String.fromCodePoint(codePoint);
+  }
+  return text;
+};
+
 class AudioVMProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -46,7 +73,7 @@ class AudioVMProcessor extends AudioWorkletProcessor {
   readString(pointer) {
     let end = pointer;
     while (this.wasm.HEAPU8[end]) ++end;
-    return new TextDecoder().decode(this.wasm.HEAPU8.subarray(pointer, end));
+    return decodeUtf8(this.wasm.HEAPU8.subarray(pointer, end));
   }
 
   async handleMessage(message) {

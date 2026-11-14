@@ -10,22 +10,22 @@ pPluck = vm.control("pluck", 0.5)
 pPos = vm.control("position", 0.2)
 pFriction = vm.control("friction", 0.5)
 
+dampFreq = 20e3 * (1 - pDamp)
 mix = vm.op("buffer")
 with vm.poly(count=8, timeOut=1.0):
-  string = vm.delay(maxSeconds=0.1, id="string")
+  fbGain = .9 + .07 * pSustain + 0.03 * midi.gate 
   lag = (2**(69/12)/440) * (2**(-1/12)) ** midi.note
-  fbGain = .9 + 0.02 * midi.gate + .08 * pSustain
-  fb = string.read(lag) * fbGain
-  fb = vm.op("filterLP", {"frequency": 1e3 + midi.gate * (9e3 * (1-pDamp)), "resonance": 0})(fb)
-  sum = vm.op("buffer")  
-  sum += fb
+  delay = vm.delay({"time": lag, "gain": fbGain, "cutoff": dampFreq, "maxSeconds": 0.1})
+  
+  sum = vm.op("buffer")
+  sum += delay
   with vm.when(midi.onset, timeOut=0.1):
     envA = vm.op("envExp", {"gate": midi.onset, "decay": 0.01 + 0.1 * pFriction}) / (2 + 4 * pFriction)
     excite = (vm.op("oscNoise") + pPluck) * envA
     sum += excite
     sum -= vm.op("delay", {"time": lag * (.05 + .9 * pPos), "maxSeconds": 0.1})(excite)
     
-  string.write(sum)
+  delay.write(sum)
   mix += sum
 
 vm.op("audioOut", mix)

@@ -81,39 +81,31 @@ class Operator:
             self.vm.program.append(self)
         return self
 
-class Delay:
-    """A compiler-linked delay read/write pair.
+class Delay(Operator):
+    """A delay operator with an optional compiler-linked write endpoint.
 
-    The delay line is intentionally not an ordinary signal graph edge: the
-    read happens earlier in the program and the write commits the next block
-    into the same state.  ``maxSeconds`` is fixed at compile time so no audio
-    thread allocation is necessary.
+    ``input`` follows the normal operator convention: provide a dictionary
+    with ``time`` and ``maxSeconds``, and optionally ``input``.  Without an
+    ``input``, call ``write()`` later to explicitly close a feedback loop.
     """
-    def __init__(self, vm, maxSeconds, name):
+    def __init__(self, vm, input, name):
+        if not isinstance(input, dict):
+            raise TypeError("delay expects a dictionary of inputs")
+        if "time" not in input:
+            raise TypeError("delay requires a time input")
+        if "maxSeconds" not in input:
+            raise TypeError("delay requires a maxSeconds input")
+        maxSeconds = input["maxSeconds"]
         if not isinstance(maxSeconds, (int, float)) or maxSeconds <= 0:
             raise ValueError("Delay maxSeconds must be a positive number")
-        self.vm = vm
-        self.maxSeconds = maxSeconds
-        self.name = name
-        self._read = None
+        super().__init__(vm, "delay", name, input)
         self._written = False
 
-    def read(self, time):
-        if self._read is not None:
-            raise TypeError("A delay may only have one read endpoint; reuse its output")
-        self._read = self.vm.op("delay", {
-            "time": time,
-            "maxSeconds": self.maxSeconds,
-        }, id=self.name + ".read")
-        return self._read
-
     def write(self, input):
-        if self._read is None:
-            raise TypeError("Call delay.read() before delay.write()")
         if self._written:
             raise TypeError("A delay may only have one write endpoint")
         self._written = True
-        return self.vm.op("delayWrite", {"delay": self._read, "input": input},
+        return self.vm.op("delayWrite", {"delay": self, "input": input},
                           id=self.name + ".write")
 
 class Value(Operator):
@@ -241,14 +233,20 @@ class VM:
         """Look up zero-based floating-point indices with linear extrapolation."""
         return self.op("interp", [self.as_op(array).name, self.as_op(index).name])
 
-    def delay(self, maxSeconds, id=None):
-        """Create a feedback delay handle; call read() before write()."""
+    def delay(self, input, id=None):
+        """Create a delay from an input dictionary.
+
+        Omit ``input`` and call ``write()`` later to make an explicit feedback
+        loop.  Include it for a conventional delay operator.
+        """
+        if "delay" not in self.typeCounts:
+            self.typeCounts["delay"] = 0
+        self.typeCounts["delay"] += 1
         if id is None:
-            if "delay" not in self.typeCounts:
-                self.typeCounts["delay"] = 0
-            self.typeCounts["delay"] += 1
             id = "delay" + str(self.typeCounts["delay"])
-        return Delay(self, maxSeconds, id)
+        obj = Delay(self, input, id)
+        self.program.append(obj)
+        return obj
 
     def as_op(self, value):
         if isinstance(value, Value):

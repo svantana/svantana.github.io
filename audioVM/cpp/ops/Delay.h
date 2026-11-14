@@ -22,7 +22,7 @@ public:
     void setLag(Reader &R, float lag);
     
     struct FilterDesign {
-        FilterDesign() { ampLo = 1.f; ampHi = 0.f; frequency = .5f; }
+        FilterDesign(float lo=1, float hi=0, float freq=.5f) { ampLo=lo; ampHi=hi; frequency=freq; }
         float ampLo, ampHi, frequency;
     };
     
@@ -101,12 +101,14 @@ void FilterDelay::read(float *outBuf, int numSamples, float lagTarget, FilterDes
     speedStep /= (1 + 1e3f * fabsf(speedStep));
     
     float s1 = R.s1, a1 = R.a1, b0 = R.b0, b1 = R.b1, step = 1.f/numSamples;
-    const float f = std::min(1.f, 2 * filter.frequency);
+    const float f = std::clamp(2 * filter.frequency, 0.f, 1.f);
     const float pMax = -0.602f;
     Reader T;
     T.a1 = 1 - f*(2-f) * (1-pMax);
     T.b0 = lerp(filter.ampHi, -(1+pMax), std::max(0.f,1-1.1f*(1-f)));
     T.b1 = (1-T.a1) * (filter.ampLo - T.b0);
+    assert(fabsf(T.a1)<1);
+    
     const float stepA1 = step * (T.a1 - a1), stepB0 = step * (T.b0 - b0), stepB1 = step * (T.b1 - b1);
     
     R.pos -= bufSize * floorf(R.pos / bufSize);
@@ -119,7 +121,7 @@ void FilterDelay::read(float *outBuf, int numSamples, float lagTarget, FilterDes
         subPos -= kSubSize * (subPos>=kSubSize);
         float read = InterpTab::lookup(&mBuf[subPos>>kNumSubBits], (subPos>>(kNumSubBits-InterpTab::Bits)) & kTabMask);
         
-        s1 += a1 * s1 + read;
+        s1 = a1 * s1 + read;
         outBuf[i] = b0 * read + b1 * s1;
         subPos  += subStep;
         a1 += stepA1;
@@ -229,28 +231,19 @@ void FilterDelay::diffuseBlock(float *io0, float *io1, int N, float trgLag, Filt
 // Delay is a normal delay when its Input port is connected.  With Input
 // disconnected, it exposes the line for an explicit DelayWrite later in the
 // program, making feedback explicit without introducing a graph cycle.
-struct DelayLineState {
-    std::vector<float> samples;
-    size_t writeHead = 0;
-
-    void reset() {
-        std::fill(samples.begin(), samples.end(), 0.f);
-        writeHead = 0;
-    }
-};
 
 class Delay : public Operator {
 public:
-    enum In { Input, TimeSeconds, LowpassFreq, MaxSeconds, NumInputs };
+    enum In { Input, TimeSeconds, Gain, LowpassFreq, MaxSeconds, NumInputs };
     enum Out { Output, NumOutputs };
 
-    Delay() : mState(std::make_shared<DelayLineState>()) {}
+    Delay() : mState(std::make_shared<FilterDelay>()) {}
 
     int getNumPorts(Port::Dir dir) override {
         return dir == Port::In ? NumInputs : NumOutputs;
     }
     std::string getPortName(Port::Dir dir, int index) override {
-        static const cStr inputs[] = {"input", "time", "cutoff", "maxSeconds"};
+        static const cStr inputs[] = {"input", "time", "gain", "cutoff", "maxSeconds"};
         static const cStr outputs[] = {"output"};
         return dir == Port::In ? inputs[index] : outputs[index];
     }
@@ -268,50 +261,39 @@ public:
             throw std::runtime_error("delay maxSeconds must be positive and finite");
         }
         mMaxSamples = std::max(1, static_cast<int>(std::ceil(maxSeconds * mSamplerate)));
-        // One extra location makes a delay equal to maxSeconds addressable.
-        mState->samples.assign(static_cast<size_t>(mMaxSamples) + 1, 0.f);
-        mState->writeHead = 0;
+        // FilterDelay keeps a block-sized safety margin at the end of its
+        // ring, so maxSeconds remains addressable for a full processing block.
+        mState->setup(mMaxSamples + mBlockSize + 1, false);
+        mState->reset();
         if (!inputs[Input].hasData() &&
             static_cast<float>(mMaxSamples) < mBlockSize) {
             throw std::runtime_error("delay maxSeconds must be at least one processing block");
         }
     }
-    std::shared_ptr<DelayLineState> state() const { return mState; }
+    std::shared_ptr<FilterDelay> state() const { return mState; }
 
-    void process(Buffer* in, Buffer* out, int N) override {
-        if (mState->samples.empty()) {
+    void process(Buffer* ins, Buffer* outs, int N) override {
+        if (mState->getLength() == 0) {
             throw std::runtime_error("delay was not configured");
         }
-        const int requestedSamples = static_cast<int>(std::lround(in[TimeSeconds].value() * mSamplerate));
-        const size_t size = mState->samples.size();
-        float* dst = out[Output].data();
-        if (in[Input].hasData()) {
-            // Standard delay mode is sample scheduled: commit the input
-            // before reading the tap, so delays shorter than one block work.
-            const float* src = in[Input].data();
-            const int sourceSamples = in[Input].numSamples;
-            const int delaySamples = std::clamp(requestedSamples, 1, mMaxSamples);
-            for (int n = 0; n < N; ++n) {
-                mState->samples[mState->writeHead] = src[sourceSamples == 1 ? 0 : n];
-                const size_t readHead = (mState->writeHead + size - static_cast<size_t>(delaySamples)) % size;
-                dst[n] = mState->samples[readHead];
-                mState->writeHead = (mState->writeHead + 1) % size;
-            }
+        const float lagSamples = std::clamp(ins[TimeSeconds].value() * mSamplerate, 1.f, mMaxSamples-1.f);
+        float* dst = outs[Output].data();
+        FilterDelay::FilterDesign filter(ins[Gain].valueOrDefault(1.f), 0.f, ins[LowpassFreq].valueOrDefault(1e6f)/mSamplerate);
+        if (ins[Input].hasData()) {
+            // write() followed by read() is FilterDelay's normal delay mode.
+            const float* src = ins[Input].data();
+            mState->delayBlock(src, dst, N, lagSamples, filter);
             return;
         }
 
         // Reader-only mode is paired with a later DelayWrite, so the tap
         // cannot observe samples that the writer has not produced yet.
-        const int delaySamples = std::clamp(requestedSamples, N, mMaxSamples);
-        const size_t start = (mState->writeHead + size - static_cast<size_t>(delaySamples)) % size;
-        for (int n = 0; n < N; ++n) {
-            dst[n] = mState->samples[(start + static_cast<size_t>(n)) % size];
-        }
+        mState->read(dst, N, std::max(lagSamples, mBlockSize), filter);
     }
     void reset() override { mState->reset(); }
 
 private:
-    std::shared_ptr<DelayLineState> mState;
+    std::shared_ptr<FilterDelay> mState;
     int mMaxSamples = 0;
 };
 
@@ -330,20 +312,16 @@ public:
         return index == Input ? Port::Full : Port::Keep;
     }
 
-    void link(std::shared_ptr<DelayLineState> state) { mState = std::move(state); }
+    void link(std::shared_ptr<FilterDelay> state) { mState = std::move(state); }
     void process(Buffer* in, Buffer*, int N) override {
-        if (!mState || mState->samples.empty()) {
+        if (!mState || mState->getLength() == 0) {
             throw std::runtime_error("delayWrite is not linked to a delay");
         }
-        const size_t size = mState->samples.size();
         const float* src = in[Input].data();
-        for (int n = 0; n < N; ++n) {
-            mState->samples[mState->writeHead] = src[n];
-            mState->writeHead = (mState->writeHead + 1) % size;
-        }
+        mState->write(src, N);
     }
 
 private:
-    std::shared_ptr<DelayLineState> mState;
+    std::shared_ptr<FilterDelay> mState;
 };
 
