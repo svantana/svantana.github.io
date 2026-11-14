@@ -14,26 +14,31 @@ public:
     
     struct Reader {
         Reader() { reset(); }
-        void reset() { pos=-1; speed=1; s1 = s2 = a1 = b0 = 0; }
-        float pos, speed, s1, s2, a1, b0;
+        void reset() { pos=-1; speed=1; s1 = a1 = b0 = b1 = 0; }
+        float pos, speed, s1, a1, b0, b1;
     } mReader; // default reader
     
     float getLag(Reader &R);
     void setLag(Reader &R, float lag);
     
+    struct FilterDesign {
+        FilterDesign() { ampLo = 1.f; ampHi = 0.f; frequency = .5f; }
+        float ampLo, ampHi, frequency;
+    };
+    
     // canonical interface: read -> do stuff -> write
-    void read(float *dst, int N, float nextLag, float logAmpDC=0, float logAmpHi=0, Reader *reader = nullptr, bool preWrite=false);
+    void read(float *dst, int N, float nextLag, FilterDesign filter = FilterDesign(), Reader *reader = nullptr, bool preWrite=false);
     void write(const float *data, int N);
     
     // block convenience functions
-    void delayBlock(const float *inBuf, float *outBuf, int N, float lag, float logAmpDC=0, float logAmpHi=0);
-    void delayBlockIP(float *ioBuf, int N, float lag, float logAmpDC=0, float logAmpHi=0);
-    void allpassBlock(float *ioBuf, int N, float lag, float logAmpDC=0, float logAmpHi=0, float apCoef = -.618f);
-    void diffuseBlock(float *io0, float *io1, int N, float lag, float logAmpDC=0, float logAmpHi=0, float mix = 1);
-    void diffuseBlock(float **ioBufs, int N, float lag, float logAmpDC=0, float logAmpHi=0, float mix = 1) {
-        diffuseBlock(ioBufs[0], ioBufs[1], N, lag, logAmpDC, logAmpHi, mix);
+    void delayBlock(const float *inBuf, float *outBuf, int N, float lag, FilterDesign filter = FilterDesign());
+    void delayBlockIP(float *ioBuf, int N, float lag, FilterDesign filter = FilterDesign());
+    void allpassBlock(float *ioBuf, int N, float lag, FilterDesign filter = FilterDesign(), float apCoef = -.618f);
+    void diffuseBlock(float *io0, float *io1, int N, float lag, FilterDesign filter = FilterDesign(), float mix = 1);
+    void diffuseBlock(float **ioBufs, int N, float lag, FilterDesign filter = FilterDesign(), float mix = 1) {
+        diffuseBlock(ioBufs[0], ioBufs[1], N, lag, filter, mix);
     }
-    
+
 private:
     static const int Pad = 4;
     std::vector<float> mBuf;
@@ -70,8 +75,11 @@ float FilterDelay::getLag(Reader &R) {
 void FilterDelay::setLag(Reader &R, float lag) {
     R.pos = mWritePos - lag + mBuf.size() * (mWritePos <  lag);
 }
+static inline float lerp(float a, float b, float p) {
+    return a + (b-a)*p;
+}
 
-void FilterDelay::read(float *outBuf, int numSamples, float lagTarget, float logAmpDC, float logAmpHi, Reader *reader, bool preWrite) {
+void FilterDelay::read(float *outBuf, int numSamples, float lagTarget, FilterDesign filter, Reader *reader, bool preWrite) {
     int bufSize = getLength();
     if (lagTarget >= bufSize-numSamples) {
         DEBUGCHECK(0);
@@ -92,9 +100,14 @@ void FilterDelay::read(float *outBuf, int numSamples, float lagTarget, float log
     float speedStep = (endSpeed-R.speed) / (1.5f * numSamples);
     speedStep /= (1 + 1e3f * fabsf(speedStep));
     
-    float s1 = R.s1, s2 = R.s2, a1 = R.a1, b0 = R.b0, step = 1.f/numSamples;
-    float nextA1 = negLogAmpToA1(-logAmpHi), nextB0 = fastNegExp(-logAmpDC) * (1 - nextA1);
-    float stepA1 = step * (nextA1 - a1), stepB0 = step * (nextB0 - b0);
+    float s1 = R.s1, a1 = R.a1, b0 = R.b0, b1 = R.b1, step = 1.f/numSamples;
+    const float f = std::min(1.f, 2 * filter.frequency);
+    const float pMax = -0.602f;
+    Reader T;
+    T.a1 = 1 - f*(2-f) * (1-pMax);
+    T.b0 = lerp(filter.ampHi, -(1+pMax), std::max(0.f,1-1.1f*(1-f)));
+    T.b1 = (1-T.a1) * (filter.ampLo - T.b0);
+    const float stepA1 = step * (T.a1 - a1), stepB0 = step * (T.b0 - b0), stepB1 = step * (T.b1 - b1);
     
     R.pos -= bufSize * floorf(R.pos / bufSize);
     DEBUGCHECK(R.pos >= 0.f, "ModDelay reading before buffer!");
@@ -106,17 +119,16 @@ void FilterDelay::read(float *outBuf, int numSamples, float lagTarget, float log
         subPos -= kSubSize * (subPos>=kSubSize);
         float read = InterpTab::lookup(&mBuf[subPos>>kNumSubBits], (subPos>>(kNumSubBits-InterpTab::Bits)) & kTabMask);
         
-        outBuf[i] = a1 * s2 + b0 * read;
-        s2 = s1;
-        s1 = outBuf[i];
-        
+        s1 += a1 * s1 + read;
+        outBuf[i] = b0 * read + b1 * s1;
         subPos  += subStep;
         a1 += stepA1;
         b0 += stepB0;
+        b1 += stepB1;
     }
     R.pos = ((float)subPos) / nSub;
     R.speed += numSamples * speedStep;
-    R.s1 = s1; R.s2 = s2; R.a1 = a1; R.b0 = b0;
+    R.s1 = s1; R.a1 = a1; R.b0 = b0; R.b1 = b1;
 }
 static inline void copy(const float *src, float *dst, size_t N) {
     memcpy(dst, src, sizeof(float)*N);
@@ -139,20 +151,20 @@ void FilterDelay::write(const float *src, int N) {
     mNumWritten = std::min(mNumWritten + N, ringSize);
 }
 
-void FilterDelay::delayBlock(const float *inBuf, float *outBuf, int N, float trgLag, float logAmpDC, float logAmpHi) {
+void FilterDelay::delayBlock(const float *inBuf, float *outBuf, int N, float trgLag, FilterDesign filter) {
     const int L = getLength();
     if (trgLag+N >= L) {
         DEBUGCHECK(0);
         return;
     }
     write(inBuf, N);
-    read(outBuf, N, std::max(2.f, trgLag)+N, logAmpDC, logAmpHi);
+    read(outBuf, N, std::max(2.f, trgLag)+N, filter);
 }
-void FilterDelay::delayBlockIP(float *ioBuf, int N, float trgLag, float logAmpDC, float logAmpHi) {
-    delayBlock(ioBuf, ioBuf, N, trgLag, logAmpDC, logAmpHi);
+void FilterDelay::delayBlockIP(float *ioBuf, int N, float trgLag, FilterDesign filter) {
+    delayBlock(ioBuf, ioBuf, N, trgLag, filter);
 }
 
-void FilterDelay::allpassBlock(float *ioBuf, int N, float trgLag, float logAmpDC, float logAmpHi, float nextApCoef) {
+void FilterDelay::allpassBlock(float *ioBuf, int N, float trgLag, FilterDesign filter, float nextApCoef) {
     const int L = getLength();
     if (L==0 || trgLag > L || trgLag < N+2) {
         DEBUGCHECK(0, "FilterDelay::allpassBlock lag out of range!\n");
@@ -162,7 +174,7 @@ void FilterDelay::allpassBlock(float *ioBuf, int N, float trgLag, float logAmpDC
     DEBUGCHECK(mWritePos <= L);
     
     float readBuf[MaxBlockSize], writeBuf[MaxBlockSize];
-    read(readBuf, N, trgLag, logAmpDC, logAmpHi);
+    read(readBuf, N, trgLag, filter);
     float apCoef = mAllpassCoef;
     if (fabsf(apCoef-nextApCoef) > 1e-5f) {
         float coefStep = (nextApCoef - apCoef) / std::max(N, 1024);
@@ -183,7 +195,7 @@ void FilterDelay::allpassBlock(float *ioBuf, int N, float trgLag, float logAmpDC
     
     write(writeBuf, N);
 }
-void FilterDelay::diffuseBlock(float *io0, float *io1, int N, float trgLag, float logAmpDC, float logAmpHi, float mixTrg) {
+void FilterDelay::diffuseBlock(float *io0, float *io1, int N, float trgLag, FilterDesign filter, float mixTrg) {
     const int L = getLength();
     if (L==0 || trgLag > L-N || trgLag < 2) {
         DEBUGCHECK(0);
@@ -193,20 +205,20 @@ void FilterDelay::diffuseBlock(float *io0, float *io1, int N, float trgLag, floa
     write(io0, N);
     
     float readBuf[MaxBlockSize];
-    read(readBuf, N, trgLag, logAmpDC, logAmpHi, nullptr, true);
-    const float kSquareMix = 0.7071067812f;
+    read(readBuf, N, trgLag, filter, nullptr, true);
+    const float kRootOfHalf = 0.7071067812f;
     if (mixTrg == 1 && mDiffuseMix == 1) {
         for (int i = 0; i < N; i++) {
             float lag = readBuf[i], in1 = io1[i];
-            io0[i] = kSquareMix * (in1 + lag);
-            io1[i] = kSquareMix * (in1 - lag);
+            io0[i] = kRootOfHalf * (in1 + lag);
+            io1[i] = kRootOfHalf * (in1 - lag);
         }
     } else {
         float mix = mDiffuseMix, mixStep = (mixTrg - mix) / N;
         for (int i = 0; i < N; i++) {
             float lag = readBuf[i], in1 = io1[i];
-            io0[i] += mix * (kSquareMix * (in1 + lag) - io0[i]);
-            io1[i] += mix * (kSquareMix * (in1 - lag) - io1[i]);
+            io0[i] += mix * (kRootOfHalf * (in1 + lag) - io0[i]);
+            io1[i] += mix * (kRootOfHalf * (in1 - lag) - io1[i]);
             mix += mixStep;
         }
         mDiffuseMix = mix;
