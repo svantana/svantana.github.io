@@ -411,8 +411,9 @@ void Voice::render(float **outBufs, int numSamples, int numChannels) {
     //float uWidth = 2*fabsf(width - roundf(width)), uPulse = std::min(1.f, P[PulseAmount]);
     //float f0Scale = (1 + std::max(0.f, -uPulse)) / std::max(.01f, uWidth);
     FilterCoefs coefTrg;
-    float pole = 4 / (4 + oscF0), p2 = .5f / (.5f + oscF0), pHi = -.5f;
-    coefTrg.p1 =  pole * std::min(1.f, 2 - 2*color);
+    float integralScale = 4 * std::min(1.f, 2 - 2*color);
+    float p2 = .5f / (.5f + oscF0), pHi = -.5f;
+    coefTrg.p1 =  integralScale / (integralScale + oscF0);
     coefTrg.p2 = pHi + (p2-pHi) * std::max(0.f, 1-2*color);
     
     if (mNeedsInit) {
@@ -519,15 +520,16 @@ public:
         float unisonScale = exp2f(ins[UnisonCents].value() / 1200);
         float unisonScales[2] = {unisonScale, 1.f/unisonScale};
         float unisonAcc[2] = {1.f, 1.f};
+        float uniGain = 1.f / sqrtf(unisonCount);
         
         mVoice.m_num_oscillators = (int)(.99f + unisonCount);
         
         for (int o = 0; o < mVoice.m_num_oscillators; o++) {
             float *P = mVoice.getOscParams(o);
             float &uScale = unisonAcc[o & 1];
-            uScale *= unisonScales[o & 1];
             P[Voice::Osc::Frequency] = freqN * uScale;
-            P[Voice::Osc::Amp] = 0.5f * std::min(1.f, unisonCount - o);
+            P[Voice::Osc::Amp] = uniGain * std::min(1.f, unisonCount - o);
+            uScale *= unisonScales[o & 1];
         }
         
         float *outPtr = outs[Output].data();

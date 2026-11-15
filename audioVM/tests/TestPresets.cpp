@@ -15,8 +15,8 @@ namespace {
 
 constexpr int kChannels = 2;
 constexpr int kBlockSize = 32;
-constexpr int kMinSampleRate = 10000;
-constexpr int kMaxSampleRate = 90000;
+constexpr int kMinSampleRate = 40000;
+constexpr int kMaxSampleRate = 50000;
 constexpr int kRenderSeconds = 30;
 constexpr int kNotesPerSecond = 10;
 constexpr float kInputFrequency = 440.f;
@@ -68,7 +68,16 @@ uint32_t seedFor(const std::string& text) {
 
 int main(int argc, char* argv[]) {
     const std::string presetName = argc >= 2 ? argv[1] : "<stdin>";
-    const uint32_t runSeed = argc == 3 ? static_cast<uint32_t>(std::stoul(argv[2])) : 0u;
+    const uint32_t runSeed = argc >= 3 ? static_cast<uint32_t>(std::stoul(argv[2])) : 0u;
+    std::mt19937 sampleRateRandom(runSeed);
+    const int sampleRate = argc >= 4
+        ? std::stoi(argv[3])
+        : std::uniform_int_distribution<int>(kMinSampleRate, kMaxSampleRate)(sampleRateRandom);
+    if (sampleRate < kMinSampleRate || sampleRate > kMaxSampleRate) {
+        std::cerr << presetName << ": sample rate must be between " << kMinSampleRate
+                  << " and " << kMaxSampleRate << " Hz\n";
+        return 1;
+    }
     const std::string json(std::istreambuf_iterator<char>(std::cin), {});
     if (json.empty()) {
         std::cerr << presetName << ": no program JSON received\n";
@@ -79,7 +88,6 @@ int main(int argc, char* argv[]) {
         // The script provides a wall-clock seed. Mix in the preset JSON so
         // every preset has a distinct, reproducible fuzz stream for that run.
         std::mt19937 random(seedFor(json) ^ runSeed);
-        const int sampleRate = std::uniform_int_distribution<int>(kMinSampleRate, kMaxSampleRate)(random);
         AudioVM::Processor processor;
         processor.setup(static_cast<float>(sampleRate), kChannels, kChannels, kBlockSize);
         processor.loadFromJSON(json);

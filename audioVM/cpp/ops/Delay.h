@@ -40,7 +40,7 @@ public:
     }
 
 private:
-    static const int Pad = 4;
+    static const int Pad = 4, TabLag = 1;
     std::vector<float> mBuf;
     int mWritePos = 0, mNumWritten = 0;
     float mAllpassCoef=0, mDiffuseMix=0;
@@ -70,10 +70,10 @@ static inline float fastNegExp(float x) {
 }
 
 float FilterDelay::getLag(Reader &R) {
-    return mWritePos - R.pos + mBuf.size() * (mWritePos < R.pos);
+    return mWritePos - R.pos + mBuf.size() * (mWritePos < R.pos) - TabLag;
 }
 void FilterDelay::setLag(Reader &R, float lag) {
-    R.pos = mWritePos - lag + mBuf.size() * (mWritePos <  lag);
+    R.pos = mWritePos - (lag+TabLag) + mBuf.size() * (mWritePos < (lag+TabLag));
 }
 static inline float lerp(float a, float b, float p) {
     return a + (b-a)*p;
@@ -101,7 +101,7 @@ void FilterDelay::read(float *outBuf, int numSamples, float lagTarget, FilterDes
     speedStep /= (1 + 1e3f * fabsf(speedStep));
     
     float s1 = R.s1, a1 = R.a1, b0 = R.b0, b1 = R.b1, step = 1.f/numSamples;
-    const float f = std::clamp(2 * filter.frequency, 0.f, 1.f);
+    const float f = std::clamp(2 * filter.frequency, 1e-5f, 1.f);
     const float pMax = -0.602f;
     Reader T;
     T.a1 = 1 - f*(2-f) * (1-pMax);
@@ -234,7 +234,7 @@ void FilterDelay::diffuseBlock(float *io0, float *io1, int N, float trgLag, Filt
 
 class Delay : public Operator {
 public:
-    enum In { Input, TimeSeconds, Gain, LowpassFreq, MaxSeconds, NumInputs };
+    enum In { Input, TimeSeconds, Gain, LowpassFreq, HighGain, MaxSeconds, NumInputs };
     enum Out { Output, NumOutputs };
 
     Delay() : mState(std::make_shared<FilterDelay>()) {}
@@ -243,7 +243,7 @@ public:
         return dir == Port::In ? NumInputs : NumOutputs;
     }
     std::string getPortName(Port::Dir dir, int index) override {
-        static const cStr inputs[] = {"input", "time", "gain", "cutoff", "maxSeconds"};
+        static const cStr inputs[] = {"input", "time", "gain", "cutoff", "highgain", "maxSeconds"};
         static const cStr outputs[] = {"output"};
         return dir == Port::In ? inputs[index] : outputs[index];
     }
@@ -278,7 +278,7 @@ public:
         }
         const float lagSamples = std::clamp(ins[TimeSeconds].value() * mSamplerate, 1.f, mMaxSamples-1.f);
         float* dst = outs[Output].data();
-        FilterDelay::FilterDesign filter(ins[Gain].valueOrDefault(1.f), 0.f, ins[LowpassFreq].valueOrDefault(1e6f)/mSamplerate);
+        FilterDelay::FilterDesign filter(ins[Gain].valueOrDefault(1.f), ins[HighGain].valueOrDefault(0.f), ins[LowpassFreq].valueOrDefault(1e6f)/mSamplerate);
         if (ins[Input].hasData()) {
             // write() followed by read() is FilterDelay's normal delay mode.
             const float* src = ins[Input].data();
@@ -288,7 +288,7 @@ public:
 
         // Reader-only mode is paired with a later DelayWrite, so the tap
         // cannot observe samples that the writer has not produced yet.
-        mState->read(dst, N, std::max(lagSamples, mBlockSize), filter);
+        mState->read(dst, N, std::max(lagSamples, mBlockSize+2), filter);
     }
     void reset() override { mState->reset(); }
 

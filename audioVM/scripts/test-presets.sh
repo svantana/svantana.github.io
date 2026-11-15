@@ -9,7 +9,9 @@ cd "$project_dir"
 # Keep a single wall-clock seed for this whole run so a failing fuzz case can
 # be repeated by passing the printed value to the preset test binary.
 random_seed="$(date +%s)"
+sample_rate=$((40000 + random_seed % 10001))
 printf 'Random seed: %s\n' "$random_seed"
+printf 'Sample rate: %s Hz\n' "$sample_rate"
 
 "${CXX:-c++}" \
   -std=c++17 -O3 -ffast-math \
@@ -57,7 +59,7 @@ done
 for preset in "${presets[@]}"; do
   result="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$project_dir/python" \
     python3 tests/compile_preset.py "$preset" \
-    | "$temp_dir/test-presets" "$preset" "$random_seed")"
+    | "$temp_dir/test-presets" "$preset" "$random_seed" "$sample_rate")"
   IFS=$'\t' read -r controls peak realtime_factor <<< "$result"
   printf "%-${path_width}s  %2s controls  peak:%6.4f  RT-%%: %.4f\n" \
     "$preset" "$controls" "$peak" "$realtime_factor"

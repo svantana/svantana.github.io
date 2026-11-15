@@ -251,7 +251,30 @@
     const operatorSearch = document.querySelector('#operator-search');
     const operatorList = document.querySelector('#operator-list');
     const operatorCount = document.querySelector('#operator-sidebar-count');
-    const keyboardSemitones = new Map(Object.entries({ a:0, w:1, s:2, e:3, d:4, f:5, t:6, g:7, y:8, h:9, u:10, j:11, k:12, o:13, l:14, p:15 }));
+    // This is one continuous Ableton-style piano row. Use physical positions so
+    // the notes remain in place across QWERTY, AZERTY, QWERTZ, and Dvorak.
+    // The punctuation keys immediately beyond P continue the row to the edge of
+    // a standard keyboard.
+    const keyboardSemitones = new Map([
+      ['KeyA', 0], ['KeyW', 1], ['KeyS', 2], ['KeyE', 3], ['KeyD', 4], ['KeyF', 5],
+      ['KeyT', 6], ['KeyG', 7], ['KeyY', 8], ['KeyH', 9], ['KeyU', 10], ['KeyJ', 11],
+      ['KeyK', 12], ['KeyO', 13], ['KeyL', 14], ['KeyP', 15], ['Semicolon', 16],
+      ['Quote', 17], ['BracketRight', 18], ['Backslash', 19],
+    ]);
+    const keyboardFallbackLabels = {
+      KeyA:'A', KeyW:'W', KeyS:'S', KeyE:'E', KeyD:'D', KeyF:'F', KeyT:'T', KeyG:'G',
+      KeyY:'Y', KeyH:'H', KeyU:'U', KeyJ:'J', KeyK:'K', KeyO:'O', KeyL:'L', KeyP:'P',
+      Semicolon:';', Quote:"'", BracketRight:']', Backslash:'\\',
+    };
+    // Safari does not currently expose Keyboard Layout Map. Language is only a
+    // fallback hint (not a keyboard-layout guarantee), but gives Swedish users
+    // useful labels before their first key press; actual key events still win.
+    const browserLanguages = navigator.languages?.length ? navigator.languages : [navigator.language];
+    const hasSwedishLocale = browserLanguages.some(language => /^sv(?:-|$)/i.test(language));
+    const keyboardDefaultLabels = hasSwedishLocale
+      ? { ...keyboardFallbackLabels, Semicolon:'Ö', Quote:'Ä', BracketRight:'¨', Backslash:"'" }
+      : keyboardFallbackLabels;
+    let keyboardLabels = new Map(Object.entries(keyboardDefaultLabels));
     let pianoKeys = new Map();
     let pianoFrequencyStops = [];
     let pianoSpectrumStart = 0;
@@ -708,7 +731,32 @@
       const loopBeats = Number(transportLoop.value);
       if (Number.isFinite(loopBeats) && loopBeats >= 0) postTransport({ loopBeats }); else renderTransport();
     });
-    const midiNoteForKey = key => 12 * (baseOctave + 1) + keyboardSemitones.get(key);
+    const keyboardRange = [...keyboardSemitones.values()];
+    const keyboardMaxSemitone = Math.max(...keyboardRange);
+    const midiNoteForCode = code => 12 * (baseOctave + 1) + keyboardSemitones.get(code);
+    const keyboardLabelForCode = code => {
+      const label = keyboardLabels.get(code) || keyboardDefaultLabels[code] || code;
+      return label.length === 1 ? label.toLocaleUpperCase() : label;
+    };
+    const rememberKeyboardLabel = event => {
+      // Browsers without Keyboard Layout Map still reveal a key's actual symbol
+      // when it is played, so refine the fallback label opportunistically.
+      if (!keyboardSemitones.has(event.code) || event.key.length !== 1 || keyboardLabels.get(event.code) === event.key) return;
+      keyboardLabels.set(event.code, event.key);
+      renderPiano();
+    };
+    const updateKeyboardLayout = async () => {
+      // Keyboard Layout Map is optional and deliberately only supplies labels; it
+      // must not change which physical key makes which note.
+      if (!navigator.keyboard?.getLayoutMap) return;
+      try {
+        const layout = await navigator.keyboard.getLayoutMap();
+        keyboardLabels = new Map([...keyboardSemitones.keys()].map(code => [code, layout.get(code) || keyboardDefaultLabels[code]]));
+        renderPiano();
+      } catch {
+        // The fallback labels are a useful, readable US-layout approximation.
+      }
+    };
     const updatePianoKey = midi => pianoKeys.get(midi)?.classList.toggle('active', [...activeMidiSources.values()].includes(midi));
     function updatePianoFrequencyStops() {
       const pianoRect = piano.getBoundingClientRect();
@@ -727,38 +775,48 @@
     }
     const renderPiano = () => {
       const whiteCount = Math.max(17, Math.ceil(piano.clientWidth / 24));
-      const firstC = 12 * baseOctave;
       const natural = [0, 2, 4, 5, 7, 9, 11];
-      const labels = new Map([...keyboardSemitones].map(([key, semitone]) => [12 * (baseOctave + 1) + semitone, key]));
+      const firstC = 12 * baseOctave;
+      const labels = new Map();
+      for (const [code, semitone] of keyboardSemitones) {
+        const midi = 12 * (baseOctave + 1) + semitone;
+        const existing = labels.get(midi) || [];
+        existing.push(keyboardLabelForCode(code));
+        labels.set(midi, existing);
+      }
       piano.style.gridTemplateColumns = `repeat(${whiteCount}, 24px)`;
       piano.replaceChildren(); pianoKeys = new Map();
       for (let index = 0; index < whiteCount; index++) {
         const midi = firstC + 12 * Math.floor(index / 7) + natural[index % 7];
         const octave = Math.floor(midi / 12) - 1;
-        const isC = midi % 12 === 0, key = labels.get(midi);
+        const isC = midi % 12 === 0, keys = labels.get(midi);
         const white = document.createElement('button');
         white.className = 'piano-key white'; white.style.gridColumn = index + 1; white.dataset.midi = midi;
-        white.setAttribute('aria-label', `${isC ? 'C' + octave : 'MIDI ' + midi}${key ? ', ' + key.toUpperCase() + ' key' : ''}`);
-        white.innerHTML = `${key ? `<span class="key-label">${key}</span>` : ''}${isC ? `<span class="octave-label">C${octave}</span>` : ''}`;
+        white.setAttribute('aria-label', `${isC ? 'C' + octave : 'MIDI ' + midi}${keys ? ', ' + keys.join(' / ') + ' key' : ''}`);
+        white.innerHTML = `${keys ? `<span class="key-label">${keys.join(' ')}</span>` : ''}${isC ? `<span class="octave-label">C${octave}</span>` : ''}`;
         piano.append(white); pianoKeys.set(midi, white);
         const next = firstC + 12 * Math.floor((index + 1) / 7) + natural[(index + 1) % 7];
         if (next - midi === 2) {
-          const black = document.createElement('button'), blackMidi = midi + 1, blackKey = labels.get(blackMidi);
-          black.className = 'piano-key black'; black.style.left = `${(index + 1) * 24 - 7}px`; black.dataset.midi = blackMidi;
-          black.setAttribute('aria-label', `MIDI ${blackMidi}${blackKey ? ', ' + blackKey.toUpperCase() + ' key' : ''}`);
-          black.textContent = blackKey || ''; piano.append(black); pianoKeys.set(blackMidi, black);
+          const black = document.createElement('button'), blackMidi = midi + 1, blackKeys = labels.get(blackMidi);
+          black.className = 'piano-key black';
+          black.style.left = `${(index + 1) * 24 - 7}px`;
+          black.dataset.midi = blackMidi;
+          black.setAttribute('aria-label', `MIDI ${blackMidi}${blackKeys ? ', ' + blackKeys.join(' / ') + ' key' : ''}`);
+          black.textContent = blackKeys?.join(' ') || ''; piano.append(black); pianoKeys.set(blackMidi, black);
         }
       }
       updatePianoFrequencyStops();
     };
     const transposeOctave = amount => {
-      const next = Math.max(0, Math.min(8, baseOctave + amount));
+      const maxBaseOctave = Math.floor((127 - keyboardMaxSemitone) / 12) - 1;
+      const next = Math.max(0, Math.min(maxBaseOctave, baseOctave + amount));
       if (next === baseOctave) return;
       releaseAllNotes();
       baseOctave = next;
       renderPiano();
     };
     renderPiano();
+    updateKeyboardLayout();
     new ResizeObserver(renderPiano).observe(piano);
     const sendNoteOn = (source, midi) => {
       if (activeMidiSources.has(source)) return;
@@ -979,22 +1037,21 @@
         return;
       }
       if (keyboardPanel.hidden) return;
-      const key = event.key.toLowerCase();
-      if (key === 'z' || key === 'x') {
+      rememberKeyboardLabel(event);
+      if (event.code === 'KeyZ' || event.code === 'KeyX') {
         event.preventDefault();
-        if (!event.repeat) transposeOctave(key === 'z' ? -1 : 1);
+        if (!event.repeat) transposeOctave(event.code === 'KeyZ' ? -1 : 1);
         return;
       }
-      if (!keyboardSemitones.has(key) || event.repeat) return;
+      if (event.ctrlKey || event.metaKey || event.altKey || !keyboardSemitones.has(event.code) || event.repeat) return;
       event.preventDefault();
-      sendNoteOn(`keyboard:${key}`, midiNoteForKey(key));
+      sendNoteOn(`keyboard:${event.code}`, midiNoteForCode(event.code));
     });
     rightPanel.addEventListener('keyup', event => {
       if (keyboardPanel.hidden) return;
-      const key = event.key.toLowerCase();
-      if (!keyboardSemitones.has(key)) return;
+      if (!keyboardSemitones.has(event.code)) return;
       event.preventDefault();
-      sendNoteOff(`keyboard:${key}`);
+      sendNoteOff(`keyboard:${event.code}`);
     });
     window.addEventListener('blur', releaseAllNotes);
     const loadPatch = async () => {
