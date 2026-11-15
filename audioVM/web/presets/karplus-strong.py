@@ -13,7 +13,7 @@ pFriction = vm.control("friction", 0.5)
 dampFreq = 20e3 * (1 - pDamp)
 mix = vm.op("buffer")
 with vm.poly(count=8, timeOut=1.0):
-  fbGain = .9 + .07 * pSustain + 0.03 * midi.gate 
+  fbGain = .8 + 0.1 * pSustain + 0.1 * midi.gate 
   lag = (2**(69/12)/440) * (2**(-1/12)) ** midi.note
   delay = vm.delay({"time": lag, "gain": fbGain, "cutoff": dampFreq, "maxSeconds": 0.1})
   
@@ -21,7 +21,7 @@ with vm.poly(count=8, timeOut=1.0):
   sum += delay
   with vm.when(midi.onset, timeOut=0.1):
     envA = vm.op("envExp", {"gate": midi.onset, "decay": 0.01 + 0.1 * pFriction}) / (2 + 4 * pFriction)
-    excite = (vm.op("oscNoise") + pPluck) * envA
+    excite = vm.op("oscNoise") * (envA * (1 - pPluck)) + pPluck * envA
     sum += excite
     sum -= vm.op("delay", {"time": lag * (.05 + .9 * pPos), "maxSeconds": 0.1})(excite)
     
