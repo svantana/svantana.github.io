@@ -28,6 +28,7 @@ public:
         Coefs T = getCoefs(i), C = mCoefs;
         if (i[Reset].value() > .5f) {
             mState.reset();
+            C = T;
         }
         State S = mState; // local copy
         float *x = i[Input][0], *y = o[Output][0], cStep = 1.f / mBlockSize;
@@ -67,6 +68,10 @@ public:
     std::string getName() { return "FilterBP"; }
     void process(Buffer *i, Buffer *o, int N) override {
         Coefs T = getCoefs(i), C = mCoefs;
+        if (i[Reset].value() > .5f) {
+            mState.reset();
+            C = T;
+        }
         State S = mState; // local copy
         float *x = i[Input][0], *y = o[Output][0], cStep = 1.f / mBlockSize;
         for (int n = 0; n < N; n++) {
@@ -83,6 +88,10 @@ public:
     std::string getName() { return "FilterHP"; }
     void process(Buffer *i, Buffer *o, int N) override {
         Coefs T = getCoefs(i), C = mCoefs;
+        if (i[Reset].value() > .5f) {
+            mState.reset();
+            C = T;
+        }
         State S = mState; // local copy
         float *x = i[Input][0], *y = o[Output][0], cStep = 1.f / mBlockSize;
         for (int n = 0; n < N; n++) {

@@ -32,7 +32,7 @@ with vm.when(envA > 1e-3):
   osc1 = vm.op("oscSin", {"frequency": 460, "reset": onset})
   osc2 = vm.op("oscSin", {"frequency": 1.7e3, "reset": onset})
   rim = osc1 + osc2 * envA # double envelope
-  rim = vm.op("filterHP", {"frequency": 1e3, "resonance": 0.3})(rim)
+  #rim = vm.op("filterHP", {"frequency": 1e3, "resonance": 0.3})(rim)
   mix += rim * (envA * 0.7)
 
 # snare
@@ -50,12 +50,30 @@ with vm.when(envA > 1e-3):
   noiBP = vm.op("filterBP", {"frequency": 1e3 + 1e3 * unitPitch, "resonance": 0.7, "reset": onset})(noise)
   mix += noiBP * envA
 
-# hihat
-onset = onsets.read(6)
-envA = vm.op("envExp", {"gate": onset, "decay": (.01 + 0.1 * unitLength)})
+# hi-hats: 6 == closed, 8 == open, with shared mute state
+oscCB = vm.op("oscAnalog", {"frequency": 540, "pulse amount": 1, "color": 0.9, "unison count": 2, "unison spread": 700})
+oscHH = vm.op("oscAnalog", {"frequency": 205, "pulse amount": 1, "color": 0.9, "unison count": 4, "unison spread": 520})
+sumHH = oscCB + oscHH
+
+ch_on, oh_on = onsets.read(6), onsets.read(8)
+hh_on = ch_on + oh_on
+hatOpen = vm.value(0)
+with vm.when(oh_on):
+  hatOpen.write(1)
+with vm.when(ch_on):
+  hatOpen.write(0)
+
+envA = vm.op("envExp", {"gate": ch_on + oh_on, "decay": (.01 + hatOpen + 0.1 * unitLength)})
 with vm.when(envA > 1e-3):
-  noiBP = vm.op("filterHP", {"frequency": 5e3 + 9e3 * unitPitch, "resonance": 0.3, "reset": onset})(noise)
-  mix += noiBP * (envA * 0.3)
+  # Both hats use exactly the same noise source and filter; only decay differs.
+  hhBP = vm.op("filterHP", {"frequency": 10e3, "resonance": 0.6, "reset": onset})(sumHH) 
+  mix += hhBP * (envA * 0.2)
+
+# cowbell
+onset = onsets.read(7)
+envA = vm.op("envExp", {"gate": onset, "decay": (.02 + 0.3 * unitLength)})
+with vm.when(envA > 1e-3):
+  mix += oscCB * (envA * 0.2)
 
 vm.op("audioOut", mix)
 

@@ -28,12 +28,16 @@ public:
         return (dir==Port::Out && index==Output) ? Port::Full : Port::Block;
     }
     void process(Buffer *i, Buffer *o, int N) override {
-        if (i[Reset].value() > 0.5f) {
-            mUnitPhase = 0.f;
-        }
         float note = i[NoteNumber].value();
         float hz = convertNoteToHz(note) + i[FreqHz].value();
-        float phaseStep = mPhaseStep, stepTrg = hz / mSamplerate, stepStep = 1 / mBlockSize;
+        float stepTrg = hz / mSamplerate, stepStep = 1 / mBlockSize;
+        
+        if (i[Reset].value() > 0.5f) {
+            mUnitPhase = 0.f;
+            mPhaseStep = stepTrg;
+        }
+        float phaseStep = mPhaseStep;
+        
         for (int n = 0; n < N; n++) {
             phaseStep += stepStep * (stepTrg - phaseStep);
             mUnitPhase += phaseStep;
@@ -59,12 +63,15 @@ public:
         return ((dir==Port::Out && index==Output) || (dir==Port::In && index==FMSource)) ? Port::Full : Port::Block;
     }
     void process(Buffer *i, Buffer *o, int N) override {
-        if (i[Reset].value() > 0.5f) {
-            mUnitPhase = 0.f;
-        }
         float note = i[NoteNumber].value();
         float hz = convertNoteToHz(note) + i[FreqHz].value();
-        float phaseStep = mPhaseStep, stepTrg = hz / mSamplerate, stepStep = 1 / mBlockSize;
+        float stepTrg = hz / mSamplerate, stepStep = 1 / mBlockSize;
+        if (i[Reset].value() > 0.5f) {
+            mUnitPhase = 0.f;
+            mPhaseStep = stepTrg;
+        }
+        float phaseStep = mPhaseStep;
+        
         float *fm = i[FMSource].data();
         for (int n = 0; n < N; n++) {
             phaseStep += stepStep * (stepTrg - phaseStep);
@@ -411,10 +418,10 @@ void Voice::render(float **outBufs, int numSamples, int numChannels) {
     //float uWidth = 2*fabsf(width - roundf(width)), uPulse = std::min(1.f, P[PulseAmount]);
     //float f0Scale = (1 + std::max(0.f, -uPulse)) / std::max(.01f, uWidth);
     FilterCoefs coefTrg;
-    float integralScale = 4 * std::min(1.f, 2 - 2*color);
+    float uInt = std::min(1.f, 2 - 2*color), integralScale = 4 * uInt * uInt * uInt;
     float p2 = .5f / (.5f + oscF0), pHi = -.5f;
     coefTrg.p1 =  integralScale / (integralScale + oscF0);
-    coefTrg.p2 = pHi + (p2-pHi) * std::max(0.f, 1-2*color);
+    coefTrg.p2 = pHi + (p2-pHi) * std::max(0.f, 1-2*color) - .25f * (1 - uInt);
     
     if (mNeedsInit) {
         mFilterCoefs = coefTrg;
@@ -518,8 +525,8 @@ public:
         
         float unisonCount = std::max(1.f, ins[UnisonCount].value());
         float unisonScale = exp2f(ins[UnisonCents].value() / 1200);
-        float unisonScales[2] = {unisonScale, 1.f/unisonScale};
-        float unisonAcc[2] = {1.f, 1.f};
+        float unisonScales[2] = {1.f/unisonScale, unisonScale};
+        float unisonAcc[2] = {1.f, unisonScales[1]};
         float uniGain = 1.f / sqrtf(unisonCount);
         
         mVoice.m_num_oscillators = (int)(.99f + unisonCount);
