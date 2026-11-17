@@ -7,7 +7,7 @@ pUnison = vm.control("unison", 1.0)
 pWidth = vm.control("width", 0.2)
 pColor = vm.control("color", 0.5)
 pCut = vm.control("cutoff", 0.5)
-pRez = vm.control("resonance", 0.25) * 0.98
+pRez = vm.control("resonance", 0.25) * 0.95
 release = 0.1
 
 mix = vm.op("buffer")

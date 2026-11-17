@@ -273,7 +273,9 @@ public:
     Port::Rate getPortRate(Port::Dir dir, int index) override { return (dir==Port::In) ? Port::Block : Port::Full; }
     void process(Buffer *i, Buffer *o, int N) override {
         float next = i[0].value(), step = next - state, absStep = fabsf(step);
-        float preStep = absStep / (absStep + 5 * stepEnv);
+        
+        // hard stepping for sudden movements, linear interpolation otherwise
+        float preStep = absStep / (absStep + 5 * stepEnv + 1e-20f);
         float val = state + step * preStep * preStep;
         float d = (next-val) / mBlockSize;
         float *dst = o[0].data();

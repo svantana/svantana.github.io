@@ -1,4 +1,5 @@
 #include "../cpp/AudioVM.h"
+#include "../cpp/libs/picojson.h"
 
 #include <algorithm>
 #include <chrono>
@@ -85,6 +86,20 @@ int main(int argc, char* argv[]) {
     }
 
     try {
+        picojson::value root;
+        const std::string parseError = picojson::parse(root, json);
+        if (!parseError.empty() || !root.is<picojson::object>()) {
+            std::cerr << presetName << ": invalid program JSON\n";
+            return 1;
+        }
+        const picojson::object& programRoot = root.get<picojson::object>();
+        const auto programIt = programRoot.find("program");
+        if (programIt == programRoot.end() || !programIt->second.is<picojson::array>()) {
+            std::cerr << presetName << ": missing program array\n";
+            return 1;
+        }
+        const size_t numOperations = programIt->second.get<picojson::array>().size();
+
         // The script provides a wall-clock seed. Mix in the preset JSON so
         // every preset has a distinct, reproducible fuzz stream for that run.
         std::mt19937 random(seedFor(json) ^ runSeed);
@@ -148,7 +163,8 @@ int main(int argc, char* argv[]) {
         }
         const double renderedSeconds = static_cast<double>(inputSample) / sampleRate;
         const double realtimeFactor = processingTime.count() / renderedSeconds;
-        std::cout << numControls << '\t' << peak << '\t' << (100*realtimeFactor) << '\n';
+        std::cout << numOperations << '\t' << numControls << '\t' << peak << '\t'
+                  << (100 * realtimeFactor) << '\n';
     } catch (const std::exception& error) {
         std::cerr << presetName << ": " << error.what() << '\n';
         return 1;

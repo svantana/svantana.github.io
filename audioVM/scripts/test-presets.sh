@@ -51,16 +51,36 @@ if ((${#presets[@]} == 0)); then
   exit 1
 fi
 
-path_width=0
-for preset in "${presets[@]}"; do
-  ((${#preset} > path_width)) && path_width=${#preset}
-done
-
+rows=()
+header_name=name
+header_ops=ops
+header_controls=controls
+header_peak=peak
+header_rt=RT
+name_width=${#header_name}
+ops_width=${#header_ops}
+controls_width=${#header_controls}
+peak_width=${#header_peak}
+rt_width=${#header_rt}
 for preset in "${presets[@]}"; do
   result="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$project_dir/python" \
     python3 tests/compile_preset.py "$preset" \
     | "$temp_dir/test-presets" "$preset" "$random_seed" "$sample_rate")"
-  IFS=$'\t' read -r controls peak realtime_factor <<< "$result"
-  printf "%-${path_width}s  %2s controls  peak:%6.4f  RT-%%: %.4f\n" \
-    "$preset" "$controls" "$peak" "$realtime_factor"
+  IFS=$'\t' read -r ops controls peak realtime_factor <<< "$result"
+  printf -v peak '%.4f' "$peak"
+  printf -v realtime_factor '%.4f' "$realtime_factor"
+  rows+=("$preset"$'\t'"$ops"$'\t'"$controls"$'\t'"$peak"$'\t'"$realtime_factor")
+  ((${#preset} > name_width)) && name_width=${#preset}
+  ((${#ops} > ops_width)) && ops_width=${#ops}
+  ((${#controls} > controls_width)) && controls_width=${#controls}
+  ((${#peak} > peak_width)) && peak_width=${#peak}
+  ((${#realtime_factor} > rt_width)) && rt_width=${#realtime_factor}
+done
+
+printf "%-${name_width}s  %${ops_width}s  %${controls_width}s  %${peak_width}s  %${rt_width}s\n" \
+  "$header_name" "$header_ops" "$header_controls" "$header_peak" "$header_rt"
+for row in "${rows[@]}"; do
+  IFS=$'\t' read -r preset ops controls peak realtime_factor <<< "$row"
+  printf "%-${name_width}s  %${ops_width}s  %${controls_width}s  %${peak_width}s  %${rt_width}s\n" \
+    "$preset" "$ops" "$controls" "$peak" "$realtime_factor"
 done

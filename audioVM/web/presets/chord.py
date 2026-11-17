@@ -16,7 +16,7 @@ envAmp    = vm.op("envADSR", {"gate":midi.gate, "a":0.03, "d":0.3, "s":0.5, "r":
 envFilter = vm.op("envADSR", {"gate":midi.gate, "a":0.08, "d":1.5, "s":0.0, "r":0.5})
 
 filterHz = (unitCutoff + envFilter)**4 * 5e3
-filterOut = vm.op("filterLP", {"input": oscSum, "frequency": filterHz, "resonance": unitRez})
+filterOut = vm.op("filterLP", {"input": oscSum, "frequency": filterHz, "resonance": unitRez * 0.95})
 
 envOut = filterOut * (envAmp * 0.2)
 vm.op("audioOut", envOut)
