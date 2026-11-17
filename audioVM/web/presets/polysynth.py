@@ -4,7 +4,7 @@ vm = audioVM.VM()
 midi = vm.midi()
 
 cutoff = vm.control("cutoff", 0.35)
-resonance = vm.control("resonance", 0.2)
+resonance = vm.control("resonance", 0.2) * 0.98
 release = 0.5
 
 mix = vm.op("buffer")

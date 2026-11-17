@@ -30,10 +30,12 @@ public:
             mState.reset();
             C = T;
         }
+        Coefs cStep = getCoefStep(C, T);
         State S = mState; // local copy
-        float *x = i[Input][0], *y = o[Output][0], cStep = 1.f / mBlockSize;
+        float *x = i[Input][0], *y = o[Output][0];
         for (int n = 0; n < N; n++) {
-            doSVF(x[n], S, C, T, cStep);
+            stepCoefs(C, T, cStep);
+            doSVF(x[n], S, C);
             y[n] = S.l;
         }
         mState = S;
@@ -43,23 +45,45 @@ public:
         mState.reset();
     }
     struct State { float l, b; void reset() {l=b=0;} } mState;
-    struct Coefs { float k, d; } mCoefs;
+    struct Coefs { float k, d, g; } mCoefs;
     
-    static inline float doSVF(float x, State &S, Coefs &C, Coefs T, float cStep) {
-        C.k += cStep * (T.k - C.k);
-        C.d += cStep * (T.d - C.d);
+    static inline float doSVF(float x, State &S, Coefs &C) {
         float hp = x - S.l - C.d * S.b;
         S.b += C.k * hp;
         S.l += C.k * S.b;
         return hp;
     }
-    Coefs getCoefs(Buffer *i) {
+    static inline void stepCoefs(Coefs &C, const Coefs &T, const Coefs &step) {
+        C.k += step.k * (T.k - C.k);
+        C.d += step.d * (T.d - C.d);
+    }
+    static inline float fastQuarterSin(float x) {
+        return x * (3.141592653589793f + x * (-0.5663706143591725f + x * -3.4336293856408275f));
+    }
+    static inline Coefs getCoefs(float f, float r) {
+        float s = fastQuarterSin(f), s2 = s*s, r2=r*r;
+        float u = (1+r2)*s2 / (1+r2*s2);
         Coefs C;
-        float f = std::min(.5f, i[FreqHz].value() / mSamplerate);
-        C.k = 2 * f * (3.1415f - 2.15f * 2*f);
-        float d = std::max(0.f, 1 - i[Resonance].value());
-        C.d = std::min(4 * d * d, .99f / C.k);
+        C.g = 1 / (1 + r*u);
+        C.k = 2*s * C.g;
+        C.d = r2 * (1-u) / (1+r2*u) + 2*r*u/(1+r);
+        C.d = std::min(C.d, 1/C.k + .5f - .5f * C.k); // should not be needed
+        if (!(C.k > 0.f && C.k <= 2.f && C.d >= 0.f && C.d < (2/C.k-C.k/2))) {
+            printf("FilterLP WARNING: f=%f, r=%f -> k=%f, d=%f (unstable)\n", f, r, C.k, C.d);
+        }
         return C;
+    }
+    Coefs getCoefs(Buffer *i) {
+        float f = std::min(.5f, i[FreqHz].value() / mSamplerate);
+        float rInv = std::max(0.f, 1 - i[Resonance].value());
+        return getCoefs(f, 4 * rInv);
+    }
+    Coefs getCoefStep(Coefs &C, Coefs &T) const {
+        float s = 1.f/mBlockSize;
+        Coefs S;
+        S.k = s;
+        S.d = std::min(1.f, s * (1 + fabsf(T.d - C.d)));
+        return S;
     }
 };
 
@@ -68,19 +92,28 @@ public:
     std::string getName() { return "FilterBP"; }
     void process(Buffer *i, Buffer *o, int N) override {
         Coefs T = getCoefs(i), C = mCoefs;
+        float gainTrg = T.g;
         if (i[Reset].value() > .5f) {
             mState.reset();
             C = T;
+            mGain = gainTrg;
         }
+        Coefs cStep = getCoefStep(C, T);
         State S = mState; // local copy
-        float *x = i[Input][0], *y = o[Output][0], cStep = 1.f / mBlockSize;
+        float *x = i[Input][0], *y = o[Output][0];
+        float gain = mGain, gainStep = (gainTrg - gain) / mBlockSize;
         for (int n = 0; n < N; n++) {
-            doSVF(x[n], S, C, T, cStep);
-            y[n] = S.b;
+            stepCoefs(C, T, cStep);
+            doSVF(x[n], S, C);
+            gain += gainStep;
+            y[n] = S.b * gain;
         }
         mState = S;
         mCoefs = C;
+        mGain = gain;
     }
+private:
+    float mGain = 1.f;
 };
 
 class FilterHP : public FilterLP {
@@ -88,18 +121,27 @@ public:
     std::string getName() { return "FilterHP"; }
     void process(Buffer *i, Buffer *o, int N) override {
         Coefs T = getCoefs(i), C = mCoefs;
+        float gainTrg = T.g * T.g;
         if (i[Reset].value() > .5f) {
             mState.reset();
             C = T;
         }
+        Coefs cStep = getCoefStep(C, T);
         State S = mState; // local copy
-        float *x = i[Input][0], *y = o[Output][0], cStep = 1.f / mBlockSize;
+        float *x = i[Input][0], *y = o[Output][0];
+        float gain = mGain, gainStep = (gainTrg - gain) / mBlockSize;
         for (int n = 0; n < N; n++) {
-            y[n] = doSVF(x[n], S, C, T, cStep);
+            stepCoefs(C, T, cStep);
+            float hp = doSVF(x[n], S, C);
+            gain += gainStep;
+            y[n] = hp * gain;
         }
         mState = S;
         mCoefs = C;
+        mGain = gain;
     }
+private:
+    float mGain = 1.f;
 };
 
 class FilterSatLP : public Operator {

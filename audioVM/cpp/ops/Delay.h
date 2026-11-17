@@ -256,14 +256,11 @@ public:
         if (inputs.size() <= MaxSeconds || inputs[MaxSeconds].ptr == nullptr) {
             throw std::runtime_error("delay requires a maxSeconds input");
         }
-        const float maxSeconds = inputs[MaxSeconds].value();
-        if (!std::isfinite(maxSeconds) || maxSeconds <= 0.f) {
-            throw std::runtime_error("delay maxSeconds must be positive and finite");
-        }
+        const float maxSeconds = inputs[MaxSeconds].valueOrDefault(0.1f);
         mMaxSamples = std::max(1, static_cast<int>(std::ceil(maxSeconds * mSamplerate)));
         // FilterDelay keeps a block-sized safety margin at the end of its
         // ring, so maxSeconds remains addressable for a full processing block.
-        mState->setup(mMaxSamples + mBlockSize + 1, false);
+        mState->setup(mMaxSamples + 2*mBlockSize, false);
         mState->reset();
         if (!inputs[Input].hasData() &&
             static_cast<float>(mMaxSamples) < mBlockSize) {

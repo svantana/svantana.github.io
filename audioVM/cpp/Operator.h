@@ -37,8 +37,8 @@ namespace AudioVM {
         bool connected = false;
         bool hasData() const { return connected; }
         float& value() { return *ptr; }
-        float valueOrDefault(float def) { return hasData() ? *ptr : def; }
         const float& value() const { return *ptr; }
+        const float valueOrDefault(float def) const { return hasData() ? *ptr : def; }
         void set(float v) { *ptr = v; }
         float *data(int channel = 0) {
             return ptr + numSamples * channel;

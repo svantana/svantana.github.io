@@ -272,16 +272,20 @@ public:
     int getNumPorts(Port::Dir dir) override { return 1; }
     Port::Rate getPortRate(Port::Dir dir, int index) override { return (dir==Port::In) ? Port::Block : Port::Full; }
     void process(Buffer *i, Buffer *o, int N) override {
-        float v = state, next = i[0].value(), step = (next-v) / N;
+        float next = i[0].value(), step = next - state, absStep = fabsf(step);
+        float preStep = absStep / (absStep + 5 * stepEnv);
+        float val = state + step * preStep * preStep;
+        float d = (next-val) / mBlockSize;
         float *dst = o[0].data();
         for (int n = 0; n < N; n++) {
-            dst[n] = v + step * (n + 1);
+            dst[n] = val + d * (n + 1);
         }
-        state = next;
+        stepEnv += N/(.1f * mSamplerate+N) * (absStep - stepEnv);
+        state = val + d * N;
     }
     void reset() override { state = 0.f; }
 private:
-    float state = 0.f;
+    float state = 0.f, stepEnv = 0.f;
 };
 
 // math ops

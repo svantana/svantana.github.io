@@ -85,6 +85,54 @@ public:
 private:
     float mUnitPhase = 0.f, mPhaseStep = 0.f;
 };
+
+class OscShape : public Operator {
+public:
+    enum In  { FreqHz, NoteNumber, Shape, Reset, NumInputs };
+    enum Out { Output, NumOutputs };
+    int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? NumInputs : NumOutputs; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        cStr i[]={"frequency", "note", "shape", "reset"};
+        cStr o[]={"output"};
+        return (dir == Port::In) ? i[index] : o[index];
+    }
+    Port::Rate getPortRate(Port::Dir dir, int index) override {
+        return (dir==Port::Out && index==Output) ? Port::Full : Port::Block;
+    }
+    void process(Buffer *i, Buffer *o, int N) override {
+        float note = i[NoteNumber].value();
+        float hz = convertNoteToHz(note) + i[FreqHz].value();
+        float shapeTrg = i[Shape].value();
+        float stepTrg = hz / mSamplerate, stepStep = 1 / mBlockSize;
+        
+        if (i[Reset].value() > 0.5f) {
+            mUnitPhase = 0.f;
+            mPhaseStep = stepTrg;
+            mShape = shapeTrg;
+        }
+        float phaseStep = mPhaseStep;
+        float shape = mShape;
+        
+        for (int n = 0; n < N; n++) {
+            phaseStep += stepStep * (stepTrg - phaseStep);
+            shape += stepStep * (shapeTrg - shape);
+            mUnitPhase += phaseStep;
+            mUnitPhase -= floorf(mUnitPhase);
+            o->data()[n] = shapeOsc(mUnitPhase, shape);
+        }
+        mPhaseStep = phaseStep;
+        mShape = shape;
+    }
+private:
+    float mUnitPhase = 0.f, mPhaseStep = 0.f, mShape = 0.f;
+    
+    static inline float shapeOsc(float p, float shape) {
+        p -= floorf(p);
+        float b = 4*p * (1-p), o = 4*b * (1+b) * (.5f-p), sP = std::max(0.f, shape), sN = std::max(0.f, -shape);
+        return o / (1+8*sN*(1-b) + (sP + sN * b) * (fabsf(o)-1));
+    }
+};
+
 class OscSaw : public Operator {
 public:
     enum In  { FreqHz, NoteNumber, NumInputs };

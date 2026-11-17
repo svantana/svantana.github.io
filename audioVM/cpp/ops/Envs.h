@@ -142,13 +142,14 @@ public:
     void process(Buffer *i, Buffer *o, int numSamples) override {
         int N = std::min(numSamples, i[0].numSamples);
         float tA = i[Attack].value(), tR = i[Release].value();
-        float cA = timeToCoef(tA), cR = timeToCoef(tR);
-        float *x = i[Input].data(), *e = o[Output].data();
+        float cA = timeToCoef(tA), cR = timeToCoef(tR), cA_add = cA - cR;
+        float *x = i[Input].data(), *e = o[Output].data(), env = mEnv;
         for (int n = 0; n < N; n++) {
             float a = fabsf(x[n]);
-            mEnv += ((a > mEnv) ? cA : cR) * (a - mEnv);
-            e[n] = mEnv;
+            env += (cR + cA_add * (a > env)) * (a - env);
+            e[n] = env;
         }
+        mEnv = env;
     }
 private:
     float mEnv;
