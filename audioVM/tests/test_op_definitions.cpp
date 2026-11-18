@@ -62,5 +62,11 @@ int main() {
         }
         if (!checkFilterDefinition(definition->second, id)) return 1;
     }
+    for (const std::string& id : {"min", "max"}) {
+        if (definitions.find(id) == definitions.end()) {
+            std::cerr << "missing " << id << " operator definition\n";
+            return 1;
+        }
+    }
     return 0;
 }

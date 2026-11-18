@@ -16,6 +16,7 @@
 #include "ops/Oscs.h"
 #include "ops/Filters.h"
 #include "ops/Delay.h"
+#include "ops/Shapers.h"
 
 using namespace AudioVM;
 
@@ -73,6 +74,8 @@ Processor::Processor()
     registerType("div", make<MathBinary<Div>>(), "Divides the first value by the second.");
     registerType("pow", make<MathBinary<Pow>>(), "Raises the first value to the power of the second.");
     registerType("mod", make<MathBinary<Mod>>(), "Returns the floating-point remainder of two values.");
+    registerType("min", make<MathBinary<Min>>(), "Returns the smaller of two values.");
+    registerType("max", make<MathBinary<Max>>(), "Returns the larger of two values.");
     registerType("equal", make<MathBinary<Equal>>(), "Outputs 1 when two values are equal, otherwise 0.");
     registerType("notEqual", make<MathBinary<NotEqual>>(), "Outputs 1 when two values differ, otherwise 0.");
     registerType("less", make<MathBinary<Less>>(), "Outputs 1 when the first value is less than the second.");
@@ -92,8 +95,7 @@ Processor::Processor()
     registerType("envADSR", make<EnvADSR>(), "Generates an attack, decay, sustain, and release envelope.");
     registerType("envExp", make<EnvExp>(), "Generates a repeating exponential decay envelope.");
     registerType("envFollow", make<EnvFollower>(), "Tracks the amplitude envelope of an incoming signal.");
-
-    mProgram.list.reserve(128);
+    registerType("saturation", make<Saturation>(), "Soft saturation of an audio signal");
 }
 
 void Processor::setup(float samplerate, int numInputChannels, int numOutputChannels, int blockSize) {
@@ -1060,7 +1062,8 @@ std::string Processor::getGeneratedOperatorCode(const std::string& className) co
     };
     const auto isBinary = [](const std::string& type) {
         return type == "add" || type == "sub" || type == "mul" || type == "div" ||
-               type == "pow" || type == "mod" || type == "equal" || type == "notEqual" ||
+               type == "pow" || type == "mod" || type == "min" || type == "max" ||
+               type == "equal" || type == "notEqual" ||
                type == "less" || type == "lessEqual" || type == "greater" || type == "greaterEqual";
     };
     const auto isUnary = [](const std::string& type) {
@@ -1074,6 +1077,8 @@ std::string Processor::getGeneratedOperatorCode(const std::string& className) co
         if (type == "div") return "(" + a + " / " + b + ")";
         if (type == "pow") return "std::pow(" + a + ", " + b + ")";
         if (type == "mod") return "std::fmod(" + a + ", " + b + ")";
+        if (type == "min") return "std::min(" + a + ", " + b + ")";
+        if (type == "max") return "std::max(" + a + ", " + b + ")";
         if (type == "equal") return "(" + a + " == " + b + " ? 1.f : 0.f)";
         if (type == "notEqual") return "(" + a + " != " + b + " ? 1.f : 0.f)";
         if (type == "less") return "(" + a + " < " + b + " ? 1.f : 0.f)";

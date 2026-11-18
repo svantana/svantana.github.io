@@ -22,6 +22,37 @@ int main() {
         }
     }
 
+    // Extrema nodes must clamp block-rate controls before they are converted
+    // to an audio signal.
+    AudioVM::Processor extremaProcessor;
+    extremaProcessor.setup(44100.f, 0, 1, 16);
+    extremaProcessor.loadFromJSON(R"({"version":1,"program":[
+        {"type":"control","id":"value","input":-0.25},
+        {"type":"const","id":"lower","input":0},
+        {"type":"max","id":"lowerBounded","input":["value","lower"]},
+        {"type":"const","id":"upper","input":0.75},
+        {"type":"min","id":"bounded","input":["lowerBounded","upper"]},
+        {"type":"toAudio","id":"signal","input":"bounded"},
+        {"type":"audioOut","id":"out","input":"signal"}
+    ]})");
+    float extremaOutput[16]{};
+    float* extremaOutputs[] = {extremaOutput};
+    extremaProcessor.process(nullptr, extremaOutputs, 16);
+    for (const float sample : extremaOutput) {
+        if (sample != 0.f) {
+            std::cerr << "min/max failed to apply the lower bound\n";
+            return 1;
+        }
+    }
+    extremaProcessor.setControlValue(0, 2.f);
+    extremaProcessor.process(nullptr, extremaOutputs, 16);
+    for (const float sample : extremaOutput) {
+        if (sample != 0.75f) {
+            std::cerr << "min/max failed to apply the upper bound\n";
+            return 1;
+        }
+    }
+
     // An envelope must not create a pulse until its gate has a rising edge.
     AudioVM::Processor envelopeProcessor;
     envelopeProcessor.setup(44100.f, 1, 1, 16);

@@ -4,6 +4,7 @@
 from contextlib import contextmanager
 import json
 import math
+import warnings
 
 class Operator:
     def __init__(self, vm, nodeType, name=None, input=None):
@@ -151,6 +152,12 @@ class Transport:
         self.loopBeats = Operator(vm, "const", "transport.loopBeats")
 
 class VM:
+    _PURE_OPERATOR_TYPES = frozenset((
+        "add", "sub", "mul", "div", "pow", "mod", "min", "max",
+        "equal", "notEqual", "less", "lessEqual", "greater", "greaterEqual",
+        "exp", "floor", "round", "ceil", "interp", "arrayRead", "toAudio",
+    ))
+
     def __init__(self, polyphony=1):
         self.program = []
         self.typeCounts = {}
@@ -271,6 +278,14 @@ class VM:
         b = self.as_op(b)
         return self.op(op, [a.name, b.name])
 
+    def max(self, a, b):
+        """Return the sample-wise larger of two DSP values."""
+        return self.binary("max", a, b)
+
+    def min(self, a, b):
+        """Return the sample-wise smaller of two DSP values."""
+        return self.binary("min", a, b)
+
     def inplace(self, op, target, value):
         target = self.as_op(target)
         value = self.as_op(value)
@@ -331,8 +346,37 @@ class VM:
     def if_(self, condition, timeOut=0):
         """Alias for :meth:`when`; the trailing underscore avoids ``if``."""
         return self.when(condition, timeOut)
+
+    def _warn_unused_operations(self):
+        referenced = set()
+
+        def collect_references(value):
+            if isinstance(value, str):
+                referenced.add(value)
+            elif isinstance(value, dict):
+                for item in value.values():
+                    collect_references(item)
+            elif isinstance(value, (list, tuple)):
+                for item in value:
+                    collect_references(item)
+
+        for operator in self.program:
+            collect_references(operator.input)
+
+        for operator in self.program:
+            if operator.type not in self._PURE_OPERATOR_TYPES or operator.name in referenced:
+                continue
+            hint = " Use vm.max(...) or vm.min(...), not Python's built-in max()/min()." \
+                if operator.type in {"less", "lessEqual", "greater", "greaterEqual"} else ""
+            warnings.warn(
+                f"AudioVM compile warning: unused operation '{operator.name}' "
+                f"({operator.type}); its output is not connected.{hint}",
+                RuntimeWarning,
+                stacklevel=3,
+            )
     
     def get_json(self):
+        self._warn_unused_operations()
         s = '{\n\t"version": 1,\n\t"polyphony":'+str(self.polyphony)
         for key, value in self.settings.items():
             s += ',\n\t' + json.dumps(key) + ': ' + json.dumps(value)

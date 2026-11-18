@@ -78,6 +78,12 @@
     #audio-format { padding-left:5px; border-left:1px solid var(--border); }
     .token-keyword { color:#c99bff; } .token-string { color:#9ee6b4; } .token-number { color:#f2c17d; }
     .token-comment { color:#737b87; font-style:italic; } .token-builtin { color:#82caff; } .token-function { color:#ffb7cf; }
+    :root[data-theme="light"] .token-keyword { color:#6946a8; }
+    :root[data-theme="light"] .token-string { color:#187343; }
+    :root[data-theme="light"] .token-number { color:#a95d08; }
+    :root[data-theme="light"] .token-comment { color:#758291; }
+    :root[data-theme="light"] .token-builtin { color:#176da5; }
+    :root[data-theme="light"] .token-function { color:#ad3f61; }
     #controls { flex:1; min-height:0; display:grid; grid-template-columns:repeat(auto-fit, minmax(112px, 1fr)); align-content:start; gap:10px; padding:12px 14px 28px; overflow:auto; }
     #analysis-panel { flex:none; height:164px; display:flex; border-top:1px solid var(--border); background:var(--analysis); }
     #analysis-canvas { flex:1; min-width:0; height:100%; }

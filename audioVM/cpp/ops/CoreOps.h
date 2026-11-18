@@ -307,6 +307,8 @@ struct Mul { static float apply(float a, float b) { return a * b; } };
 struct Div { static float apply(float a, float b) { return a / b; } };
 struct Pow { static float apply(float a, float b) { return powf(a, b); } };
 struct Mod { static float apply(float a, float b) { return fmodf(a, b); } };
+struct Min { static float apply(float a, float b) { return std::min(a, b); } };
+struct Max { static float apply(float a, float b) { return std::max(a, b); } };
 struct Equal { static float apply(float a, float b) { return a == b ? 1.f : 0.f; } };
 struct NotEqual { static float apply(float a, float b) { return a != b ? 1.f : 0.f; } };
 struct Less { static float apply(float a, float b) { return a < b ? 1.f : 0.f; } };

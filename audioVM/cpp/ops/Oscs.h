@@ -532,7 +532,7 @@ void Voice::render(float **outBufs, int numSamples, int numChannels) {
 
 class OscAnalog : public Operator {
 public:
-    enum In { FreqHz, NoteNumber, Color, PulseAmount, PulseWidth, UnisonCount, UnisonCents, NumInputs };
+    enum In { FreqHz, NoteNumber, Color, PulseAmount, PulseWidth, UnisonCount, UnisonCents, Gain, NumInputs };
     enum Out { Output, NumOutputs };
 
     OscAnalog() {}
@@ -541,7 +541,7 @@ public:
         return dir == Port::In ? NumInputs : NumOutputs;
     }
     std::string getPortName(Port::Dir dir, int index) override {
-        static const cStr inputs[] = {"frequency", "note", "color", "pulse amount", "pulse width", "unison count", "unison spread"};
+        static const cStr inputs[] = {"frequency", "note", "color", "pulse amount", "pulse width", "unison count", "unison spread", "gain"};
         static const cStr outputs[] = {"output"};
         return dir == Port::In ? inputs[index] : outputs[index];
     }
@@ -558,6 +558,7 @@ public:
         float noteHz = (ins[NoteNumber].hasData()) ? convertNoteToHz(ins[NoteNumber].value()) : 0.f;
         float hz = noteHz + ins[FreqHz].value();
         float freqN = hz / mSamplerate;
+        float gain = ins[Gain].valueOrDefault(1.f);
         
         float *P = mVoice.m_params;
         P[Voice::Color] = ins[Color].valueOrDefault(0.5f);
@@ -568,10 +569,10 @@ public:
         float unisonScale = exp2f(ins[UnisonCents].value() / 1200);
         float unisonScales[2] = {1.f/unisonScale, unisonScale};
         float unisonAcc[2] = {1.f, unisonScales[1]};
-        float colorGain = 1 + (P[Voice::Color]*2-1) * (P[Voice::Color]*2-1);
-        float uniGain = colorGain / sqrtf(unisonCount);
+        float d = P[Voice::Color]*2-1, d2=d*d, colorGain = 1 + d2*d2;
+        float uniGain = gain * colorGain / sqrtf(unisonCount);
         
-        mVoice.m_num_oscillators = (int)(.99f + unisonCount);
+        mVoice.m_num_oscillators = (int)(.999f + unisonCount);
         
         for (int o = 0; o < mVoice.m_num_oscillators; o++) {
             float *P = mVoice.getOscParams(o);

@@ -8,6 +8,32 @@ from audioVM import VM
 
 
 class OperatorCallTests(unittest.TestCase):
+    def test_extrema_emit_dsp_nodes_for_controls_and_literals(self):
+        vm = VM()
+        value = vm.control("value", -0.5)
+
+        lower_bounded = vm.max(value, 0.0)
+        upper_bounded = vm.min(lower_bounded, 1.0)
+
+        self.assertEqual(lower_bounded.type, "max")
+        self.assertEqual(upper_bounded.type, "min")
+        self.assertEqual([op.type for op in vm.program], [
+            "control", "const", "max", "const", "min",
+        ])
+        self.assertEqual(lower_bounded.input, ["value", "const1"])
+        self.assertEqual(upper_bounded.input, ["max1", "const2"])
+
+    def test_unused_comparison_warns_about_builtin_extrema(self):
+        vm = VM()
+        value = vm.control("value", 0)
+
+        self.assertEqual(max(value, 0.0), 0.0)
+        with self.assertWarnsRegex(
+            RuntimeWarning,
+            r"unused operation 'less1'.*vm\.max\(\.\.\.\).*vm\.min\(\.\.\.\)",
+        ):
+            vm.get_json()
+
     def test_set_emits_top_level_json_properties(self):
         vm = VM()
         vm.set("blocksize", 16)
