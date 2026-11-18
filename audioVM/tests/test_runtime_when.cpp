@@ -22,30 +22,32 @@ int main() {
         }
     }
 
-    // Extrema nodes must clamp block-rate controls before they are converted
-    // to an audio signal.
+    // Extrema nodes must clamp full-rate signals without requiring a
+    // control-to-audio conversion.
     AudioVM::Processor extremaProcessor;
-    extremaProcessor.setup(44100.f, 0, 1, 16);
+    extremaProcessor.setup(44100.f, 1, 1, 16);
     extremaProcessor.loadFromJSON(R"({"version":1,"program":[
-        {"type":"control","id":"value","input":-0.25},
+        {"type":"audioIn","id":"value"},
         {"type":"const","id":"lower","input":0},
         {"type":"max","id":"lowerBounded","input":["value","lower"]},
         {"type":"const","id":"upper","input":0.75},
         {"type":"min","id":"bounded","input":["lowerBounded","upper"]},
-        {"type":"toAudio","id":"signal","input":"bounded"},
-        {"type":"audioOut","id":"out","input":"signal"}
+        {"type":"audioOut","id":"out","input":"bounded"}
     ]})");
+    float extremaInput[16];
+    std::fill(std::begin(extremaInput), std::end(extremaInput), -0.25f);
+    float* extremaInputs[] = {extremaInput};
     float extremaOutput[16]{};
     float* extremaOutputs[] = {extremaOutput};
-    extremaProcessor.process(nullptr, extremaOutputs, 16);
+    extremaProcessor.process(extremaInputs, extremaOutputs, 16);
     for (const float sample : extremaOutput) {
         if (sample != 0.f) {
             std::cerr << "min/max failed to apply the lower bound\n";
             return 1;
         }
     }
-    extremaProcessor.setControlValue(0, 2.f);
-    extremaProcessor.process(nullptr, extremaOutputs, 16);
+    std::fill(std::begin(extremaInput), std::end(extremaInput), 2.f);
+    extremaProcessor.process(extremaInputs, extremaOutputs, 16);
     for (const float sample : extremaOutput) {
         if (sample != 0.75f) {
             std::cerr << "min/max failed to apply the upper bound\n";

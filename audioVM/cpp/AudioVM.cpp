@@ -1178,6 +1178,9 @@ std::string Processor::getGeneratedOperatorCode(const std::string& className) co
         if (isBinary(entry.mType) || isUnary(entry.mType) || entry.mType == "toAudio" ||
             entry.mType == "audioOut") {
             for (int input = 0; input < static_cast<int>(entry.mInputs.size()); ++input) {
+                // The reset port is optional: an unconnected reset has the
+                // same default-zero behavior as ControlToAudio::process.
+                if (entry.mType == "toAudio" && input == ControlToAudio::Reset) continue;
                 const int source = sourceIndex(entry, input);
                 if ((isBinary(entry.mType) || isUnary(entry.mType)) && isFull(index) != isFull(source)) {
                     throw std::runtime_error("C++ export found an unnormalized arithmetic rate conversion");
