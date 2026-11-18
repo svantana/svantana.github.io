@@ -76,7 +76,7 @@ public:
     Coefs getCoefs(Buffer *i) {
         float f = i[FreqHz].value() / mSamplerate;
         float rInv = std::max(0.f, 1 - i[Resonance].value());
-        return getCoefs(f, 4 * rInv);
+        return getCoefs(f, rInv * (3*rInv + 1));
     }
     Coefs getCoefStep(Coefs &C, Coefs &T) const {
         float s = 1.f / mBlockSize;

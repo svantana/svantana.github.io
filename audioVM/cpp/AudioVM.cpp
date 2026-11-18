@@ -21,6 +21,7 @@
 using namespace AudioVM;
 
 const char *kIdAudioIn = "audioIn", *kIdAudioOut = "audioOut";
+constexpr int kDefaultBlockSize = 32;
 
 namespace OpCreatorHelper {
 
@@ -656,7 +657,9 @@ void Processor::loadFromJSON(std::string jsonString) {
     // queued event from an old patch affect the newly loaded program.
     clearMidiEvents();
 
-    int blockSize = mBlockSize;
+    // Patches that do not specify a block size always use the VM default,
+    // rather than inheriting a potentially different host buffer size.
+    int blockSize = kDefaultBlockSize;
     const auto blockSizeIt = root.find("blocksize");
     if (blockSizeIt != root.end()) {
         if (!blockSizeIt->second.is<double>()) {

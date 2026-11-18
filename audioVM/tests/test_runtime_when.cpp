@@ -173,6 +173,37 @@ int main() {
         }
     }
 
+    // An omitted patch blocksize uses the default of 32, independently of
+    // the host buffer size passed to setup().
+    AudioVM::Processor defaultBlockSizeProcessor;
+    defaultBlockSizeProcessor.setup(44100.f, 1, 1, 16);
+    defaultBlockSizeProcessor.loadFromJSON(R"({"version":1,"program":[
+        {"type":"control","id":"enabled","input":0},
+        {"type":"control","id":"release","input":0.0005},
+        {"type":"ifStart","id":"ifStart1","input":{"condition":"enabled","timeOut":"release"}},
+        {"type":"oscNoise","id":"signal"},
+        {"type":"ifEnd","id":"ifEnd1"},
+        {"type":"audioOut","id":"out","input":"signal"}
+    ]})");
+    float defaultBlockSizeOutput[64]{};
+    float* defaultBlockSizeOutputs[] = {defaultBlockSizeOutput};
+    defaultBlockSizeProcessor.setControlValue(0, 1.f);
+    defaultBlockSizeProcessor.process(nullptr, defaultBlockSizeOutputs, 32);
+    defaultBlockSizeProcessor.setControlValue(0, 0.f);
+    defaultBlockSizeProcessor.process(nullptr, defaultBlockSizeOutputs, 64);
+    for (int sample = 0; sample < 32; ++sample) {
+        if (defaultBlockSizeOutput[sample] != 0.f) {
+            std::cerr << "missing JSON blocksize did not default to 32\n";
+            return 1;
+        }
+    }
+    for (int sample = 32; sample < 64; ++sample) {
+        if (defaultBlockSizeOutput[sample] != 0.f) {
+            std::cerr << "default JSON blocksize did not split the host buffer\n";
+            return 1;
+        }
+    }
+
     AudioVM::Processor transportProcessor;
     transportProcessor.setup(16.f, 1, 1, 16);
     transportProcessor.loadFromJSON(R"({"version":1,"program":[
@@ -369,7 +400,7 @@ int main() {
     // contents, and several writes in one block are visible in program order.
     AudioVM::Processor valueProcessor;
     valueProcessor.setup(44100.f, 1, 1, 16);
-    valueProcessor.loadFromJSON(R"({"version":1,"program":[
+    valueProcessor.loadFromJSON(R"({"version":1,"blocksize":16,"program":[
         {"type":"value","id":"counter","input":2},
         {"type":"const","id":"one","input":1},
         {"type":"value","id":"first","input":"counter"},
@@ -401,7 +432,7 @@ int main() {
     // voices must not overwrite a newly set slot with a zero onset.
     AudioVM::Processor arrayProcessor;
     arrayProcessor.setup(44100.f, 1, 1, 16);
-    arrayProcessor.loadFromJSON(R"({"version":1,"program":[
+    arrayProcessor.loadFromJSON(R"({"version":1,"blocksize":16,"program":[
         {"type":"arrayState","id":"onsets","input":[0,0,0,0,0,0,0,0,0,0,0,0]},
         {"type":"polyStart","id":"voices","input":{"count":12}},
         {"type":"const","id":"twelve","input":12},

@@ -262,25 +262,27 @@ struct BufferOperator : public FullRateOp {
 
 class ControlToAudio : public Operator {
 public:
-    int getNumPorts(Port::Dir dir) override { return 1; }
+    enum In { Input, Reset, NumInputs };
+    int getNumPorts(Port::Dir dir) override { return dir == Port::In ? NumInputs : 1; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        static const cStr inputs[] = {"input", "reset"};
+        return dir == Port::In ? inputs[index] : "output";
+    }
     Port::Rate getPortRate(Port::Dir dir, int index) override { return (dir==Port::In) ? Port::Block : Port::Full; }
     void process(Buffer *i, Buffer *o, int N) override {
-        float next = i[0].value(), step = next - state, absStep = fabsf(step);
+        float next = i[Input].value();
+        float prev = (i[Reset].valueOrDefault(0.f)>0.5f) ? next : state;
         
-        // hard stepping for sudden movements, linear interpolation otherwise
-        float preStep = absStep / (absStep + 5 * stepEnv + 1e-20f);
-        float val = state + step * preStep * preStep;
-        float d = (next-val) / mBlockSize;
+        float d = (next-prev) / N;
         float *dst = o[0].data();
         for (int n = 0; n < N; n++) {
-            dst[n] = val + d * (n + 1);
+            dst[n] = prev + d * (n + 1);
         }
-        stepEnv += N/(.1f * mSamplerate+N) * (absStep - stepEnv);
-        state = val + d * N;
+        state = prev + d * N;
     }
     void reset() override { state = 0.f; }
 private:
-    float state = 0.f, stepEnv = 0.f;
+    float state = 0.f;
 };
 
 // math ops

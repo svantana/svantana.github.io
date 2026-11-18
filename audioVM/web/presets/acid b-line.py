@@ -11,7 +11,7 @@ pEnv = vm.control("filter envelope", 0.7)
 pEnvT = vm.control("decay", 0.5)
 pGlide = vm.control("glide", 0.1)
 
-envA = vm.op("envExp", {"gate":midi.onset, "decay": 0.1 + 2.0 * midi.gate})
+envA = vm.op("envADSR", {"gate":midi.gate, "a": 0.01, "d": 4, "s":0.1, "r": 0.05})
 envF = vm.op("envExp", {"gate":midi.gate, "decay": pEnvT})
 
 prevGate = vm.value(0) # use previous gate to determine glide
@@ -22,7 +22,7 @@ osc = vm.op("oscAnalog", {"note": glideNote, "color":pColor, "pulse amount": pWa
 
 filterHz = (0.2 + 0.8 * pCutoff + (pEnv - 0.5) * (envF - 0.3)) ** 4 * 5e3
 
-filter = vm.op("filterLP", {"frequency": filterHz, "resonance": pRez * 0.95})(osc)
+filter = vm.op("filterLP", {"frequency": filterHz, "resonance": pRez * 0.9})(osc)
 filter = vm.op("filterLP", {"frequency": filterHz*2, "resonance": 0})(filter)
 
 gain = envA * (0.6 - 0.4 * pRez)
