@@ -2,8 +2,10 @@
 # generates an audio processing program in python. inputs are either constants or references to earlier output buffers
 
 from contextlib import contextmanager
+import inspect
 import json
 import math
+import os
 import warnings
 
 class Operator:
@@ -184,8 +186,23 @@ class VM:
             self.typeCounts[nodeType] = 0
         self.typeCounts[nodeType] += 1
         obj = Operator(self, nodeType, id if id is not None else nodeType + str(self.typeCounts[nodeType]), input)
+        obj.source_location = self._source_location()
         self.program += [obj]
         return obj
+
+    @staticmethod
+    def _source_location():
+        """Return the first call site outside this builder module."""
+        module_filename = globals().get("__file__")
+        if module_filename is None:
+            return None
+        frame = inspect.currentframe()
+        module_path = os.path.abspath(module_filename)
+        while frame is not None:
+            if os.path.abspath(frame.f_code.co_filename) != module_path:
+                return frame.f_code.co_filename, frame.f_lineno
+            frame = frame.f_back
+        return None
 
     def constant(self, value):
         return self.op("const", value)
@@ -368,12 +385,15 @@ class VM:
                 continue
             hint = " Use vm.max(...) or vm.min(...), not Python's built-in max()/min()." \
                 if operator.type in {"less", "lessEqual", "greater", "greaterEqual"} else ""
-            warnings.warn(
+            message = (
                 f"AudioVM compile warning: unused operation '{operator.name}' "
-                f"({operator.type}); its output is not connected.{hint}",
-                RuntimeWarning,
-                stacklevel=3,
+                f"({operator.type}); its output is not connected.{hint}"
             )
+            if operator.source_location is not None:
+                filename, lineno = operator.source_location
+                warnings.warn_explicit(message, RuntimeWarning, filename, lineno)
+            else:
+                warnings.warn(message, RuntimeWarning, stacklevel=3)
     
     def get_json(self):
         self._warn_unused_operations()

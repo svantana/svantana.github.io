@@ -52,12 +52,11 @@ with vm.when(envA > 1e-3):
   mix += noiBP * envA
 
 # hi-hats: 6 == closed, 8 == open, with shared mute state
-oscCB = vm.op("oscAnalog", {"frequency": 565, "pulse amount": 0.7, "color":0.8, "unison count": 2, "unison spread": 670})
-oscHH = vm.op("oscAnalog", {"frequency": 205, "pulse amount": 0.7, "color":0.8, "unison count": 4, "unison spread": 520})
-sumHH = oscCB * 0.5 + oscHH
+oscCB = vm.op("oscAnalog", {"frequency": 565, "pulse amount": 1.0, "pulse width": 0.4, "color":0.8, "unison count": 2, "unison spread": 670})
+oscHH = vm.op("oscAnalog", {"frequency": 205, "pulse amount": 1.0, "pulse width": 0.4, "color":0.8, "unison count": 4, "unison spread": 520})
+sumHH = oscCB * 0.5 + oscHH + noise
 
 ch_on, oh_on = onsets.read(6), onsets.read(8)
-hh_on = ch_on + oh_on
 hatOpen = vm.value(0)
 with vm.when(oh_on):
   hatOpen.write(1)

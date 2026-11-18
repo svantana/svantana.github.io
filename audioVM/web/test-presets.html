@@ -112,7 +112,8 @@
       const sourceUrl = new URL(name, new URL('./presets/', import.meta.url));
       const response = await fetch(sourceUrl);
       if (!response.ok) throw new Error(`Could not load (${response.status})`);
-      const graph = JSON.parse(await python.compile(await response.text()));
+      const compiled = await python.compile(await response.text());
+      const graph = JSON.parse(compiled.graph);
       const ops = Array.isArray(graph.program) ? graph.program.length : 0;
       setCell(row, 1, ops);
 

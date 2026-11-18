@@ -119,7 +119,9 @@
     output { margin-left:auto; color:var(--accent); font:12px ui-monospace, monospace; }
     .control output { margin:0; }
     input[type=range] { width:100%; accent-color:var(--accent); }
-    #error { display:none; margin:0; padding:9px 14px; background:var(--danger-bg); color:var(--danger); border-top:1px solid var(--danger-border); font:12px/1.4 ui-monospace, monospace; white-space:pre-wrap; }
+    #error, #warning { display:none; margin:0; padding:9px 14px; font:12px/1.4 ui-monospace, monospace; white-space:pre-wrap; }
+    #error { background:var(--danger-bg); color:var(--danger); border-top:1px solid var(--danger-border); }
+    #warning { background:#302813; color:#f1c85b; border-top:1px solid #705717; }
     #right-panel:focus { outline:2px solid var(--accent); outline-offset:-2px; }
     .keyboard-panel { flex:none; height:69px; padding:0; border-top:1px solid var(--border); background:var(--panel); }
     #piano { position:relative; height:100%; display:grid; border:1px solid #090a0c; border-radius:4px; overflow:hidden; background:#e8e9e8; }
@@ -201,6 +203,7 @@
         <button id="audio-input-toggle" type="button" disabled>Start</button>
       </div>
       <div id="controls"><p class="empty">Load a patch to generate controls.</p></div>
+      <pre id="warning" role="status"></pre>
       <pre id="error" role="alert"></pre>
       <div id="analysis-panel">
         <canvas id="analysis-canvas" aria-label="Audio oscilloscope and spectrum display"></canvas>
@@ -237,6 +240,7 @@
     const status = document.querySelector('#status');
     const controls = document.querySelector('#controls');
     const count = document.querySelector('#control-count');
+    const warning = document.querySelector('#warning');
     const error = document.querySelector('#error');
     const highlight = document.querySelector('#highlight');
     const gutter = document.querySelector('#gutter');
@@ -504,6 +508,13 @@
 
     const showError = message => { error.textContent = message; error.style.display = 'block'; };
     const clearError = () => { error.textContent = ''; error.style.display = 'none'; };
+    const showWarnings = warnings => {
+      warning.textContent = warnings.map(({ filename, lineno, category, message }) => {
+        const sourceLine = filename === 'patch.py' ? editor.value.split('\n')[lineno - 1] : undefined;
+        return `${filename}:${lineno}: ${category}: ${message}${sourceLine ? `\n  ${sourceLine}` : ''}`;
+      }).join('\n');
+      warning.style.display = warnings.length ? 'block' : 'none';
+    };
     const updateActionAvailability = () => {
       loadButton.disabled = !resourcesReady;
       presetSelect.disabled = !resourcesReady || !presetFilesReady;
@@ -1084,14 +1095,17 @@
     window.addEventListener('blur', releaseAllNotes);
     const loadPatch = async () => {
       clearError();
+      showWarnings([]);
       if (!resourcesReady) {
         status.textContent = 'Waiting for AudioVM resources…';
         try { await runtimeReady; }
         catch { return; }
       }
-      let parsed;
-      try { parsed = JSON.parse(await python.compile(editor.value, message => { status.textContent = message; })); }
+      let compiled;
+      try { compiled = await python.compile(editor.value, message => { status.textContent = message; }); }
       catch (cause) { showError(`Python patch error: ${cause.message}`); status.textContent = 'Python error'; return; }
+      showWarnings(compiled.warnings);
+      const parsed = JSON.parse(compiled.graph);
       try {
         status.textContent = 'Preparing audio worklet…';
         stop();

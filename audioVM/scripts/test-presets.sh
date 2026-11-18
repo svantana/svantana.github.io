@@ -51,7 +51,6 @@ if ((${#presets[@]} == 0)); then
   exit 1
 fi
 
-rows=()
 ops_total=0
 controls_total=0
 peak_total=0
@@ -66,41 +65,34 @@ ops_width=${#header_ops}
 controls_width=${#header_controls}
 peak_width=${#header_peak}
 rt_width=${#header_rt}
+average_name=average
+((${#average_name} > name_width)) && name_width=${#average_name}
 for preset in "${presets[@]}"; do
+  preset_name="${preset#web/presets/}"
+  ((${#preset_name} > name_width)) && name_width=${#preset_name}
+done
+
+printf "%-${name_width}s  %${ops_width}s  %${controls_width}s  %${peak_width}s  %${rt_width}s\n" \
+  "$header_name" "$header_ops" "$header_controls" "$header_peak" "$header_rt"
+for preset in "${presets[@]}"; do
+  preset_name="${preset#web/presets/}"
   result="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$project_dir/python" \
     python3 tests/compile_preset.py "$preset" \
     | "$temp_dir/test-presets" "$preset" "$random_seed" "$sample_rate")"
   IFS=$'\t' read -r ops controls peak realtime_factor <<< "$result"
   printf -v peak '%.4f' "$peak"
   printf -v realtime_factor '%.4f' "$realtime_factor"
-  rows+=("$preset"$'\t'"$ops"$'\t'"$controls"$'\t'"$peak"$'\t'"$realtime_factor")
+  printf "%-${name_width}s  %${ops_width}s  %${controls_width}s  %${peak_width}s  %${rt_width}s\n" \
+    "$preset_name" "$ops" "$controls" "$peak" "$realtime_factor"
   ops_total=$((ops_total + ops))
   controls_total=$((controls_total + controls))
   peak_total="$(awk -v total="$peak_total" -v value="$peak" 'BEGIN { print total + value }')"
   rt_total="$(awk -v total="$rt_total" -v value="$realtime_factor" 'BEGIN { print total + value }')"
-  ((${#preset} > name_width)) && name_width=${#preset}
-  ((${#ops} > ops_width)) && ops_width=${#ops}
-  ((${#controls} > controls_width)) && controls_width=${#controls}
-  ((${#peak} > peak_width)) && peak_width=${#peak}
-  ((${#realtime_factor} > rt_width)) && rt_width=${#realtime_factor}
 done
 
 average_ops="$(awk -v total="$ops_total" -v count="${#presets[@]}" 'BEGIN { printf "%.1f", total / count }')"
 average_controls="$(awk -v total="$controls_total" -v count="${#presets[@]}" 'BEGIN { printf "%.1f", total / count }')"
 average_peak="$(awk -v total="$peak_total" -v count="${#presets[@]}" 'BEGIN { printf "%.4f", total / count }')"
 average_rt="$(awk -v total="$rt_total" -v count="${#presets[@]}" 'BEGIN { printf "%.4f", total / count }')"
-average_name=average
-rows+=("$average_name"$'\t'"$average_ops"$'\t'"$average_controls"$'\t'"$average_peak"$'\t'"$average_rt")
-((${#average_name} > name_width)) && name_width=${#average_name}
-((${#average_ops} > ops_width)) && ops_width=${#average_ops}
-((${#average_controls} > controls_width)) && controls_width=${#average_controls}
-((${#average_peak} > peak_width)) && peak_width=${#average_peak}
-((${#average_rt} > rt_width)) && rt_width=${#average_rt}
-
 printf "%-${name_width}s  %${ops_width}s  %${controls_width}s  %${peak_width}s  %${rt_width}s\n" \
-  "$header_name" "$header_ops" "$header_controls" "$header_peak" "$header_rt"
-for row in "${rows[@]}"; do
-  IFS=$'\t' read -r preset ops controls peak realtime_factor <<< "$row"
-  printf "%-${name_width}s  %${ops_width}s  %${controls_width}s  %${peak_width}s  %${rt_width}s\n" \
-    "$preset" "$ops" "$controls" "$peak" "$realtime_factor"
-done
+  "$average_name" "$average_ops" "$average_controls" "$average_peak" "$average_rt"

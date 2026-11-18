@@ -32,14 +32,27 @@ export class PythonPatchRunner {
     async compile(source, onStatus = () => {}) {
         await this.prepare(onStatus);
         this.#pyodide.globals.set('patch_source', source);
-        return await this.#pyodide.runPythonAsync(`
+        return JSON.parse(await this.#pyodide.runPythonAsync(`
+import json
+import warnings
 namespace = {}
-exec(patch_source, namespace)
-vm = namespace.get("vm")
-if vm is None:
-    raise RuntimeError("Your patch must assign its VM instance to a variable named vm.")
-vm.get_json()
-`);
+with warnings.catch_warnings(record=True) as caught_warnings:
+    warnings.simplefilter("always", RuntimeWarning)
+    exec(compile(patch_source, "patch.py", "exec"), namespace)
+    vm = namespace.get("vm")
+    if vm is None:
+        raise RuntimeError("Your patch must assign its VM instance to a variable named vm.")
+    graph_json = vm.get_json()
+json.dumps({
+    "graph": graph_json,
+    "warnings": [{
+        "message": str(warning.message),
+        "category": warning.category.__name__,
+        "filename": warning.filename,
+        "lineno": warning.lineno,
+    } for warning in caught_warnings],
+})
+`));
     }
 
     async #initialize(onStatus) {
@@ -51,7 +64,8 @@ vm.get_json()
         await pyodide.runPythonAsync(`
 import sys, types
 audioVM = types.ModuleType("audioVM")
-exec(audiovm_source, audioVM.__dict__)
+audioVM.__file__ = "audioVM.py"
+exec(compile(audiovm_source, audioVM.__file__, "exec"), audioVM.__dict__)
 sys.modules["audioVM"] = audioVM
 `);
         this.#pyodide = pyodide;
