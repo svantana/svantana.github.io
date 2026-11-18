@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AudioVM Preset Tests</title>
+  <style>
+    :root { color-scheme:dark; --bg:#111214; --panel:#191b1f; --border:#30343a; --text:#e8eaf0; --muted:#9299a5; --accent:#92e5b1; --danger:#ff8f8f; }
+    * { box-sizing:border-box; }
+    body { max-width:1100px; margin:0 auto; padding:32px 20px; background:var(--bg); color:var(--text); font:14px/1.4 ui-sans-serif,system-ui,sans-serif; }
+    header { display:flex; align-items:center; gap:16px; margin-bottom:20px; }
+    h1 { margin:0; font-size:20px; }
+    .back { margin-left:auto; color:var(--muted); text-decoration:none; }
+    .back:hover { color:var(--accent); }
+    p { color:var(--muted); }
+    button { border:1px solid var(--border); border-radius:5px; background:#282c32; color:var(--text); padding:7px 11px; font:inherit; cursor:pointer; }
+    button:hover:not(:disabled) { border-color:var(--accent); }
+    button:disabled { cursor:wait; opacity:.55; }
+    #status { color:var(--muted); }
+    .table-wrap { overflow:auto; margin-top:18px; border:1px solid var(--border); border-radius:6px; background:var(--panel); }
+    table { width:100%; border-collapse:collapse; font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+    th, td { padding:9px 12px; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap; }
+    th { color:var(--muted); font-weight:600; }
+    th:first-child, td:first-child { text-align:left; }
+    tbody tr:last-child td { border-bottom:0; }
+    tbody tr.average { background:rgba(146,229,177,.1); font-weight:600; }
+    tbody tr[data-state="running"] { background:rgba(146,229,177,.07); }
+    tbody tr[data-state="error"] { color:var(--danger); }
+    .error { display:block; max-width:420px; overflow:hidden; color:var(--danger); text-overflow:ellipsis; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Preset tests</h1>
+    <a class="back" href="./index.html">Player</a>
+  </header>
+  <p>Compiles every preset in the browser, then renders randomized MIDI and control input through the AudioVM WebAssembly backend.</p>
+  <button id="run" type="button" disabled>Run all presets</button>
+  <span id="status" role="status">Loading preset list…</span>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>name</th><th>ops</th><th>controls</th><th>peak</th><th>RT</th></tr></thead>
+      <tbody id="results"></tbody>
+    </table>
+  </div>
+
+  <script type="module">
+    import { PythonPatchRunner } from './python-runner.js';
+    import createAudioVM from './audiovm.js';
+
+    const sampleRate = 48000;
+    const channels = 2;
+    const blockSize = 32;
+    const renderSeconds = 30;
+    const results = document.querySelector('#results');
+    const runButton = document.querySelector('#run');
+    const status = document.querySelector('#status');
+    const textEncoder = new TextEncoder();
+    const textDecoder = new TextDecoder();
+    const python = new PythonPatchRunner();
+    let presets = [];
+    let wasm;
+
+    const readWasmString = pointer => {
+      let end = pointer;
+      while (wasm.HEAPU8[end]) end++;
+      return textDecoder.decode(wasm.HEAPU8.subarray(pointer, end));
+    };
+    const writeWasmString = text => {
+      const bytes = textEncoder.encode(text);
+      const pointer = wasm._malloc(bytes.length + 1);
+      wasm.HEAPU8.set(bytes, pointer);
+      wasm.HEAPU8[pointer + bytes.length] = 0;
+      return pointer;
+    };
+    const randomGenerator = seed => () => {
+      seed = (seed + 0x6d2b79f5) >>> 0;
+      let value = seed;
+      value = Math.imul(value ^ value >>> 15, value | 1);
+      value ^= value + Math.imul(value ^ value >>> 7, value | 61);
+      return ((value ^ value >>> 14) >>> 0) / 4294967296;
+    };
+    const waitForPaint = () => new Promise(resolve => requestAnimationFrame(resolve));
+    const setCell = (row, index, value) => { row.cells[index].textContent = value; };
+    const addRow = name => {
+      const row = document.createElement('tr');
+      for (const value of [name, '—', '—', '—', 'waiting']) {
+        const cell = document.createElement('td');
+        cell.textContent = value;
+        row.append(cell);
+      }
+      results.append(row);
+      return row;
+    };
+    const addAverageRow = measurements => {
+      const row = addRow('average');
+      row.className = 'average';
+      if (!measurements.length) {
+        for (let index = 1; index < row.cells.length; index++) setCell(row, index, '—');
+        return;
+      }
+      const average = key => measurements.reduce((sum, measurement) => sum + measurement[key], 0) / measurements.length;
+      setCell(row, 1, average('ops').toFixed(1));
+      setCell(row, 2, average('controls').toFixed(1));
+      setCell(row, 3, average('peak').toFixed(4));
+      setCell(row, 4, `${average('realtime').toFixed(4)}%`);
+    };
+
+    async function testPreset(name, row, seed) {
+      row.dataset.state = 'running';
+      setCell(row, 4, 'running');
+      const sourceUrl = new URL(name, new URL('./presets/', import.meta.url));
+      const response = await fetch(sourceUrl);
+      if (!response.ok) throw new Error(`Could not load (${response.status})`);
+      const graph = JSON.parse(await python.compile(await response.text()));
+      const ops = Array.isArray(graph.program) ? graph.program.length : 0;
+      setCell(row, 1, ops);
+
+      const processor = wasm._audiovm_create();
+      let jsonPointer = 0, inputPointer = 0, outputPointer = 0;
+      try {
+        wasm._audiovm_setup(processor, sampleRate, channels, channels, blockSize);
+        jsonPointer = writeWasmString(JSON.stringify(graph));
+        if (!wasm._audiovm_load_from_json(processor, jsonPointer)) {
+          throw new Error(readWasmString(wasm._audiovm_get_last_error()) || 'AudioVM rejected the patch');
+        }
+        const controls = wasm._audiovm_get_num_controls(processor);
+        setCell(row, 2, controls);
+        for (let control = 0; control < controls; control++) {
+          if (!Number.isFinite(wasm._audiovm_get_control_value(processor, control))) {
+            throw new Error(`Control ${control} is not finite`);
+          }
+        }
+
+        inputPointer = wasm._malloc(blockSize * channels * Float32Array.BYTES_PER_ELEMENT);
+        outputPointer = wasm._malloc(blockSize * channels * Float32Array.BYTES_PER_ELEMENT);
+        let heap = new Float32Array(wasm.HEAPU8.buffer);
+        const random = randomGenerator(seed);
+        const noteOffs = [];
+        const totalFrames = sampleRate * renderSeconds;
+        const noteInterval = sampleRate / 10;
+        let inputSample = 0, nextNoteFrame = 0, peak = 0, processingMilliseconds = 0, blocksSincePaint = 0;
+        while (inputSample < totalFrames) {
+          const frames = Math.min(blockSize, totalFrames - inputSample);
+          if (heap.buffer !== wasm.HEAPU8.buffer) heap = new Float32Array(wasm.HEAPU8.buffer);
+          const inputOffset = inputPointer >> 2;
+          for (let channel = 0; channel < channels; channel++) {
+            for (let sample = 0; sample < frames; sample++) {
+              heap[inputOffset + channel * frames + sample] = 0.25 * Math.sin(2 * Math.PI * 440 * (inputSample + sample) / sampleRate);
+            }
+          }
+          for (let control = 0; control < controls; control++) wasm._audiovm_set_control_value(processor, control, random());
+          for (let index = noteOffs.length - 1; index >= 0; index--) {
+            if (noteOffs[index].frame <= inputSample) {
+              wasm._audiovm_midi_event(processor, 0x80, noteOffs[index].note, 0);
+              noteOffs.splice(index, 1);
+            }
+          }
+          while (nextNoteFrame <= inputSample) {
+            const note = Math.floor(random() * 128);
+            wasm._audiovm_midi_event(processor, 0x90, note, 1 + Math.floor(random() * 127));
+            noteOffs.push({ frame: nextNoteFrame + Math.floor(sampleRate / 20 + random() * (sampleRate / 5)), note });
+            nextNoteFrame += noteInterval;
+          }
+          const start = performance.now();
+          wasm._audiovm_process(processor, inputPointer, outputPointer, frames, channels, channels);
+          processingMilliseconds += performance.now() - start;
+          const outputOffset = outputPointer >> 2;
+          for (let index = 0; index < channels * frames; index++) {
+            const sample = heap[outputOffset + index];
+            if (!Number.isFinite(sample)) throw new Error('Produced a non-finite output sample');
+            peak = Math.max(peak, Math.abs(sample));
+          }
+          inputSample += frames;
+          if (++blocksSincePaint === 1024) {
+            blocksSincePaint = 0;
+            setCell(row, 4, `${(100 * processingMilliseconds / (1000 * inputSample / sampleRate)).toFixed(3)}%`);
+            await waitForPaint();
+          }
+        }
+        if (peak < 1e-6) throw new Error('Produced only silence during randomized MIDI sequence');
+        setCell(row, 3, peak.toFixed(4));
+        setCell(row, 4, `${(100 * processingMilliseconds / (1000 * renderSeconds)).toFixed(4)}%`);
+        delete row.dataset.state;
+        return { ops, controls, peak, realtime: 100 * processingMilliseconds / (1000 * renderSeconds) };
+      } finally {
+        if (jsonPointer) wasm._free(jsonPointer);
+        if (inputPointer) wasm._free(inputPointer);
+        if (outputPointer) wasm._free(outputPointer);
+        wasm._audiovm_destroy(processor);
+      }
+    }
+
+    async function run() {
+      runButton.disabled = true;
+      results.replaceChildren();
+      const seed = Date.now() >>> 0;
+      status.textContent = `Running ${presets.length} presets (seed ${seed})…`;
+      let failures = 0;
+      const measurements = [];
+      for (let index = 0; index < presets.length; index++) {
+        const row = addRow(presets[index]);
+        try {
+          measurements.push(await testPreset(presets[index], row, (seed + index) >>> 0));
+        } catch (cause) {
+          failures++;
+          row.dataset.state = 'error';
+          setCell(row, 4, cause.message || String(cause));
+          row.cells[4].className = 'error';
+        }
+        await waitForPaint();
+      }
+      addAverageRow(measurements);
+      status.textContent = failures ? `${failures} preset${failures === 1 ? '' : 's'} failed` : `All ${presets.length} presets passed`;
+      runButton.disabled = false;
+    }
+
+    try {
+      const response = await fetch('./presets.json');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      presets = await response.json();
+      wasm = await createAudioVM();
+      await python.prepare(message => { status.textContent = message; });
+      runButton.disabled = false;
+      status.textContent = `${presets.length} presets ready`;
+    } catch (cause) {
+      status.textContent = `Unable to prepare tests: ${cause.message || cause}`;
+    }
+    runButton.addEventListener('click', run);
+  </script>
+</body>
+</html>

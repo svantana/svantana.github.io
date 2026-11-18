@@ -8,13 +8,6 @@
 
 using namespace AudioVM;
 
-struct FullRateOp : public Operator {
-    Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Full; }
-};
-struct BlockRateOp : public Operator {
-    Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Block; }
-};
-
 struct AudioIn : public FullRateOp {
     int getNumPorts(Port::Dir dir) override { return (dir == Port::Out) ? 1 : 0; }
     void process(Buffer *i, Buffer *o, int N) override {}

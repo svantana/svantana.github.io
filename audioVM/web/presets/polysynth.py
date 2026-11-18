@@ -3,16 +3,17 @@ import audioVM
 vm = audioVM.VM()
 midi = vm.midi()
 
-cutoff = vm.control("cutoff", 0.35)
-resonance = vm.control("resonance", 0.2) * 0.98
-release = 0.5
+pColor = vm.control("color", 0.5)
+pCut = vm.control("cutoff", 0.35)
+pRez = vm.control("resonance", 0.2) * 0.98
+release = 0.2
 
 mix = vm.op("buffer")
 with vm.poly(count=8, timeOut=release):
   env = vm.op("envADSR", {"gate": midi.gate, "a": 0.015, "d": 0.5, "s": 0.4, "r": release})
-  osc = vm.op("oscSaw", {"note": midi.note})
-  filterHz = (cutoff + env) ** 4 * 5000
-  filtered = vm.op("filterLP", {"input": osc, "frequency": filterHz, "resonance": resonance})
+  osc = vm.op("oscAnalog", {"note": midi.note, "color": pColor})
+  filterHz = (pCut + env) ** 4 * 5000
+  filtered = vm.op("filterLP", {"input": osc, "frequency": filterHz, "resonance": pRez})
   mix += filtered * (env * 0.2)
 
 vm.op("audioOut", mix)

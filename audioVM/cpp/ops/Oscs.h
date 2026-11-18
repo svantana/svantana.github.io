@@ -474,14 +474,7 @@ void Voice::render(float **outBufs, int numSamples, int numChannels) {
     if (mNeedsInit) {
         mFilterCoefs = coefTrg;
     }
-#if 0
-    float coefX = a1 * (1-coefQ) / coefK;
-    for (int i = 0; i < buf_size; i++) {
-        mStateB = coefQ * mStateB + coefX * (tmp_pulse_buf[i] - tot_bias) - coefK * mStateL;
-        mStateL += coefK * mStateB;
-        out_buf[i] = mStateL;
-    }
-#else // 2nd order filter
+
     ChannelState state[2];
     float bias[MaxNumChannels];
     for (int ch = 0; ch < MaxNumChannels; ch++) {
@@ -511,7 +504,7 @@ void Voice::render(float **outBufs, int numSamples, int numChannels) {
         DEBUGCHECK(fabsf(state[ch].s1) < 1e4f && fabsf(state[ch].s2) < 1e4f);
         mChannels[ch] = state[ch]; // write local copy to state
     }
-#endif
+
     mNeedsInit = false;
     mRenderBufPos += numSamples;
     mSamplesSinceInit += numSamples;
@@ -575,7 +568,8 @@ public:
         float unisonScale = exp2f(ins[UnisonCents].value() / 1200);
         float unisonScales[2] = {1.f/unisonScale, unisonScale};
         float unisonAcc[2] = {1.f, unisonScales[1]};
-        float uniGain = 1.f / sqrtf(unisonCount);
+        float colorGain = 1 + (P[Voice::Color]*2-1) * (P[Voice::Color]*2-1);
+        float uniGain = colorGain / sqrtf(unisonCount);
         
         mVoice.m_num_oscillators = (int)(.99f + unisonCount);
         

@@ -34,4 +34,7 @@ emitting code with different DSP semantics.
 cd web && python3 -m http.server
 ```
 
+Open [`test-presets.html`](web/test-presets.html) to compile and exercise every
+preset through the browser's WebAssembly backend.
+
 `build-wasm.sh` requires Emscripten (`em++`).

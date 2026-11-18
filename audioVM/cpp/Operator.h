@@ -78,6 +78,13 @@ namespace AudioVM {
         float mSamplerate, mBlockSize;
     };
 
+    struct FullRateOp : public Operator {
+        Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Full; }
+    };
+    struct BlockRateOp : public Operator {
+        Port::Rate getPortRate(Port::Dir dir, int index) override { return Port::Block; }
+    };
+
 #ifndef NDEBUG
 static void DEBUGCHECK(bool x, cStr msg = "(unknown)") {
     

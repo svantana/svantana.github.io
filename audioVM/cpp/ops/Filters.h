@@ -45,7 +45,7 @@ public:
         mState.reset();
     }
     struct State { float l, b; void reset() {l=b=0;} } mState;
-    struct Coefs { float k, d, g; } mCoefs;
+    struct Coefs { float k=1, d=1, g=1; } mCoefs;
     
     static inline float doSVF(float x, State &S, Coefs &C) {
         float hp = x - S.l - C.d * S.b;
@@ -61,7 +61,7 @@ public:
         return x * (3.141592653589793f + x * (-0.5663706143591725f + x * -3.4336293856408275f));
     }
     static inline Coefs getCoefs(float f, float r) {
-        float s = fastQuarterSin(f), s2 = s*s, r2=r*r;
+        float s = fastQuarterSin(std::min(0.5f, f)), s2 = s*s, r2=r*r;
         float u = (1+r2)*s2 / (1+r2*s2);
         Coefs C;
         C.g = 1 / (1 + r*u);
@@ -74,15 +74,15 @@ public:
         return C;
     }
     Coefs getCoefs(Buffer *i) {
-        float f = std::min(.5f, i[FreqHz].value() / mSamplerate);
+        float f = i[FreqHz].value() / mSamplerate;
         float rInv = std::max(0.f, 1 - i[Resonance].value());
         return getCoefs(f, 4 * rInv);
     }
     Coefs getCoefStep(Coefs &C, Coefs &T) const {
-        float s = 1.f/mBlockSize;
+        float s = 1.f / mBlockSize;
         Coefs S;
         S.k = s;
-        S.d = std::min(1.f, s * (1 + fabsf(T.d - C.d)));
+        S.d = std::min(1.f, s * (1+C.d)/(1+T.d));
         return S;
     }
 };

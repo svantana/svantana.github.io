@@ -10,8 +10,9 @@
     * { box-sizing:border-box; }
     body { margin:0; height:100vh; overflow:hidden; background:var(--bg); color:var(--text); font:14px/1.4 ui-sans-serif, system-ui, sans-serif; }
     #status { min-width:0; margin-left:auto; overflow:hidden; color:var(--muted); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
-    button { border:1px solid var(--border); border-radius:5px; background:#282c32; color:var(--text); padding:7px 11px; font:inherit; cursor:pointer; }
-    button:hover:not(:disabled) { border-color:var(--accent); }
+    button, .button-link { border:1px solid var(--border); border-radius:5px; background:#282c32; color:var(--text); padding:7px 11px; font:inherit; cursor:pointer; }
+    .button-link { text-decoration:none; }
+    button:hover:not(:disabled), .button-link:hover { border-color:var(--accent); }
     button:disabled { cursor:wait; opacity:.55; }
     select { max-width:180px; border:1px solid var(--border); border-radius:5px; background:#282c32; color:var(--text); padding:7px 28px 7px 9px; font:inherit; }
     select:disabled { cursor:wait; opacity:.55; }
@@ -147,6 +148,7 @@
         <select id="presets" aria-label="Load preset" disabled><option value="">Presets…</option></select>
         <button id="load" disabled>Run ⌘⮐</button>
         <button id="play" disabled aria-label="Play">▶</button>
+        <a class="button-link" href="./test-presets.html">Test presets</a>
         <button id="web-midi" type="button" aria-label="Enable MIDI">🎹</button>
         <div id="audio-stats" hidden role="status" aria-label="Audio engine statistics">
           <span>CPU</span><span id="cpu-load">0%</span><span id="audio-format"></span>
