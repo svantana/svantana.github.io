@@ -462,13 +462,14 @@ void Voice::render(float **outBufs, int numSamples, int numChannels) {
     float *P = m_params;
     const float oscF0 = std::max(1e-6f, m_osc_states[0].mCurrOscFreq);
     float color = std::clamp(P[Color], 0.f, 1.f);
-    //float width = std::clamp(P[PulseWidth], 0.f, 1.f);
-    //float uWidth = 2*fabsf(width - roundf(width)), uPulse = std::min(1.f, P[PulseAmount]);
-    //float f0Scale = (1 + std::max(0.f, -uPulse)) / std::max(.01f, uWidth);
+    float width = std::clamp(P[PulseWidth], 0.f, 1.f);
+    float uWidth = 2*fabsf(width - roundf(width)), uPulse = std::min(1.f, P[PulseAmount]);
+    float f0Scale = (1 + std::max(0.f, -uPulse)) / std::max(.01f, uWidth);
+    float filtF0 = oscF0 * f0Scale;
     FilterCoefs coefTrg;
     float uInt = std::min(1.f, 2 - 2*color), integralScale = 4 * uInt * uInt * uInt;
-    float p2 = .5f / (.5f + oscF0), pHi = -.5f;
-    coefTrg.p1 =  integralScale / (integralScale + oscF0);
+    float p2 = .5f / (.5f + filtF0), pHi = -.5f;
+    coefTrg.p1 =  integralScale / (integralScale + filtF0);
     coefTrg.p2 = pHi + (p2-pHi) * std::max(0.f, 1-2*color) - .25f * (1 - uInt);
     
     if (mNeedsInit) {

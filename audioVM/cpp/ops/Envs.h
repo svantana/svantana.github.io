@@ -154,3 +154,36 @@ public:
 private:
     float mEnv;
 };
+
+class VCA : public Operator {
+    enum In  { Input, Gain, Reset, NumInputs };
+    enum Out { Output, NumOutputs };
+    std::string getPortName(Port::Dir dir, int index) override {
+        cStr i[]={"input","gain","reset"};
+        cStr o[]={"output"};
+        return (dir==Port::In) ? i[index] : o[index];
+    }
+    Port::Rate getPortRate(Port::Dir dir, int index) override {
+        return (dir == Port::In && index>0) ? Port::Block : Port::Full;
+    }
+    int getNumPorts(Port::Dir dir) override {
+        return (dir == Port::Out) ? NumOutputs : NumInputs;
+    }
+    void reset() override {
+        mGain = 0.f;
+    }
+    void process(Buffer *i, Buffer *o, int N) override {
+        float next = i[Gain].value();
+        float prev = (i[Reset].valueOrDefault(0.f)>0.5f) ? next : mGain;
+        
+        // TODO: smoother curve
+        float d = (next-prev) / N;
+        float *x = i[Input].data(), *y = o[Output].data();
+        for (int n = 0; n < N; n++) {
+            y[n] = x[n] * (prev + d * (n + 1));
+        }
+        mGain = next;
+    }
+private:
+    float mGain = 0.f;
+};

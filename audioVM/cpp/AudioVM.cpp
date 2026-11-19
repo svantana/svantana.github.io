@@ -87,6 +87,7 @@ Processor::Processor()
     registerType("oscSin", make<OscSin>(), "Generates a sine wave from frequency or MIDI note input.");
     registerType("oscSaw", make<OscSaw>(), "Generates a sawtooth wave from frequency or MIDI note input.");
     registerType("oscAnalog", make<OscAnalog>(), "Saw, Square, Pulse, Triangle wave generator with minimal alias");
+    registerType("oscShape", make<OscShape>(), "Shaped Oscillator: -1: square, 0: sin, 1: saw");
     registerType("oscNoise", make<OscNoise>(), "Generates white noise.");
     registerType("oscFM", make<FMOp>(), "FM modulated sinewave oscillator");
     registerType("filterLP", make<FilterLP>(), "Applies a resonant low-pass filter to a full-rate signal.");
@@ -96,6 +97,7 @@ Processor::Processor()
     registerType("envADSR", make<EnvADSR>(), "Generates an attack, decay, sustain, and release envelope.");
     registerType("envExp", make<EnvExp>(), "Generates a repeating exponential decay envelope.");
     registerType("envFollow", make<EnvFollower>(), "Tracks the amplitude envelope of an incoming signal.");
+    registerType("vca", make<VCA>(), "Applies a control gain to an audio signal");
     registerType("saturation", make<Saturation>(), "Soft saturation of an audio signal");
 }
 
