@@ -59,7 +59,7 @@ header_name=name
 header_ops=ops
 header_controls=controls
 header_peak=peak
-header_rt=RT
+header_rt='RT (ppm)'
 name_width=${#header_name}
 ops_width=${#header_ops}
 controls_width=${#header_controls}
@@ -81,7 +81,7 @@ for preset in "${presets[@]}"; do
     | "$temp_dir/test-presets" "$preset" "$random_seed" "$sample_rate")"
   IFS=$'\t' read -r ops controls peak realtime_factor <<< "$result"
   printf -v peak '%.4f' "$peak"
-  printf -v realtime_factor '%.4f' "$realtime_factor"
+  printf -v realtime_factor '%.0f' "$realtime_factor"
   printf "%-${name_width}s  %${ops_width}s  %${controls_width}s  %${peak_width}s  %${rt_width}s\n" \
     "$preset_name" "$ops" "$controls" "$peak" "$realtime_factor"
   ops_total=$((ops_total + ops))
@@ -93,6 +93,6 @@ done
 average_ops="$(awk -v total="$ops_total" -v count="${#presets[@]}" 'BEGIN { printf "%.1f", total / count }')"
 average_controls="$(awk -v total="$controls_total" -v count="${#presets[@]}" 'BEGIN { printf "%.1f", total / count }')"
 average_peak="$(awk -v total="$peak_total" -v count="${#presets[@]}" 'BEGIN { printf "%.4f", total / count }')"
-average_rt="$(awk -v total="$rt_total" -v count="${#presets[@]}" 'BEGIN { printf "%.4f", total / count }')"
+average_rt="$(awk -v total="$rt_total" -v count="${#presets[@]}" 'BEGIN { printf "%.0f", total / count }')"
 printf "%-${name_width}s  %${ops_width}s  %${controls_width}s  %${peak_width}s  %${rt_width}s\n" \
   "$average_name" "$average_ops" "$average_controls" "$average_peak" "$average_rt"

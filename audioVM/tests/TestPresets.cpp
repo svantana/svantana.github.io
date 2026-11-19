@@ -164,7 +164,7 @@ int main(int argc, char* argv[]) {
         const double renderedSeconds = static_cast<double>(inputSample) / sampleRate;
         const double realtimeFactor = processingTime.count() / renderedSeconds;
         std::cout << numOperations << '\t' << numControls << '\t' << peak << '\t'
-                  << (100 * realtimeFactor) << '\n';
+                  << (1'000'000 * realtimeFactor) << '\n';
     } catch (const std::exception& error) {
         std::cerr << presetName << ": " << error.what() << '\n';
         return 1;

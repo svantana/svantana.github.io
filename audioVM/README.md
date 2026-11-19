@@ -30,6 +30,7 @@ emitting code with different DSP semantics.
 
 ```sh
 ./scripts/test-presets.sh
+./scripts/test-ops.sh
 ./scripts/build-wasm.sh
 cd web && python3 -m http.server
 ```
