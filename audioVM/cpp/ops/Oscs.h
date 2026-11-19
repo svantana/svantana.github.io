@@ -16,11 +16,11 @@ static inline float fastUnitSinUnsafe(float x) {
 
 class OscSin : public Operator {
 public:
-    enum In  { FreqHz, NoteNumber, Reset, NumInputs };
+    enum In  { FreqHz, NoteNumber, Reset, Gain, NumInputs };
     enum Out { Output, NumOutputs };
     int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? NumInputs : NumOutputs; }
     std::string getPortName(Port::Dir dir, int index) override {
-        cStr i[]={"frequency", "note", "reset"};
+        cStr i[]={"frequency", "note", "reset", "gain"};
         cStr o[]={"output"};
         return (dir == Port::In) ? i[index] : o[index];
     }
@@ -31,23 +31,28 @@ public:
         float note = i[NoteNumber].value();
         float hz = convertNoteToHz(note) + i[FreqHz].value();
         float stepTrg = hz / mSamplerate, stepStep = 1 / mBlockSize;
+        float gainTrg = i[Gain].valueOrDefault(1.f);
         
         if (i[Reset].value() > 0.5f) {
             mUnitPhase = 0.f;
             mPhaseStep = stepTrg;
+            mGain = gainTrg;
         }
-        float phaseStep = mPhaseStep;
+        float phaseStep = mPhaseStep, gain = mGain;
+        float gainStep = (gainTrg - gain) / mBlockSize;
         
         for (int n = 0; n < N; n++) {
             phaseStep += stepStep * (stepTrg - phaseStep);
             mUnitPhase += phaseStep;
             mUnitPhase -= floorf(mUnitPhase);
-            o->data()[n] = fastUnitSinUnsafe(mUnitPhase);
+            gain += gainStep;
+            o->data()[n] = gain * fastUnitSinUnsafe(mUnitPhase);
         }
+        mGain = gain;
         mPhaseStep = phaseStep;
     }
 private:
-    float mUnitPhase = 0.f, mPhaseStep = 0.f;
+    float mUnitPhase = 0.f, mPhaseStep = 0.f, mGain = 0.f;
 };
 class FMOp : public Operator {
 public:
@@ -67,23 +72,23 @@ public:
         float hz = convertNoteToHz(note) + i[FreqHz].value();
         float stepTrg = hz / mSamplerate, stepStep = 1 / mBlockSize;
         if (i[Reset].value() > 0.5f) {
-            mUnitPhase = 0.f;
+            mPhase = 0.f;
             mPhaseStep = stepTrg;
         }
-        float phaseStep = mPhaseStep;
+        float phase = mPhase, phaseStep = mPhaseStep;
         
         float *fm = i[FMSource].data();
         for (int n = 0; n < N; n++) {
             phaseStep += stepStep * (stepTrg - phaseStep);
-            mUnitPhase += phaseStep;
-            mUnitPhase -= floorf(mUnitPhase);
-            float phase = mUnitPhase + fm[n];
-            o->data()[n] = fastUnitSinUnsafe(phase - floorf(phase));
+            phase += phaseStep - (phase > 1);
+            float p = phase + fm[n];
+            o->data()[n] = fastUnitSinUnsafe(p - floorf(p));
         }
+        mPhase = phase;
         mPhaseStep = phaseStep;
     }
 private:
-    float mUnitPhase = 0.f, mPhaseStep = 0.f;
+    float mPhase = 0.f, mPhaseStep = 0.f;
 };
 
 class OscShape : public Operator {
