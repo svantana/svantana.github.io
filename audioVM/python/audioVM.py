@@ -207,8 +207,23 @@ class VM:
     def constant(self, value):
         return self.op("const", value)
 
-    def control(self, name, value=0):
-        return self.op("control", id=name, input=value)
+    def control(self, name, value=0, range=[0, 1]):
+        """Create a user-adjustable control with an inclusive UI range.
+
+        ``range`` must be a two-item list containing the minimum and maximum
+        finite values.  It defaults to the existing normalized ``[0, 1]``
+        range.
+        """
+        if (not isinstance(range, list) or len(range) != 2 or
+                not all(isinstance(bound, (int, float)) and
+                        not isinstance(bound, bool) and math.isfinite(bound)
+                        for bound in range)):
+            raise TypeError("control range must be a list of two finite numbers")
+        if range[0] >= range[1]:
+            raise ValueError("control range minimum must be less than its maximum")
+        control = self.op("control", id=name, input=value)
+        control.range = list(range)
+        return control
 
     def value(self, initial=0, id=None):
         """Create a persistent scalar value.
@@ -414,6 +429,8 @@ class VM:
                 else:
                     i = str(i).replace("'",'"')
                 s += ', "input": ' + i
+            if hasattr(p, "range"):
+                s += ', "range": ' + json.dumps(p.range)
             s += '},\n'
         if self.program:
             s = s[:-2] + "\n\t]\n}\n"

@@ -23,6 +23,30 @@ class OperatorCallTests(unittest.TestCase):
         self.assertEqual(lower_bounded.input, ["value", "const1"])
         self.assertEqual(upper_bounded.input, ["max1", "const2"])
 
+    def test_control_emits_its_requested_range(self):
+        vm = VM()
+        control = vm.control("frequency", 440, range=[20, 20000])
+
+        self.assertEqual(control.range, [20, 20000])
+        program = json.loads(vm.get_json())
+        self.assertEqual(program["program"][0], {
+            "type": "control", "id": "frequency", "input": 440,
+            "range": [20, 20000],
+        })
+
+    def test_control_defaults_to_normalized_range(self):
+        vm = VM()
+        control = vm.control("gain")
+
+        self.assertEqual(control.range, [0, 1])
+
+    def test_control_rejects_invalid_ranges(self):
+        vm = VM()
+        for invalid_range in ((0, 1), [0], [0, 1, 2], [0, "1"], [1, 1], [2, 1]):
+            with self.subTest(range=invalid_range):
+                with self.assertRaises((TypeError, ValueError)):
+                    vm.control("gain", range=invalid_range)
+
     def test_unused_comparison_warns_about_builtin_extrema(self):
         vm = VM()
         value = vm.control("value", 0)

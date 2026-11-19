@@ -559,7 +559,12 @@
         return [];
       }
     };
-    const sliderOptions = () => [0, 1, 0.001];
+    const sliderOptions = node => {
+      const range = node.range;
+      const [min, max] = Array.isArray(range) && range.length === 2 &&
+        range.every(Number.isFinite) && range[0] < range[1] ? range : [0, 1];
+      return [min, max, (max - min) / 1000];
+    };
     const createKnob = ({ element, value, min, max, step, label, onInput }) => {
       const knob = element ?? document.createElement('div');
       knob.className = 'knob';
@@ -610,7 +615,7 @@
       }
       controlNodes.forEach((node, index) => {
         const value = Number(node.input) || 0;
-        const [min, max, step] = sliderOptions(node.id, value);
+        const [min, max, step] = sliderOptions(node);
         const wrapper = document.createElement('div');
         wrapper.className = 'control';
         const label = document.createElement('label');
