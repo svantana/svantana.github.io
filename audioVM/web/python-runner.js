@@ -1,5 +1,5 @@
 const pyodideBase = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
-const audioVMUrl = new URL('./audioVM.py', import.meta.url);
+const audioVMUrl = new URL('../python/audioVM.py', import.meta.url);
 
 export const starterPatch = String.raw`import audioVM
 
@@ -74,7 +74,7 @@ sys.modules["audioVM"] = audioVM
     async #loadAudioVMSource() {
         const response = await fetch(audioVMUrl);
         if (!response.ok) {
-            throw new Error(`Could not load audioVM.py (${response.status}). Run scripts/build-wasm.sh first.`);
+            throw new Error(`Could not load python/audioVM.py (${response.status}).`);
         }
         return await response.text();
     }

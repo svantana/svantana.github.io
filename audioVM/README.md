@@ -32,10 +32,11 @@ emitting code with different DSP semantics.
 ./scripts/test-presets.sh
 ./scripts/test-ops.sh
 ./scripts/build-wasm.sh
-cd web && python3 -m http.server
+python3 -m http.server
 ```
 
-Open [`test-presets.html`](web/test-presets.html) to compile and exercise every
-preset through the browser's WebAssembly backend.
+Open [`web/test-presets.html`](web/test-presets.html) to compile and exercise
+every preset through the browser's WebAssembly backend. The browser loads its
+Python builder directly from [`python/audioVM.py`](python/audioVM.py).
 
 `build-wasm.sh` requires Emscripten (`em++`).
