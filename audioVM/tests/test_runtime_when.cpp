@@ -87,7 +87,7 @@ int main() {
     delayProcessor.loadFromJSON(R"({"version":1,"program":[
         {"type":"value","id":"capacity","input":0.1},
         {"type":"audioIn","id":"input"},
-        {"type":"delay","id":"delay","input":{"input":"input","time":0.01,"maxSeconds":"capacity"}},
+        {"type":"delay","id":"delay","input":{"input":"input","time":0.01,"max":"capacity"}},
         {"type":"audioOut","id":"out","input":"delay"}
     ]})");
     float delayInput[16]{};

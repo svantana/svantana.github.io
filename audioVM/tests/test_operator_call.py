@@ -107,7 +107,7 @@ class OperatorCallTests(unittest.TestCase):
 
     def test_delay_emits_linked_read_and_write_endpoints(self):
         vm = VM()
-        string = vm.delay({"time": 0.01, "maxSeconds": 0.1}, id="string")
+        string = vm.delay({"time": 0.01, "max": 0.1}, id="string")
         string.write(string)
 
         self.assertEqual(string.type, "delay")
@@ -118,12 +118,12 @@ class OperatorCallTests(unittest.TestCase):
     def test_delay_accepts_mapping_inputs_like_other_operators(self):
         vm = VM()
         source = vm.op("oscSaw", {"note": 60})
-        delayed = vm.delay({"input": source, "time": 0.01, "maxSeconds": 0.1})
+        delayed = vm.delay({"input": source, "time": 0.01, "max": 0.1})
 
         self.assertEqual(delayed.input, {
             "input": "oscSaw1",
             "time": 0.01,
-            "maxSeconds": 0.1,
+            "max": 0.1,
         })
 
     def test_delay_requires_a_dictionary_of_inputs(self):

@@ -234,7 +234,7 @@ void FilterDelay::diffuseBlock(float *io0, float *io1, int N, float trgLag, Filt
 
 class Delay : public Operator {
 public:
-    enum In { Input, TimeSeconds, Gain, LowpassFreq, HighGain, MaxSeconds, NumInputs };
+    enum In { Input, TimeSeconds, SplitFreq, GainLo, GainHi, DampLo, DampHi, MaxSeconds, NumInputs };
     enum Out { Output, NumOutputs };
 
     Delay() : mState(std::make_shared<FilterDelay>()) {}
@@ -243,7 +243,7 @@ public:
         return dir == Port::In ? NumInputs : NumOutputs;
     }
     std::string getPortName(Port::Dir dir, int index) override {
-        static const cStr inputs[] = {"input", "time", "gain", "cutoff", "highgain", "maxSeconds"};
+        static const cStr inputs[] = {"input", "time", "cutoff", "gain", "gain hi", "damp", "damp hi", "max"};
         static const cStr outputs[] = {"output"};
         return dir == Port::In ? inputs[index] : outputs[index];
     }
@@ -254,7 +254,7 @@ public:
 
     void init(const std::vector<Buffer>& inputs) override {
         if (inputs.size() <= MaxSeconds || inputs[MaxSeconds].ptr == nullptr) {
-            throw std::runtime_error("delay requires a maxSeconds input");
+            throw std::runtime_error("delay requires a max input");
         }
         const float maxSeconds = inputs[MaxSeconds].valueOrDefault(0.1f);
         mMaxSamples = std::max(1, static_cast<int>(std::ceil(maxSeconds * mSamplerate)));
@@ -264,28 +264,38 @@ public:
         mState->reset();
         if (!inputs[Input].hasData() &&
             static_cast<float>(mMaxSamples) < mBlockSize) {
-            throw std::runtime_error("delay maxSeconds must be at least one processing block");
+            throw std::runtime_error("delay max must be at least one processing block");
         }
     }
     std::shared_ptr<FilterDelay> state() const { return mState; }
+    
+    static inline float fastNegExp(float x) {
+        return 1 / (1 + x * (1 + .5f * x));
+    }
 
     void process(Buffer* ins, Buffer* outs, int N) override {
         if (mState->getLength() == 0) {
             throw std::runtime_error("delay was not configured");
         }
-        const float lagSamples = std::clamp(ins[TimeSeconds].value() * mSamplerate, 1.f, mMaxSamples-1.f);
+        const float lagT = ins[TimeSeconds].value();
+        bool hasInput = ins[Input].hasData();
+        const float lagSamples = std::clamp(lagT * mSamplerate, 2.f + (!hasInput) * mBlockSize, mMaxSamples-1.f);
         float* dst = outs[Output].data();
-        FilterDelay::FilterDesign filter(ins[Gain].valueOrDefault(1.f), ins[HighGain].valueOrDefault(0.f), ins[LowpassFreq].valueOrDefault(1e6f)/mSamplerate);
-        if (ins[Input].hasData()) {
-            // write() followed by read() is FilterDelay's normal delay mode.
-            const float* src = ins[Input].data();
-            mState->delayBlock(src, dst, N, lagSamples, filter);
-            return;
+        
+        float gainLo = ins[GainLo].valueOrDefault(1.f) * fastNegExp(lagT * ins[DampLo].valueOrDefault(0.f));
+        float gainHi = 0.f;
+        if (ins[GainHi].hasData() || ins[DampHi].hasData()) {
+            gainHi = ins[GainHi].valueOrDefault(1.f);
+            gainHi *= fastNegExp(lagT * ins[DampHi].valueOrDefault(0.f));
         }
-
-        // Reader-only mode is paired with a later DelayWrite, so the tap
-        // cannot observe samples that the writer has not produced yet.
-        mState->read(dst, N, std::max(lagSamples, mBlockSize+2), filter);
+        
+        FilterDelay::FilterDesign filter(gainLo, gainHi, ins[SplitFreq].valueOrDefault(1e6f)/mSamplerate);
+        
+        if (hasInput) {
+            mState->delayBlock(ins[Input].data(), dst, N, lagSamples, filter);
+        } else {
+            mState->read(dst, N, std::max(lagSamples, mBlockSize+2), filter);
+        }
     }
     void reset() override { mState->reset(); }
 

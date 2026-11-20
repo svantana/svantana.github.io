@@ -88,7 +88,7 @@ class Delay(Operator):
     """A delay operator with an optional compiler-linked write endpoint.
 
     ``input`` follows the normal operator convention: provide a dictionary
-    with ``time`` and ``maxSeconds``, and optionally ``input``.  Without an
+    with ``time`` and ``max``, and optionally ``input``.  Without an
     ``input``, call ``write()`` later to explicitly close a feedback loop.
     """
     def __init__(self, vm, input, name):
@@ -96,11 +96,11 @@ class Delay(Operator):
             raise TypeError("delay expects a dictionary of inputs")
         if "time" not in input:
             raise TypeError("delay requires a time input")
-        if "maxSeconds" not in input:
-            raise TypeError("delay requires a maxSeconds input")
-        maxSeconds = input["maxSeconds"]
+        if "max" not in input:
+            raise TypeError("delay requires a 'max' input")
+        maxSeconds = input["max"]
         if not isinstance(maxSeconds, (int, float)) or maxSeconds <= 0:
-            raise ValueError("Delay maxSeconds must be a positive number")
+            raise ValueError("Delay max must be a positive number")
         super().__init__(vm, "delay", name, input)
         self._written = False
 

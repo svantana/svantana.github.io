@@ -15,7 +15,7 @@ mix = vm.op("buffer")
 with vm.poly(count=8, timeOut=1.0):
   fbGain = .8 + 0.1 * pSustain + 0.1 * midi.gate 
   lag = (2**(69/12)/440) * (2**(-1/12)) ** midi.note
-  delay = vm.delay({"time": lag, "gain": fbGain, "cutoff": dampFreq, "maxSeconds": 0.1})
+  delay = vm.delay({"time": lag, "gain": fbGain, "cutoff": dampFreq, "max": 0.1})
   
   sum = vm.op("buffer")
   sum += delay
@@ -23,7 +23,7 @@ with vm.poly(count=8, timeOut=1.0):
     envA = vm.op("envExp", {"gate": midi.onset, "decay": 0.01 + 0.1 * pFriction}) / (2 + 4 * pFriction)
     excite = vm.op("oscNoise") * (envA * (1 - pPluck)) + pPluck * envA
     sum += excite
-    sum -= vm.op("delay", {"time": lag * (.05 + .9 * pPos), "maxSeconds": 0.1})(excite)
+    sum -= vm.op("delay", {"time": lag * (.05 + .9 * pPos), "max": 0.1})(excite)
     
   delay.write(sum)
   mix += sum

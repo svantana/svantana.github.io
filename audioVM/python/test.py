@@ -2,7 +2,7 @@ import audioVM
 vm = audioVM.VM()
 midi = vm.midi()
 osc = vm.op("oscAnalog", {"note": midi.note})
-osc = vm.op("delay", {"time": 0.1, "maxSeconds": 0.2})(osc)
+osc = vm.op("delay", {"time": 0.1, "max": 0.2})(osc)
 vm.op("audioOut", osc)
 
 json_str = vm.get_json()

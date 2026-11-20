@@ -29,9 +29,9 @@ envA = vm.op("envExp", {"gate": onset, "decay": .01})
 with vm.when(envA > 1e-3):
   osc1 = vm.op("oscSin", {"frequency": 460, "reset": onset})
   osc2 = vm.op("oscSin", {"frequency": 1.7e3, "reset": onset})
-  rim = 0.5 * osc1 + osc2 * envA # double envelope
+  rim = osc1 * (envA * 0.3) + osc2 * (envA*envA * 0.5) # double envelope
   #rim = vm.op("filterHP", {"frequency": 1e3, "resonance": 0.3})(rim)
-  mix += rim * (envA * 0.7)
+  mix += rim
 
 # snare
 onset = onsets.read(2)
