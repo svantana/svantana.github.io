@@ -11,8 +11,8 @@
     document.documentElement.dataset.theme = hour >= 7 && hour < 19 ? 'light' : 'dark';
   </script>
   <style>
-    :root { color-scheme:dark; --bg:#111214; --panel:#191b1f; --surface:#15171b; --surface-raised:#282c32; --editor:#14161a; --analysis:#111317; --border:#30343a; --divider:#292d33; --text:#e8eaf0; --muted:#9299a5; --subtle:#bac3cf; --gutter:#69717d; --code:#d7e5dc; --accent:#92e5b1; --accent-text:#102116; --danger:#ff8f8f; --danger-bg:#331d20; --danger-border:#67353a; --knob-bg:#282c32; --canvas-grid:rgba(255,255,255,.12); }
-    :root[data-theme="light"] { color-scheme:light; --bg:#f4f6f8; --panel:#ffffff; --surface:#edf1f5; --surface-raised:#ffffff; --editor:#fbfcfd; --analysis:#f8fafc; --border:#cbd4de; --divider:#dbe2e9; --text:#1d2935; --muted:#5f6d7b; --subtle:#435364; --gutter:#788797; --code:#243b32; --accent:#18794e; --accent-text:#fff; --danger:#b42318; --danger-bg:#fff1f0; --danger-border:#f0b5af; --knob-bg:#fff; --canvas-grid:rgba(36,51,66,.16); }
+    :root { color-scheme:dark; --bg:#111214; --panel:#191b1f; --surface:#15171b; --surface-raised:#282c32; --editor:#14161a; --analysis:#111317; --border:#30343a; --divider:#292d33; --text:#e8eaf0; --muted:#9299a5; --subtle:#bac3cf; --gutter:#69717d; --code:#d7e5dc; --accent:#92e5b1; --accent-text:#102116; --danger:#ff8f8f; --danger-bg:#331d20; --danger-border:#67353a; --knob-bg:#282c32; --syntax-keyword:#c99bff; --syntax-string:#9ee6b4; --syntax-number:#f2c17d; --syntax-comment:#737b87; --syntax-builtin:#82caff; --syntax-function:#ffb7cf; --canvas-grid:rgba(255,255,255,.12); }
+    :root[data-theme="light"] { color-scheme:light; --bg:#f4f6f8; --panel:#ffffff; --surface:#edf1f5; --surface-raised:#ffffff; --editor:#fbfcfd; --analysis:#f8fafc; --border:#cbd4de; --divider:#dbe2e9; --text:#1d2935; --muted:#5f6d7b; --subtle:#435364; --gutter:#788797; --code:#243b32; --accent:#18794e; --accent-text:#fff; --danger:#b42318; --danger-bg:#fff1f0; --danger-border:#f0b5af; --knob-bg:#fff; --syntax-keyword:#6946a8; --syntax-string:#187343; --syntax-number:#a95d08; --syntax-comment:#758291; --syntax-builtin:#176da5; --syntax-function:#ad3f61; --canvas-grid:rgba(36,51,66,.16); }
     * { box-sizing:border-box; }
     body { margin:0; height:100vh; overflow:hidden; background:var(--bg); color:var(--text); font:14px/1.4 ui-sans-serif, system-ui, sans-serif; }
     #status { min-width:0; margin-left:auto; overflow:hidden; color:var(--muted); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
@@ -62,13 +62,7 @@
     main.ops-collapsed #operator-sidebar .section-head { justify-content:center; }
     main.ops-collapsed #operator-sidebar .section-head strong, main.ops-collapsed #operator-sidebar-count, main.ops-collapsed #operator-search, main.ops-collapsed #operator-list { display:none; }
     .editor { flex:1; min-height:0; display:flex; background:var(--editor); }
-    .code { font:13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size:2; }
-    #gutter { flex:0 0 46px; overflow:hidden; padding:16px 9px 40px 0; border-right:1px solid var(--border); color:var(--gutter); text-align:right; user-select:none; white-space:pre; }
-    .code-stack { position:relative; flex:1; min-width:0; }
-    #highlight, #program { position:absolute; inset:0; margin:0; padding:16px 22px 40px 14px; border:0; font:inherit; line-height:inherit; letter-spacing:inherit; tab-size:inherit; white-space:pre; }
-    #highlight { overflow:hidden; pointer-events:none; color:var(--code); }
-    #program { width:100%; resize:none; outline:0; overflow:auto; background:transparent; color:transparent; caret-color:var(--text); -webkit-text-fill-color:transparent; }
-    #program::selection { background:rgba(146,229,177,.32); }
+    #program { flex:1; min-width:0; min-height:0; }
     .editor-toolbar { flex:none; height:69px; padding:10px 14px; display:flex; align-items:center; gap:10px; border-top:1px solid var(--border); background:var(--panel); }
     .editor-toolbar button, .editor-toolbar select { flex:none; white-space:nowrap; }
     #theme-toggle { width:30px; height:30px; padding:0; font-size:15px; line-height:1; }
@@ -76,14 +70,6 @@
     #audio-stats[hidden] { display:none; }
     #cpu-load { min-width:30px; color:var(--accent); text-align:right; }
     #audio-format { padding-left:5px; border-left:1px solid var(--border); }
-    .token-keyword { color:#c99bff; } .token-string { color:#9ee6b4; } .token-number { color:#f2c17d; }
-    .token-comment { color:#737b87; font-style:italic; } .token-builtin { color:#82caff; } .token-function { color:#ffb7cf; }
-    :root[data-theme="light"] .token-keyword { color:#6946a8; }
-    :root[data-theme="light"] .token-string { color:#187343; }
-    :root[data-theme="light"] .token-number { color:#a95d08; }
-    :root[data-theme="light"] .token-comment { color:#758291; }
-    :root[data-theme="light"] .token-builtin { color:#176da5; }
-    :root[data-theme="light"] .token-function { color:#ad3f61; }
     #controls { flex:1; min-height:0; display:grid; grid-template-columns:repeat(auto-fit, minmax(112px, 1fr)); align-content:start; gap:10px; padding:12px 14px 28px; overflow:auto; }
     #analysis-panel { flex:none; height:164px; display:flex; border-top:1px solid var(--border); background:var(--analysis); }
     #analysis-canvas { flex:1; min-width:0; height:100%; }
@@ -153,11 +139,7 @@
     <div id="operator-resize" class="resize-handle" role="separator" aria-label="Resize operator reference" aria-orientation="vertical"></div>
     <section id="editor-panel">
       <div class="editor code">
-        <div id="gutter" aria-hidden="true">1</div>
-        <div class="code-stack">
-          <pre id="highlight" aria-hidden="true"></pre>
-          <textarea id="program" spellcheck="false" aria-label="Python AudioVM patch"></textarea>
-        </div>
+        <div id="program" aria-label="Python AudioVM patch"></div>
       </div>
       <div class="editor-toolbar">
         <select id="presets" aria-label="Load preset" disabled><option value="">Presets…</option></select>
@@ -196,6 +178,9 @@
           <option value="tone-100">100 Hz tone</option>
           <option value="tone-440">440 Hz tone</option>
           <option value="sweep">1 s sine sweep</option>
+          <option value="impulse">Impulse</option>
+          <option value="noise-burst">Noise burst</option>
+          <option value="tones">Tones</option>
         </select>
         <label>Volume</label>
         <div id="audio-input-volume" class="knob" role="slider" tabindex="0" aria-label="Input volume"></div>
@@ -224,10 +209,15 @@
     </section>
   </main>
   <script type="module">
+    import { EditorState, RangeSetBuilder } from 'https://cdn.jsdelivr.net/npm/@codemirror/state@6.5.2/+esm';
+    import { EditorView, Decoration, ViewPlugin, keymap, lineNumbers } from 'https://cdn.jsdelivr.net/npm/@codemirror/view@6.36.4/+esm';
+    import { indentUnit, indentOnInput } from 'https://cdn.jsdelivr.net/npm/@codemirror/language@6.11.0/+esm';
+    import { defaultKeymap, history as editorHistory, historyKeymap, indentLess, indentMore } from 'https://cdn.jsdelivr.net/npm/@codemirror/commands@6.8.1/+esm';
+    import { python as pythonLanguage } from 'https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6.2.1/+esm';
     import { PythonPatchRunner, starterPatch } from './python-runner.js';
     import createAudioVM from './audiovm.js';
 
-    const editor = document.querySelector('#program');
+    const editorHost = document.querySelector('#program');
     const loadButton = document.querySelector('#load');
     const playButton = document.querySelector('#play');
     const webMidiButton = document.querySelector('#web-midi');
@@ -241,8 +231,6 @@
     const count = document.querySelector('#control-count');
     const warning = document.querySelector('#warning');
     const error = document.querySelector('#error');
-    const highlight = document.querySelector('#highlight');
-    const gutter = document.querySelector('#gutter');
     const rightPanel = document.querySelector('#right-panel');
     const transportBar = document.querySelector('#transport-bar');
     const transportToggle = document.querySelector('#transport-toggle');
@@ -310,7 +298,129 @@
     let pianoSpectrumStart = 0;
     let pianoSpectrumSpan = 1;
     let operatorDefinitions = [];
-    editor.value = starterPatch;
+    // CodeMirror handles visual wrapping, while this plugin makes each
+    // continuation start one two-space indent beyond its source line.
+    const wrappedLineIndent = ViewPlugin.fromClass(class {
+      constructor(view) { this.decorations = this.build(view); }
+      update(update) {
+        if (update.docChanged) this.decorations = this.build(update.view);
+      }
+      build(view) {
+        const builder = new RangeSetBuilder();
+        for (let number = 1; number <= view.state.doc.lines; number++) {
+          const line = view.state.doc.line(number);
+          const leadingWhitespace = line.text.match(/^[\t ]*/)[0];
+          const columns = [...leadingWhitespace].reduce((total, character) => total + (character === '\t' ? 2 : 1), 0);
+          const indent = `${columns + 2}ch`;
+          builder.add(line.from, line.from, Decoration.line({
+            attributes: { style: `--wrap-indent:${indent};--wrap-outdent:-${indent}` },
+          }));
+        }
+        return builder.finish();
+      }
+    }, { decorations: plugin => plugin.decorations });
+    const pythonKeywords = new Set(['and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'if', 'import', 'in', 'is', 'lambda', 'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield']);
+    const pythonBuiltins = new Set(['True', 'False', 'None', 'print', 'range', 'len', 'str', 'int', 'float', 'dict', 'list', 'set', 'tuple', 'type', 'isinstance']);
+    const pythonSyntaxHighlighting = ViewPlugin.fromClass(class {
+      constructor(view) { this.decorations = this.build(view); }
+      update(update) {
+        if (update.docChanged) this.decorations = this.build(update.view);
+      }
+      build(view) {
+        const builder = new RangeSetBuilder();
+        for (let number = 1; number <= view.state.doc.lines; number++) {
+          const line = view.state.doc.line(number);
+          let index = 0;
+          while (index < line.text.length) {
+            const character = line.text[index];
+            if (character === '#') {
+              builder.add(line.from + index, line.to, Decoration.mark({ class: 'cm-python-comment' }));
+              break;
+            }
+            if (character === '"' || character === "'") {
+              const quote = character;
+              let end = index + 1;
+              while (end < line.length) {
+                if (line.text[end] === quote && line.text[end - 1] !== '\\') { end++; break; }
+                end++;
+              }
+              builder.add(line.from + index, line.from + end, Decoration.mark({ class: 'cm-python-string' }));
+              index = end;
+              continue;
+            }
+            if (/\d/.test(character)) {
+              const match = line.text.slice(index).match(/^\d+(?:\.\d*)?(?:[eE][+-]?\d+)?/)[0];
+              builder.add(line.from + index, line.from + index + match.length, Decoration.mark({ class: 'cm-python-number' }));
+              index += match.length;
+              continue;
+            }
+            if (/[A-Za-z_]/.test(character)) {
+              const word = line.text.slice(index).match(/^[A-Za-z_]\w*/)[0];
+              const rest = line.text.slice(index + word.length).trimStart();
+              const className = pythonKeywords.has(word) ? 'cm-python-keyword'
+                : pythonBuiltins.has(word) ? 'cm-python-builtin'
+                : rest.startsWith('(') ? 'cm-python-function' : '';
+              if (className) builder.add(line.from + index, line.from + index + word.length, Decoration.mark({ class: className }));
+              index += word.length;
+              continue;
+            }
+            index++;
+          }
+        }
+        return builder.finish();
+      }
+    }, { decorations: plugin => plugin.decorations });
+
+    const editorTheme = EditorView.theme({
+      '&': { height: '100%', backgroundColor: 'var(--editor)', color: 'var(--code)' },
+      '.cm-scroller': { overflow: 'auto', font: '13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' },
+      '.cm-content': { minHeight: '100%', padding: '16px 22px 40px 14px', caretColor: 'var(--text)' },
+      '.cm-line': { paddingLeft: 'var(--wrap-indent, 2ch)', textIndent: 'var(--wrap-outdent, -2ch)' },
+      '.cm-gutters': { borderRight: '1px solid var(--border)', backgroundColor: 'var(--editor)', color: 'var(--gutter)' },
+      '.cm-lineNumbers .cm-gutterElement': { minWidth: '46px', padding: '0 9px 0 0', lineHeight: '1.55' },
+      '.cm-python-keyword': { color: 'var(--syntax-keyword)' },
+      '.cm-python-string': { color: 'var(--syntax-string)' },
+      '.cm-python-number': { color: 'var(--syntax-number)' },
+      '.cm-python-comment': { color: 'var(--syntax-comment)', fontStyle: 'italic' },
+      '.cm-python-builtin': { color: 'var(--syntax-builtin)' },
+      '.cm-python-function': { color: 'var(--syntax-function)' },
+      '&.cm-focused': { outline: 'none' },
+      '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': { backgroundColor: 'rgba(146,229,177,.32)' },
+    }, { dark: true });
+
+    let editorView;
+    const editor = {
+      get value() { return editorView.state.doc.toString(); },
+      set value(value) {
+        editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: value } });
+      },
+    };
+    editorView = new EditorView({
+      state: EditorState.create({
+        doc: starterPatch,
+        extensions: [
+          lineNumbers(),
+          editorHistory(),
+          indentOnInput(),
+          indentUnit.of('  '),
+          EditorState.tabSize.of(2),
+          pythonLanguage(),
+          EditorView.lineWrapping,
+          wrappedLineIndent,
+          pythonSyntaxHighlighting,
+          editorTheme,
+          keymap.of([
+            { key: 'Mod-s', run: () => { savePatch(); return true; } },
+            { key: 'Mod-Enter', run: () => { loadPatch(); return true; } },
+            { key: 'Tab', run: indentMore },
+            { key: 'Shift-Tab', run: indentLess },
+            ...defaultKeymap,
+            ...historyKeymap,
+          ]),
+        ],
+      }),
+      parent: editorHost,
+    });
 
     const renderOperatorList = () => {
       const query = operatorSearch.value.trim().toLowerCase();
@@ -443,44 +553,6 @@
       width => main.style.setProperty('--editor-width', `${width}px`),
       () => main.clientWidth - document.querySelector('#operator-sidebar').getBoundingClientRect().width - 280 - 12);
     const operatorDefinitionsReady = loadOperatorDefinitions();
-
-    const keywords = new Set(['and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'if', 'import', 'in', 'is', 'lambda', 'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield']);
-    const builtins = new Set(['True', 'False', 'None', 'print', 'range', 'len', 'str', 'int', 'float', 'dict', 'list', 'set', 'tuple', 'type', 'isinstance']);
-    const escapeHTML = text => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-    const highlightPythonLine = line => {
-      let html = '', index = 0, functionName = false;
-      while (index < line.length) {
-        const char = line[index];
-        if (char === '#') { html += `<span class="token-comment">${escapeHTML(line.slice(index))}</span>`; break; }
-        if (char === '"' || char === "'") {
-          const quote = char; let end = index + 1;
-          while (end < line.length) { if (line[end] === quote && line[end - 1] !== '\\') { end++; break; } end++; }
-          html += `<span class="token-string">${escapeHTML(line.slice(index, end))}</span>`; index = end; continue;
-        }
-        if (/\d/.test(char)) {
-          const match = line.slice(index).match(/^\d+(?:\.\d*)?(?:[eE][+-]?\d+)?/)[0];
-          html += `<span class="token-number">${match}</span>`; index += match.length; continue;
-        }
-        if (/[A-Za-z_]/.test(char)) {
-          const word = line.slice(index).match(/^[A-Za-z_]\w*/)[0];
-          const className = keywords.has(word) ? 'token-keyword' : functionName ? 'token-function' : builtins.has(word) ? 'token-builtin' : '';
-          html += className ? `<span class="${className}">${word}</span>` : word;
-          functionName = word === 'def' || word === 'class'; index += word.length; continue;
-        }
-        html += escapeHTML(char); index++;
-      }
-      return html;
-    };
-    const updateEditorChrome = () => {
-      const lines = editor.value.split('\n');
-      highlight.innerHTML = lines.map(highlightPythonLine).join('\n') + '\n';
-      gutter.textContent = lines.map((_, index) => index + 1).join('\n');
-    };
-    editor.addEventListener('input', updateEditorChrome);
-    editor.addEventListener('scroll', () => {
-      highlight.scrollTop = editor.scrollTop; highlight.scrollLeft = editor.scrollLeft; gutter.scrollTop = editor.scrollTop;
-    });
-    updateEditorChrome();
 
     const python = new PythonPatchRunner();
     let processor = false;
@@ -988,17 +1060,27 @@
       spectrumFrequencyScale.hidden = !showSpectrum.checked;
     });
     const makeInputBuffer = () => {
-      const frames = audioContext.sampleRate;
+      const type = audioInputSource.value;
+      const toneFrequencies = [55, 110, 220, 440, 880, 1760, 3520, 7040];
+      const frames = audioContext.sampleRate * (type === 'tones' ? toneFrequencies.length / 2 : 1);
       const buffer = audioContext.createBuffer(1, frames, audioContext.sampleRate);
       const samples = buffer.getChannelData(0);
-      const type = audioInputSource.value;
+      const sampleRate = audioContext.sampleRate;
       let phase = 0;
       for (let frame = 0; frame < frames; frame++) {
-        if (type === 'noise') samples[frame] = Math.random() * 2 - 1;
+        if (type === 'impulse') samples[frame] = frame === 0 ? 1 : 0;
+        else if (type === 'noise-burst') samples[frame] = frame < sampleRate * 0.1 ? Math.random() * 2 - 1 : 0;
+        else if (type === 'noise') samples[frame] = Math.random() * 2 - 1;
+        else if (type === 'tones') {
+          const toneFrames = frames / toneFrequencies.length;
+          const tone = Math.min(toneFrequencies.length - 1, Math.floor(frame / toneFrames));
+          const toneTime = (frame - tone * toneFrames) / sampleRate;
+          samples[frame] = Math.exp(-6 * toneTime) * Math.sin(2 * Math.PI * toneFrequencies[tone] * toneTime);
+        }
         else {
           const frequency = type === 'tone-100' ? 100 : type === 'tone-440' ? 440 : 20 * Math.pow(1000, frame / frames);
           samples[frame] = Math.sin(phase);
-          phase += 2 * Math.PI * frequency / audioContext.sampleRate;
+          phase += 2 * Math.PI * frequency / sampleRate;
         }
       }
       return buffer;
@@ -1173,7 +1255,6 @@
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         editor.value = await response.text();
         presetSelect.value = preset;
-        updateEditorChrome();
         if (updateURL) {
           const url = new URL(window.location.href);
           url.searchParams.set('preset', preset);
@@ -1215,48 +1296,6 @@
     presetSelect.addEventListener('change', async () => {
       if (!presetSelect.value) return;
       await loadPreset(presetSelect.value);
-    });
-    editor.addEventListener('keydown', event => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
-        event.preventDefault();
-        savePatch();
-        return;
-      }
-      if (event.key === 'Tab') {
-        event.preventDefault();
-        const indent = '  ';
-        const text = editor.value;
-        const start = editor.selectionStart;
-        const end = editor.selectionEnd;
-
-        if (start === end && !event.shiftKey) {
-          editor.setRangeText(indent, start, end, 'end');
-        } else {
-          const lineStart = text.lastIndexOf('\n', start - 1) + 1;
-          const selection = text.slice(lineStart, end);
-          if (event.shiftKey) {
-            let removedBeforeCursor = 0;
-            let removedTotal = 0;
-            const unindented = selection.replace(/^ {1,2}/gm, (spaces, offset) => {
-              removedTotal += spaces.length;
-              if (offset < start - lineStart) removedBeforeCursor += spaces.length;
-              return '';
-            });
-            editor.value = text.slice(0, lineStart) + unindented + text.slice(end);
-            editor.selectionStart = Math.max(lineStart, start - removedBeforeCursor);
-            editor.selectionEnd = Math.max(editor.selectionStart, end - removedTotal);
-          } else {
-            const indented = selection.replace(/^/gm, indent);
-            const lineCount = selection.split('\n').length;
-            editor.value = text.slice(0, lineStart) + indented + text.slice(end);
-            editor.selectionStart = start + indent.length;
-            editor.selectionEnd = end + indent.length * lineCount;
-          }
-        }
-        updateEditorChrome();
-        return;
-      }
-      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); loadPatch(); }
     });
     const runtimeReady = python.prepare(message => { status.textContent = message; })
     .then(() => {
