@@ -13,7 +13,7 @@ note = midi.note + interval
 # A short gate on each step retriggers the amplitude envelope.
 phase = (transport.beatPos * 4) % 1
 gate = midi.gate * (phase < 0.55)
-env = vm.op("envADSR", {"gate": gate, "a": 0.005, "d": 0.09, "s": 0.35, "r": 0.04})
-osc = vm.op("oscSaw", {"note": note})
+env = vm.op("envADSR", {"gate": gate, "a": 5e-3, "d": .09, "s": .35, "r": .04})
+osc = vm.op("oscAnalog", {"note": note})
 
-vm.op("audioOut", osc * env * 0.22)
+vm.op("audioOut", osc * (env * 0.22))
