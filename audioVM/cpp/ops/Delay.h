@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../Operator.h"
-#include "InterpTab.h"
+#include "../utils/InterpTab.h"
 
 using namespace AudioVM;
 
@@ -14,8 +14,8 @@ public:
     
     struct Reader {
         Reader() { reset(); }
-        void reset() { pos=-1; speed=1; s1 = a1 = b0 = b1 = 0; }
-        float pos, speed, s1, a1, b0, b1;
+        void reset() { pos=-1; speed=1; s1 = b0 = b1 = 0; ai = 1; }
+        float pos, speed, s1, ai, b0, b1;
     } mReader; // default reader
     
     float getLag(Reader &R);
@@ -100,16 +100,16 @@ void FilterDelay::read(float *outBuf, int numSamples, float lagTarget, FilterDes
     float speedStep = (endSpeed-R.speed) / (1.5f * numSamples);
     speedStep /= (1 + 1e3f * fabsf(speedStep));
     
-    float s1 = R.s1, a1 = R.a1, b0 = R.b0, b1 = R.b1, step = 1.f/numSamples;
+    float s1 = R.s1, ai = R.ai, b0 = R.b0, b1 = R.b1, step = 1.f/numSamples;
     const float f = std::clamp(2 * filter.frequency, 1e-5f, 1.f);
     const float pMax = -0.602f;
     Reader T;
-    T.a1 = 1 - f*(2-f) * (1-pMax);
-    T.b0 = lerp(filter.ampHi, -(1+pMax), std::max(0.f,1-1.1f*(1-f)));
-    T.b1 = (1-T.a1) * (filter.ampLo - T.b0);
-    assert(fabsf(T.a1)<1);
+    T.ai = f*(2-f) * (1-pMax);
+    T.b0 = lerp(filter.ampHi, std::max(0.f, filter.ampHi-filter.ampLo) - (1+pMax), f*f);
+    T.b1 = filter.ampLo - T.b0;
+    assert(fabsf(1-T.ai)<1);
     
-    const float stepA1 = step * (T.a1 - a1), stepB0 = step * (T.b0 - b0), stepB1 = step * (T.b1 - b1);
+    const float stepAi = step * (T.ai - ai), stepB0 = step * (T.b0 - b0), stepB1 = step * (T.b1 - b1);
     
     R.pos -= bufSize * floorf(R.pos / bufSize);
     DEBUGCHECK(R.pos >= 0.f, "ModDelay reading before buffer!");
@@ -121,19 +121,23 @@ void FilterDelay::read(float *outBuf, int numSamples, float lagTarget, FilterDes
         subPos -= kSubSize * (subPos>=kSubSize);
         float read = InterpTab::lookup(&mBuf[subPos>>kNumSubBits], (subPos>>(kNumSubBits-InterpTab::Bits)) & kTabMask);
         
-        s1 = a1 * s1 + read;
+        s1 += ai * (read - s1);
         outBuf[i] = b0 * read + b1 * s1;
         subPos  += subStep;
-        a1 += stepA1;
+        ai += stepAi;
         b0 += stepB0;
         b1 += stepB1;
     }
     R.pos = ((float)subPos) / nSub;
     R.speed += numSamples * speedStep;
-    R.s1 = s1; R.a1 = a1; R.b0 = b0; R.b1 = b1;
+    R.s1 = s1; R.ai = ai; R.b0 = b0; R.b1 = b1;
 }
 static inline void copy(const float *src, float *dst, size_t N) {
+#if 0
     memcpy(dst, src, sizeof(float)*N);
+#else
+    for (int n = 0; n < N; n++) { dst[n] = src[n]; } // memcpy is slow on some platforms
+#endif
 }
 void FilterDelay::write(const float *src, int N) {
     const int ringSize = getLength();

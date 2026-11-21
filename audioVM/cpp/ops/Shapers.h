@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../Operator.h"
-#include "InterpTab.h"
 
 using namespace AudioVM;
 

@@ -187,3 +187,4 @@ class VCA : public Operator {
 private:
     float mGain = 0.f;
 };
+

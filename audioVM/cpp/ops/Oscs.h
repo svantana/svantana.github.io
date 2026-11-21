@@ -1,17 +1,13 @@
 #pragma once
 
 #include "../Operator.h"
-#include "InterpTab.h"
+#include "../utils/InterpTab.h"
+#include "../utils/fastMath.h"
 
 using namespace AudioVM;
 
-// some basic ops to get started
 static inline float convertNoteToHz(float note) {
     return (note > 0) * 440 * exp2f((note-69)/12);
-}
-static inline float fastUnitSinUnsafe(float x) {
-    float b = x * (1-x);
-    return b * (.5f-x) * (12.63816744f + b * (35.870132f + 56.16403226f * b));
 }
 
 class OscSin : public Operator {
@@ -34,25 +30,26 @@ public:
         float gainTrg = i[Gain].valueOrDefault(1.f);
         
         if (i[Reset].value() > 0.5f) {
-            mUnitPhase = 0.f;
+            mPhase = 0.f;
             mPhaseStep = stepTrg;
             mGain = gainTrg;
         }
-        float phaseStep = mPhaseStep, gain = mGain;
+        float phase = mPhase, phaseStep = mPhaseStep, gain = mGain;
         float gainStep = (gainTrg - gain) / mBlockSize;
         
         for (int n = 0; n < N; n++) {
             phaseStep += stepStep * (stepTrg - phaseStep);
-            mUnitPhase += phaseStep;
-            mUnitPhase -= floorf(mUnitPhase);
+            phase += phaseStep;
+            phase -= floorf(phase);
             gain += gainStep;
-            o->data()[n] = gain * fastUnitSinUnsafe(mUnitPhase);
+            o->data()[n] = gain * Fast::unitSin_noWrap(phase);
         }
-        mGain = gain;
+        mPhase = phase;
         mPhaseStep = phaseStep;
+        mGain = gain;
     }
 private:
-    float mUnitPhase = 0.f, mPhaseStep = 0.f, mGain = 0.f;
+    float mPhase = 0.f, mPhaseStep = 0.f, mGain = 0.f;
 };
 class FMOp : public Operator {
 public:
@@ -80,9 +77,8 @@ public:
         float *fm = i[FMSource].data();
         for (int n = 0; n < N; n++) {
             phaseStep += stepStep * (stepTrg - phaseStep);
-            phase += phaseStep - (phase > 1);
-            float p = phase + fm[n];
-            o->data()[n] = fastUnitSinUnsafe(p - floorf(p));
+            phase += phaseStep - floorf(phase);
+            o->data()[n] = Fast::unitSin(phase + fm[n]);
         }
         mPhase = phase;
         mPhaseStep = phaseStep;
@@ -128,14 +124,42 @@ public:
         mPhaseStep = phaseStep;
         mShape = shape;
     }
-private:
-    float mUnitPhase = 0.f, mPhaseStep = 0.f, mShape = 0.f;
-    
     static inline float shapeOsc(float p, float shape) {
         p -= floorf(p);
         float b = 4*p * (1-p), o = 4*b * (1+b) * (.5f-p), sP = std::max(0.f, shape), sN = std::max(0.f, -shape);
         return o / (1+8*sN*(1-b) + (sP + sN * b) * (fabsf(o)-1));
     }
+private:
+    float mUnitPhase = 0.f, mPhaseStep = 0.f, mShape = 0.f;
+};
+
+class LFO :  public BlockRateOp {
+public:
+    enum In  { Rate, Shape, Reset, ResetPhase, NumInputs };
+    enum Out { Output, NumOutputs };
+    std::string getPortName(Port::Dir dir, int index) override {
+        cStr i[]={"rate","shape","reset", "reset phase"};
+        cStr o[]={"output"};
+        return (dir==Port::In) ? i[index] : o[index];
+    }
+    int getNumPorts(Port::Dir dir) override {
+        return (dir == Port::Out) ? NumOutputs : NumInputs;
+    }
+    void process(Buffer *i, Buffer *o, int N) override {
+        float dt = N / mSamplerate;
+        const float rateHz = i[Rate].valueOrDefault(1.f);
+        const float shape = i[Shape].valueOrDefault(0.f);
+        const float phaseStep = rateHz * dt;
+        mPhase += phaseStep;
+        mPhase -= floorf(mPhase);
+        if (i[Reset].valueOrDefault(0.f) > 0.5f) {
+            mPhase = i[ResetPhase].valueOrDefault(0.f);
+        }
+        float osc = OscShape::shapeOsc(mPhase, shape);
+        o[Output].set(osc);
+    }
+private:
+    float mPhase = 0.f;
 };
 
 class OscSaw : public Operator {

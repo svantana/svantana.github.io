@@ -25,12 +25,13 @@ with vm.when(envA > 1e-3):
 
 # rimshot
 onset = onsets.read(1)
-envA = vm.op("envExp", {"gate": onset, "decay": .01})
+envA = vm.op("envExp", {"gate": onset, "decay": .015})
 with vm.when(envA > 1e-3):
   osc1 = vm.op("oscSin", {"frequency": 460, "reset": onset})
   osc2 = vm.op("oscSin", {"frequency": 1.7e3, "reset": onset})
-  rim = osc1 * (envA * 0.3) + osc2 * (envA*envA * 0.5) # double envelope
-  #rim = vm.op("filterHP", {"frequency": 1e3, "resonance": 0.3})(rim)
+  rim = osc1 + osc2 * envA # double envelope
+  rim = vm.op("saturation", {"pre-gain": 3.0 * envA, "post-gain": 0.7})(rim)
+  rim = vm.op("filterHP", {"frequency": 500, "resonance": 0.2})(rim)
   mix += rim
 
 # snare
@@ -46,7 +47,7 @@ with vm.when(envA > 1e-3):
 
 # clap
 onset = onsets.read(3)
-envA = vm.op("envExp", {"gate": onset, "decay": (.01 + 0.3 * unitLength), "repeats": 3, "repeatTime": 0.025})
+envA = vm.op("envExp", {"gate": onset, "decay": (.01 + 0.3 * unitLength), "repeats": 2, "repeatTime": 0.028})
 with vm.when(envA > 1e-3):
   noiBP = vm.op("filterBP", {"frequency": 1e3 + 1e3 * unitPitch, "resonance": 0.7, "reset": onset})(noise)
   mix += noiBP * envA

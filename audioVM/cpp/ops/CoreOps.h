@@ -400,3 +400,14 @@ public:
         }
     }
 };
+class MathUnitSin : public UnaryOp {
+public:
+    void process(Buffer *i, Buffer *o, int N) override {
+        for (int ch = 0; ch < i->numChannels; ch++) {
+            for (int n = 0; n < i->numSamples; n++) {
+                //fastUnitSinUnsafe(<#float x#>)
+                o->data(ch)[n] = expf(i->data(ch)[n]);
+            }
+        }
+    }
+};
