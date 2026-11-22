@@ -133,7 +133,7 @@ private:
     float mUnitPhase = 0.f, mPhaseStep = 0.f, mShape = 0.f;
 };
 
-class LFO :  public BlockRateOp {
+class LFO : public BlockRateOp {
 public:
     enum In  { Rate, Shape, Reset, ResetPhase, NumInputs };
     enum Out { Output, NumOutputs };
@@ -157,6 +157,33 @@ public:
         }
         float osc = OscShape::shapeOsc(mPhase, shape);
         o[Output].set(osc);
+    }
+private:
+    float mPhase = 0.f;
+};
+
+class LFORamp : public BlockRateOp {
+public:
+    enum In  { Rate, Reset, ResetPhase, NumInputs };
+    enum Out { Output, NumOutputs };
+    std::string getPortName(Port::Dir dir, int index) override {
+        cStr i[]={"rate", "reset", "reset phase"};
+        cStr o[]={"output"};
+        return (dir==Port::In) ? i[index] : o[index];
+    }
+    int getNumPorts(Port::Dir dir) override {
+        return (dir == Port::Out) ? NumOutputs : NumInputs;
+    }
+    void process(Buffer *i, Buffer *o, int N) override {
+        float dt = N / mSamplerate;
+        const float rateHz = i[Rate].valueOrDefault(1.f);
+        const float phaseStep = rateHz * dt;
+        mPhase += phaseStep;
+        mPhase -= floorf(mPhase);
+        if (i[Reset].valueOrDefault(0.f) > 0.5f) {
+            mPhase = i[ResetPhase].valueOrDefault(0.f);
+        }
+        o[Output].set(mPhase);
     }
 private:
     float mPhase = 0.f;

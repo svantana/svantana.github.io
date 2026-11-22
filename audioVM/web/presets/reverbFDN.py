@@ -7,17 +7,22 @@ numDelays = 4
 pMix = vm.control("mix", 0.75)
 pSize = vm.control("size", 0.8, range=[0.1, 1.0])
 pDecay = vm.control("decay", 0.5)
-pDamp = vm.control("damping", 0.25)
+pDamp = vm.control("damping", 0)
+pRate = vm.control("lfo rate", 0.5, range=[0.01, 5])
+pDepth = vm.control("lfo depth", 5, range=[0,10])
 
 input = vm.op("audioIn")
 
 damp = 4*(1.1-pDecay)**2
 dampHi = damp + 4 * pDamp
 
+lfoPhase = vm.op("lfoRamp", {"rate": pRate})
+lfoScale = 1e-3 * pDepth
 delays = []
 for n in range(numDelays):
   tBase, tExpo = 0.03, 1.54
-  t = pSize * (tBase * tExpo ** n)
+  lfo = vm.op("unitSin", {})(lfoPhase + n / numDelays)
+  t = pSize * (tBase * tExpo ** n) + lfoScale * lfo
   delays += [vm.delay({"time": t, "cutoff": 2e3, "damp": damp, "damp hi": dampHi, "max": (1.01 * tBase * tExpo ** (numDelays-1) + .01)})]
 
 # Mix taps

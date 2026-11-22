@@ -5,6 +5,7 @@
 #include <memory>
 #include <stdexcept>
 #include "../Operator.h"
+#include "../utils/fastMath.h"
 
 using namespace AudioVM;
 
@@ -287,17 +288,10 @@ private:
 
 // math ops
 struct UnaryOp : public Operator {
-    int getNumPorts(Port::Dir dir) override {
-        return 1;
+    std::string getPortName(Port::Dir dir, int index) override {
+        return dir == Port::In ? "input" : "output";
     }
-    void process(Buffer *i, Buffer *o, int N) override {
-        assert(i[0].numSamples == o[0].numSamples);
-        for (int ch = 0; ch < i->numChannels; ch++) {
-            for (int n = 0; n < i->numSamples; n++) {
-                o->data(ch)[n] = expf(i->data(ch)[n]);
-            }
-        }
-    }
+    int getNumPorts(Port::Dir dir) override { return 1; }
 };
 struct BinaryOp : public Operator {
     int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? 2 : 1; }
@@ -317,6 +311,12 @@ struct Less { static float apply(float a, float b) { return a < b ? 1.f : 0.f; }
 struct LessEqual { static float apply(float a, float b) { return a <= b ? 1.f : 0.f; } };
 struct Greater { static float apply(float a, float b) { return a > b ? 1.f : 0.f; } };
 struct GreaterEqual { static float apply(float a, float b) { return a >= b ? 1.f : 0.f; } };
+
+struct Exp { static float apply(float value) { return expf(value); } };
+struct Floor { static float apply(float value) { return floorf(value); } };
+struct Round { static float apply(float value) { return roundf(value); } };
+struct Ceil { static float apply(float value) { return ceilf(value); } };
+struct UnitSin { static float apply(float value) { return Fast::unitSin(value); } };
 
 // Mutates an existing BufferOperator output. It has no output of its own: the
 // first input is the mutable target and the second is the incoming value.
@@ -360,54 +360,20 @@ protected:
     }
 };
 
-class MathExp : public UnaryOp {
-public:
+template <class Operation>
+class MathUnary : public UnaryOp {
+protected:
     void process(Buffer *i, Buffer *o, int N) override {
-        for (int ch = 0; ch < i->numChannels; ch++) {
-            for (int n = 0; n < i->numSamples; n++) {
-                o->data(ch)[n] = expf(i->data(ch)[n]);
+        assert(i[0].numSamples == o[0].numSamples);
+        const int channels = std::max(i[0].numChannels, o[0].numChannels);
+        const int numSamples = std::min(N, i[0].numSamples);
+        for (int ch = 0; ch < channels; ++ch) {
+            const float *src = i[0].dataWrap(ch);
+            float *dst = o[0].dataWrap(ch);
+            for (int n = 0; n < numSamples; ++n) {
+                dst[n] = Operation::apply(src[n]);
             }
         }
     }
 };
-class MathFloor : public UnaryOp {
-public:
-    void process(Buffer *i, Buffer *o, int N) override {
-        for (int ch = 0; ch < i->numChannels; ++ch) {
-            for (int n = 0; n < i->numSamples; ++n) {
-                o->data(ch)[n] = floorf(i->data(ch)[n]);
-            }
-        }
-    }
-};
-class MathRound : public UnaryOp {
-public:
-    void process(Buffer *i, Buffer *o, int N) override {
-        for (int ch = 0; ch < i->numChannels; ++ch) {
-            for (int n = 0; n < i->numSamples; ++n) {
-                o->data(ch)[n] = roundf(i->data(ch)[n]);
-            }
-        }
-    }
-};
-class MathCeil : public UnaryOp {
-public:
-    void process(Buffer *i, Buffer *o, int N) override {
-        for (int ch = 0; ch < i->numChannels; ++ch) {
-            for (int n = 0; n < i->numSamples; ++n) {
-                o->data(ch)[n] = ceilf(i->data(ch)[n]);
-            }
-        }
-    }
-};
-class MathUnitSin : public UnaryOp {
-public:
-    void process(Buffer *i, Buffer *o, int N) override {
-        for (int ch = 0; ch < i->numChannels; ch++) {
-            for (int n = 0; n < i->numSamples; n++) {
-                //fastUnitSinUnsafe(<#float x#>)
-                o->data(ch)[n] = expf(i->data(ch)[n]);
-            }
-        }
-    }
-};
+

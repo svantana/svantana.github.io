@@ -63,10 +63,11 @@ Processor::Processor()
     registerType("idiv", make<InplaceBinaryOp<Div>>(), "Divides a writable buffer in place.");
     registerType("toAudio", make<ControlToAudio>(), "Converts a block-rate value to a smoothly changing full-rate signal.");
     // math functions
-    registerType("exp", make<MathExp>(), "Applies the natural exponential function.");
-    registerType("floor", make<MathFloor>(), "Rounds each value down to the nearest integer.");
-    registerType("round", make<MathRound>(), "Rounds each value to the nearest integer.");
-    registerType("ceil", make<MathCeil>(), "Rounds each value up to the nearest integer.");
+    registerType("exp", make<MathUnary<Exp>>(), "Applies the natural exponential function.");
+    registerType("floor", make<MathUnary<Floor>>(), "Rounds each value down to the nearest integer.");
+    registerType("round", make<MathUnary<Round>>(), "Rounds each value to the nearest integer.");
+    registerType("ceil", make<MathUnary<Ceil>>(), "Rounds each value up to the nearest integer.");
+    registerType("unitSin", make<MathUnary<UnitSin>>(), "Approximate sin with unit period");
     
     // binary ops
     registerType("add", make<MathBinary<Add>>(), "Adds two values.");
@@ -97,6 +98,8 @@ Processor::Processor()
     registerType("envADSR", make<EnvADSR>(), "Generates an attack, decay, sustain, and release envelope.");
     registerType("envExp", make<EnvExp>(), "Generates a repeating exponential decay envelope.");
     registerType("envFollow", make<EnvFollower>(), "Tracks the amplitude envelope of an incoming signal.");
+    registerType("lfo", make<LFORamp>(), "LFO with shape -1: square, 0: sin, 1: saw");
+    registerType("lfoRamp", make<LFORamp>(), "LFO ramping linearly from 0 to 1");
     registerType("vca", make<VCA>(), "Applies a control gain to an audio signal");
     registerType("saturation", make<Saturation>(), "Soft saturation of an audio signal");
 }
