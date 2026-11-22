@@ -61,20 +61,25 @@ class Operator:
         return self.round()
 
     def __call__(self, input):
-        """Set the signal input of a mapping-style operator.
+        """Set the signal input of an operator.
 
-        This permits a pipeline-like form, for example:
+        This permits pipeline-like forms for both positional and named inputs,
+        for example ``vm.op("unitSin")(phase)`` and
         ``vm.op("filterLP", {"frequency": 1e3})(osc)``.
         """
-        if not isinstance(self.input, dict):
-            raise TypeError("Only operators configured with a dictionary can accept an input")
-        if "input" in self.input:
-            raise TypeError("This operator already has an input")
         if isinstance(input, Operator):
             if input.vm is not self.vm:
                 raise ValueError("Cannot mix different DSP vms")
             input = input.name
-        self.input["input"] = input
+
+        if self.input is None:
+            self.input = input
+        elif isinstance(self.input, dict):
+            if "input" in self.input:
+                raise TypeError("This operator already has an input")
+            self.input["input"] = input
+        else:
+            raise TypeError("This operator already has an input")
         # Python evaluates ``vm.op(... )`` before evaluating the argument to
         # this second call.  An expression such as ``filter(osc1 + osc2)``
         # therefore appends its ``add`` node after the filter.  Move the

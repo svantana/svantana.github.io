@@ -2,34 +2,34 @@ import audioVM
 
 vm = audioVM.VM()
 
-numDelays = 4
+numDelays = 4 # global fixed setting
 
-pMix = vm.control("mix", 0.75)
+# UI-exposed control parameters
+pMix = vm.control("mix", 0.9)
 pSize = vm.control("size", 0.8, range=[0.1, 1.0])
 pDecay = vm.control("decay", 0.5)
 pDamp = vm.control("damping", 0)
-pRate = vm.control("lfo rate", 0.5, range=[0.01, 5])
-pDepth = vm.control("lfo depth", 5, range=[0,10])
-
-input = vm.op("audioIn")
+pRate = vm.control("lfo rate", 0.6, range=[0.01, 5])
+pDepth = vm.control("lfo depth", 2, range=[0,10])
 
 damp = 4*(1.1-pDecay)**2
 dampHi = damp + 4 * pDamp
+in_scaled = vm.op("audioIn") * (0.25 - 0.2 * pDecay) # compensate for feedback buildup
 
 lfoPhase = vm.op("lfoRamp", {"rate": pRate})
 lfoScale = 1e-3 * pDepth
 delays = []
 for n in range(numDelays):
-  tBase, tExpo = 0.03, 1.54
-  lfo = vm.op("unitSin", {})(lfoPhase + n / numDelays)
+  tBase, tExpo = 0.03, 1.57
+  lfo = vm.op("unitSin")(lfoPhase + n / numDelays)
   t = pSize * (tBase * tExpo ** n) + lfoScale * lfo
   delays += [vm.delay({"time": t, "cutoff": 2e3, "damp": damp, "damp hi": dampHi, "max": (1.01 * tBase * tExpo ** (numDelays-1) + .01)})]
 
-# Mix taps
+# mix taps
 tap_sum = sum(delays[1:], delays[0]) # hack to avoid adding to zero
-in_scaled = input * (0.25 - 0.2 * pDecay) # compensate for feedback buildup
 sum_feedback = in_scaled + tap_sum * (2 / numDelays) # Householder factor
 
+# write output
 for n in range(numDelays):
     feedback = delays[(n+1) % numDelays] - sum_feedback
     delays[n].write(feedback)

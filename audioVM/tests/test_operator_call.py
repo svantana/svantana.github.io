@@ -86,6 +86,23 @@ class OperatorCallTests(unittest.TestCase):
         })
         self.assertIn('"input": {"frequency": 1000.0, "resonance": 0.5, "input": "oscSaw1"}', vm.get_json())
 
+    def test_call_sets_positional_input_on_an_unconfigured_operator(self):
+        vm = VM()
+        phase = vm.op("oscSaw", {"frequency": 1})
+
+        lfo = vm.op("unitSin")(phase)
+
+        self.assertEqual(lfo.input, "oscSaw1")
+        self.assertEqual([op.type for op in vm.program], ["oscSaw", "unitSin"])
+        self.assertIn('"type": "unitSin", "id": "unitSin1", "input": "oscSaw1"', vm.get_json())
+
+    def test_call_rejects_a_second_positional_input(self):
+        vm = VM()
+        node = vm.op("unitSin")(vm.op("oscSaw", {"frequency": 1}))
+
+        with self.assertRaisesRegex(TypeError, "already has an input"):
+            node("anotherOsc")
+
     def test_call_rejects_an_existing_input(self):
         vm = VM()
         node = vm.op("filterLP", {"input": "osc", "frequency": 1e3})
