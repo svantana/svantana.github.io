@@ -5,7 +5,7 @@ vm = audioVM.VM()
 numDelays = 4 # global fixed setting
 
 # UI-exposed control parameters
-pMix = vm.control("mix", 0.9)
+pWet = vm.control("mix", 0.9)
 pSize = vm.control("size", 0.8, range=[0.1, 1.0])
 pDecay = vm.control("decay", 0.5)
 pDamp = vm.control("damping", 0)
@@ -14,7 +14,8 @@ pDepth = vm.control("lfo depth", 2, range=[0,10])
 
 damp = 4*(1.1-pDecay)**2
 dampHi = damp + 4 * pDamp
-in_scaled = vm.op("audioIn") * (0.25 - 0.2 * pDecay) # compensate for feedback buildup
+dry = vm.op("audioIn")
+in_scaled = dry * (0.25 - 0.2 * pDecay) # compensate for feedback buildup
 
 lfoPhase = vm.op("lfoRamp", {"rate": pRate})
 lfoScale = 1e-3 * pDepth
@@ -34,5 +35,5 @@ for n in range(numDelays):
     feedback = delays[(n+1) % numDelays] - sum_feedback
     delays[n].write(feedback)
 
-wet = tap_sum * pMix
-vm.op("audioOut", wet + input * (1 - pMix))
+wet = tap_sum * pWet
+vm.op("audioOut", wet + dry * (1 - pWet * pWet))

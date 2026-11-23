@@ -471,5 +471,31 @@ int main() {
         std::cerr << "mutable array did not reset before the next block\n";
         return 1;
     }
+
+    // Kit pads are a MIDI-derived event fan-in: named pad triggers retain
+    // simultaneous hits without requiring a polyphonic graph region.
+    AudioVM::Processor kitProcessor;
+    kitProcessor.setup(44100.f, 1, 1, 16);
+    kitProcessor.loadFromJSON(R"({"version":1,"blocksize":16,"program":[
+        {"type":"kitPad","id":"kit.kick","midi":"midi","pad":"kick"},
+        {"type":"kitPad","id":"kit.snare","midi":"midi","pad":"snare"},
+        {"type":"add","id":"hits","input":["kit.kick.onset","kit.snare.onset"]},
+        {"type":"toAudio","id":"signal","input":"hits"},
+        {"type":"audioOut","id":"out","input":"signal"}
+    ]})");
+    kitProcessor.midiEvent(static_cast<char>(0x90), 48, 100);
+    kitProcessor.midiEvent(static_cast<char>(0x90), 49, 96);
+    float kitOutput[16]{};
+    float* kitOutputs[] = {kitOutput};
+    kitProcessor.process(nullptr, kitOutputs, 16);
+    if (std::abs(kitOutput[15] - 2.f) > 1e-6f) {
+        std::cerr << "kit pads lost simultaneous MIDI hits\n";
+        return 1;
+    }
+    kitProcessor.process(nullptr, kitOutputs, 16);
+    if (std::abs(kitOutput[15]) > 1e-6f) {
+        std::cerr << "kit pad onset did not clear after one block\n";
+        return 1;
+    }
     return 0;
 }

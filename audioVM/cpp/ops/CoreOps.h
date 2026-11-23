@@ -37,6 +37,28 @@ private:
     MidiEventFifo mProcessedEvents;
 };
 using MidiIn = MidiBuffer;
+
+// A named drum pad. The processor routes MIDI events to pads according to
+// its runtime drum-map policy; patches only name the sounds they use.
+class KitPad : public BlockRateOp {
+public:
+    enum Out { Onset, Velocity, NumOutputs };
+    int getNumPorts(Port::Dir dir) override { return dir == Port::Out ? NumOutputs : 0; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        static const cStr outputs[] = {"onset", "velocity"};
+        return dir == Port::Out ? outputs[index] : "";
+    }
+    void trigger(float velocity) { mOnset = 1.f; mVelocity = velocity; }
+    void clearTrigger() { mOnset = 0.f; }
+    void process(Buffer*, Buffer* out, int) override {
+        out[Onset].value() = mOnset;
+        out[Velocity].value() = mVelocity;
+    }
+    void reset() override { mOnset = mVelocity = 0.f; }
+private:
+    float mOnset = 0.f;
+    float mVelocity = 0.f;
+};
 struct TransportIn : public BlockRateOp {
     enum Type { BPM, BeatPos, Play, LoopBeats, NumTypes };
     int getNumPorts(Port::Dir dir) override { return (dir == Port::Out) ? NumTypes : 0; }

@@ -78,6 +78,7 @@ private:
         std::vector<Buffer> mInputs, mOutputs;
         std::string mId;
         std::string mType;
+        std::string mKitMidiId, mKitPadName;
         int mIndex;
         bool mIsIfStart = false;
     };
@@ -88,6 +89,13 @@ private:
         std::vector<Entry> list;
         std::vector<float> mIoBuffer;
         std::vector<int> mAudioInIds, mAudioOutIds, mControlIds, mMidiBufferIds;
+        struct KitPadBinding {
+            int midiBufferId;
+            int padIndex;
+            int noteClass;
+        };
+        // A kit's declared order assigns pads to C, C#, D, and so on.
+        std::vector<KitPadBinding> mKitPadBindings;
         int mMidiInId = -1;
         int mMidiOutputId = -1;
         int mTransportInId = -1;

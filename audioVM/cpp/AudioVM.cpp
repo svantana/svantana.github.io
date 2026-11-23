@@ -40,6 +40,7 @@ Processor::Processor()
     registerType(kIdAudioOut, make<AudioOut>(), "Sends a signal to the host audio output.");
     registerType("midiIn", make<MidiBuffer>(), "Provides the latest MIDI gate, note, velocity, and event triggers.");
     registerType("midiBuffer", make<MidiBuffer>(), "Buffers MIDI events for routing and inspection.");
+    registerType("kitPad", make<KitPad>(), "Provides a named drum pad's onset and velocity from the runtime drum map.");
     registerType("transportIn", make<TransportIn>(), "Provides transport tempo, beat position, play state, and loop length.");
     registerType("polyStart", make<PolyStart>(), "Begins a polyphonic voice-processing region.");
     registerType("polyEnd", make<PolyEnd>(), "Ends a polyphonic voice-processing region.");
@@ -262,6 +263,7 @@ bool Processor::compileProgram() {
     mProgram.mMidiInId = -1;
     mProgram.mMidiOutputId = -1;
     mProgram.mMidiBufferIds.clear();
+    mProgram.mKitPadBindings.clear();
     mProgram.mTransportInId = -1;
 
     int size = 1; // Keep a zero value for unconnected control-rate inputs.
@@ -306,6 +308,26 @@ bool Processor::compileProgram() {
         if (dynamic_cast<TransportIn*>(entry.op.get())) {
             mProgram.mTransportInId = n;
         }
+    }
+    std::map<int, int> nextKitNoteClass;
+    for (int index = 0; index < static_cast<int>(mProgram.list.size()); ++index) {
+        const Entry& entry = mProgram.list[index];
+        if (dynamic_cast<const KitPad*>(entry.op.get()) == nullptr) continue;
+        int midiBufferId = -1;
+        for (const int candidate : mProgram.mMidiBufferIds) {
+            if (mProgram.list[candidate].mId == entry.mKitMidiId) {
+                midiBufferId = candidate;
+                break;
+            }
+        }
+        if (midiBufferId < 0) {
+            throw std::runtime_error("kitPad '" + entry.mId + "' refers to unknown MIDI buffer '" + entry.mKitMidiId + "'");
+        }
+        const int noteClass = nextKitNoteClass[midiBufferId]++;
+        if (noteClass >= 12) {
+            throw std::runtime_error("kit '" + entry.mKitMidiId + "' has more than 12 pads");
+        }
+        mProgram.mKitPadBindings.push_back({midiBufferId, index, noteClass});
     }
     // Populate persistent source storage before operator initialization.
     // This lets init() consume an input's initial value without knowing what
@@ -865,6 +887,17 @@ void Processor::loadFromJSON(std::string jsonString) {
             const int opId = addOperator(type, std::move(inputs));
             Entry& entry = mProgram.list.back();
             entry.mId = id;
+            if (type == "kitPad") {
+                const auto midiIt = object.find("midi");
+                const auto padIt = object.find("pad");
+                if (midiIt == object.end() || !midiIt->second.is<std::string>() ||
+                    padIt == object.end() || !padIt->second.is<std::string>() ||
+                    midiIt->second.get<std::string>().empty() || padIt->second.get<std::string>().empty()) {
+                    throw std::runtime_error(context + "kitPad requires non-empty string properties 'midi' and 'pad'");
+                }
+                entry.mKitMidiId = midiIt->second.get<std::string>();
+                entry.mKitPadName = padIt->second.get<std::string>();
+            }
             mCompiler.mIdToIndex.emplace(id, opId);
             if (dynamic_cast<MidiBuffer*>(entry.op.get()) != nullptr) {
                 mCompiler.mIdToIndex.emplace(id + ".gate", opId + MidiBuffer::Gate);
@@ -872,6 +905,10 @@ void Processor::loadFromJSON(std::string jsonString) {
                 mCompiler.mIdToIndex.emplace(id + ".velocity", opId + MidiBuffer::Velocity);
                 mCompiler.mIdToIndex.emplace(id + ".onset", opId + MidiBuffer::Onset);
                 mCompiler.mIdToIndex.emplace(id + ".offset", opId + MidiBuffer::Offset);
+            }
+            if (dynamic_cast<KitPad*>(entry.op.get()) != nullptr) {
+                mCompiler.mIdToIndex.emplace(id + ".onset", opId + KitPad::Onset);
+                mCompiler.mIdToIndex.emplace(id + ".velocity", opId + KitPad::Velocity);
             }
         }
         compileProgram();
@@ -916,6 +953,10 @@ std::string Processor::getOpListAsJSON() {
             sourceIds.emplace(entry.mIndex + MidiBuffer::Velocity, entry.mId + ".velocity");
             sourceIds.emplace(entry.mIndex + MidiBuffer::Onset, entry.mId + ".onset");
             sourceIds.emplace(entry.mIndex + MidiBuffer::Offset, entry.mId + ".offset");
+        }
+        if (dynamic_cast<const KitPad*>(entry.op.get()) != nullptr) {
+            sourceIds.emplace(entry.mIndex + KitPad::Onset, entry.mId + ".onset");
+            sourceIds.emplace(entry.mIndex + KitPad::Velocity, entry.mId + ".velocity");
         }
         if (dynamic_cast<const TransportIn*>(entry.op.get()) != nullptr) {
             sourceIds.emplace(entry.mIndex + TransportIn::BPM, "transport.bpm");
@@ -977,6 +1018,10 @@ std::string Processor::getOpListAsJSON() {
             node["input"] = picojson::value(inputs);
         } else {
             node["type"] = picojson::value(entry.mType);
+        }
+        if (dynamic_cast<const KitPad*>(entry.op.get()) != nullptr) {
+            node["midi"] = picojson::value(entry.mKitMidiId);
+            node["pad"] = picojson::value(entry.mKitPadName);
         }
         operators.emplace_back(node);
     }
@@ -1408,6 +1453,13 @@ void Processor::applyMidiEvent(int midiBufferId, MidiEvent event) {
             O[MidiIn::Note].set(note);
             O[MidiIn::Velocity].set(velocity);
             O[MidiIn::Onset].set(1.f);
+            for (const auto& binding : mProgram.mKitPadBindings) {
+                if (binding.midiBufferId != midiBufferId) continue;
+                if (note % 12 == binding.noteClass) {
+                    Entry& padEntry = mProgram.list[binding.padIndex];
+                    static_cast<KitPad*>(padEntry.op.get())->trigger(static_cast<float>(velocity));
+                }
+            }
             for (PolyRange& range : mPolyPrograms) {
                 if (range.midiBufferId != midiBufferId) continue;
                 Voice* selected = nullptr;
@@ -1557,6 +1609,9 @@ void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
                 voice.mMidiValues[MidiIn::Onset] = 0.f;
                 voice.mMidiValues[MidiIn::Offset] = 0.f;
             }
+        }
+        for (const auto& binding : mProgram.mKitPadBindings) {
+            static_cast<KitPad*>(mProgram.list[binding.padIndex].op.get())->clearTrigger();
         }
         advanceTransport(blockSize);
         ioPos += blockSize;

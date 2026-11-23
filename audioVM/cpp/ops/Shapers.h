@@ -23,6 +23,9 @@ public:
         float n = t * mSamplerate;
         return 1 / (1 + n);
     }
+    static inline float satGain(float a) {
+        return (a+1) / (1 + a * (a+1));
+    }
     void process(Buffer *i, Buffer *o, int numSamples) override {
         int N = std::min(numSamples, i[0].numSamples);
         float gPre = i[PreGain].value(), gPost = i[PostGain].value();
@@ -30,8 +33,8 @@ public:
         for (int n = 0; n < N; n++) {
             float v = gPre * x[n];
             float a = fabsf(v);
-            env += .2f * (a - env);
-            y[n] = gPost * v / (1 + env);
+            env += .25f * (a - env); // smoothing to reduce alias
+            y[n] = gPost * v * satGain(env);
         }
         mEnv = env;
     }

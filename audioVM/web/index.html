@@ -111,6 +111,7 @@
     #right-panel:focus { outline:2px solid var(--accent); outline-offset:-2px; }
     .keyboard-panel { flex:none; height:69px; padding:0; border-top:1px solid var(--border); background:var(--panel); }
     #piano { position:relative; height:100%; display:grid; border:1px solid #090a0c; border-radius:4px; overflow:hidden; background:#e8e9e8; }
+    #piano.kit { grid-auto-flow:column; grid-auto-columns:minmax(0, 1fr); background:var(--panel); }
     .piano-key { touch-action:none; user-select:none; }
     .piano-key.white { position:relative; grid-row:1; min-width:0; border:0; border-right:1px solid #8e9394; border-radius:0; background:#f5f5f1; color:transparent; padding:0; font:10px ui-monospace, monospace; }
     .key-label { position:absolute; right:0; bottom:4px; left:0; text-align:center; }
@@ -122,6 +123,10 @@
     .piano-key:hover { border-color:var(--accent); }
     .piano-key.active { background:var(--accent); color:#112116; border-color:var(--accent); }
     .piano-key.black.active { background:#76c995; color:#102116; }
+    .piano-key.kit-pad { position:relative; grid-row:1; min-width:0; border:0; border-right:1px solid var(--border); border-radius:0; background:var(--panel); color:var(--text); padding:8px 4px; font:12px ui-monospace, monospace; }
+    .piano-key.kit-pad:last-child { border-right:0; }
+    .piano-key.kit-pad .key-label { display:block; margin-bottom:6px; color:var(--muted); font-size:10px; }
+    .piano-key.kit-pad.active { background:var(--accent); color:#112116; }
     @media (max-width:720px) { main, main.ops-collapsed { grid-template-columns:1fr; grid-template-rows:auto minmax(340px, 56vh) auto; } #operator-sidebar, #operator-resize, #editor-panel, #player-resize, #right-panel { grid-column:auto; } .resize-handle { display:none; } #operator-sidebar { max-height:42vh; } section + section { border:0; border-top:1px solid var(--border); } #controls { min-height:220px; } }
   </style>
 </head>
@@ -294,6 +299,7 @@
       : keyboardFallbackLabels;
     let keyboardLabels = new Map(Object.entries(keyboardDefaultLabels));
     let pianoKeys = new Map();
+    let kitPads = [];
     let pianoFrequencyStops = [];
     let pianoSpectrumStart = 0;
     let pianoSpectrumSpan = 1;
@@ -709,9 +715,10 @@
       return value && typeof value === 'object' && Object.values(value).some(containsMidiReference);
     };
     const updatePianoVisibility = graph => {
-      const usesMidi = graph.program.some(node => containsMidiReference(node.input));
+      kitPads = graph.program.filter(node => node.type === 'kitPad').map(node => node.pad);
+      const usesMidi = kitPads.length || graph.program.some(node => containsMidiReference(node.input));
       keyboardPanel.hidden = !usesMidi;
-      pianoSpectrumScale.disabled = !usesMidi;
+      pianoSpectrumScale.disabled = !usesMidi || kitPads.length > 0;
       if (!usesMidi && spectrumFrequencyScale.value === 'piano') spectrumFrequencyScale.value = 'log';
       if (usesMidi) requestAnimationFrame(renderPiano);
       if (!usesMidi) releaseAllNotes();
@@ -847,7 +854,9 @@
     });
     const keyboardRange = [...keyboardSemitones.values()];
     const keyboardMaxSemitone = Math.max(...keyboardRange);
-    const midiNoteForCode = code => 12 * (baseOctave + 1) + keyboardSemitones.get(code);
+    const midiNoteForCode = code => kitPads.length
+      ? 60 + keyboardSemitones.get(code)
+      : 12 * (baseOctave + 1) + keyboardSemitones.get(code);
     const keyboardLabelForCode = code => {
       const label = keyboardLabels.get(code) || keyboardDefaultLabels[code] || code;
       return label.length === 1 ? label.toLocaleUpperCase() : label;
@@ -888,6 +897,24 @@
       }).sort((a, b) => a.position - b.position);
     }
     const renderPiano = () => {
+      if (kitPads.length) {
+        piano.classList.add('kit');
+        piano.style.gridTemplateColumns = `repeat(${kitPads.length}, minmax(0, 1fr))`;
+        piano.replaceChildren(); pianoKeys = new Map();
+        kitPads.forEach((pad, index) => {
+          const midi = 60 + index;
+          const key = document.createElement('button');
+          key.className = 'piano-key kit-pad'; key.dataset.midi = midi;
+          const code = [...keyboardSemitones.keys()][index];
+          const label = code ? keyboardLabelForCode(code) : '';
+          key.setAttribute('aria-label', `${pad}${label ? `, ${label} key` : ''}`);
+          key.innerHTML = `${label ? `<span class="key-label">${label}</span>` : ''}${pad}`;
+          piano.append(key); pianoKeys.set(midi, key);
+        });
+        pianoFrequencyStops = [];
+        return;
+      }
+      piano.classList.remove('kit');
       const whiteCount = Math.max(17, Math.ceil(piano.clientWidth / 24));
       const natural = [0, 2, 4, 5, 7, 9, 11];
       const firstC = 12 * baseOctave;
@@ -1164,17 +1191,20 @@
       if (keyboardPanel.hidden) return;
       rememberKeyboardLabel(event);
       if (event.code === 'KeyZ' || event.code === 'KeyX') {
+        if (kitPads.length) return;
         event.preventDefault();
         if (!event.repeat) transposeOctave(event.code === 'KeyZ' ? -1 : 1);
         return;
       }
-      if (event.ctrlKey || event.metaKey || event.altKey || !keyboardSemitones.has(event.code) || event.repeat) return;
+      if (event.ctrlKey || event.metaKey || event.altKey || !keyboardSemitones.has(event.code) || event.repeat ||
+          (kitPads.length && keyboardSemitones.get(event.code) >= kitPads.length)) return;
       event.preventDefault();
       sendNoteOn(`keyboard:${event.code}`, midiNoteForCode(event.code));
     });
     rightPanel.addEventListener('keyup', event => {
       if (keyboardPanel.hidden) return;
-      if (!keyboardSemitones.has(event.code)) return;
+      if (!keyboardSemitones.has(event.code) ||
+          (kitPads.length && keyboardSemitones.get(event.code) >= kitPads.length)) return;
       event.preventDefault();
       sendNoteOff(`keyboard:${event.code}`);
     });

@@ -24,6 +24,7 @@ class Operator:
                 if isinstance(item, Operator):
                     input[i] = item.name
         self.input = input
+        self.properties = {}
 
     def __add__  (self, other): return self.vm.binary("add", self, other)
     def __radd__ (self, other): return self.vm.binary("add", other, self)
@@ -146,9 +147,40 @@ class Array:
 
 class Midi: # convenience class for midi inputs
     def __init__(self, vm, name="midi"):
+        self.vm = vm
+        self.name = name
         outs = ["channel", "gate", "onset", "offset", "note", "velocity", "pitchbend", "modwheel"]
         for out in outs:
             setattr(self, out, Operator(vm, "const", name+"."+out))
+
+    def kit(self, pads):
+        """Create named drum-pad triggers sourced from this MIDI stream.
+
+        Pad names are mapped to MIDI notes by the runtime, keeping note maps
+        out of patches. Each pad exposes ``onset`` and ``velocity``.
+        """
+        if not isinstance(pads, (list, tuple)) or not pads:
+            raise TypeError("kit pads must be a non-empty list or tuple of names")
+        if any(not isinstance(pad, str) or not pad.isidentifier() for pad in pads):
+            raise ValueError("kit pad names must be valid Python identifiers")
+        if len(set(pads)) != len(pads):
+            raise ValueError("kit pad names must be unique")
+        return Kit(self, pads)
+
+class KitPad:
+    def __init__(self, vm, source):
+        self.onset = Operator(vm, "const", source.name + ".onset")
+        self.velocity = Operator(vm, "const", source.name + ".velocity")
+
+class Kit:
+    def __init__(self, midi, pads):
+        self.midi = midi
+        midi.vm.kitCount += 1
+        prefix = "kit" + str(midi.vm.kitCount)
+        for pad in pads:
+            source = midi.vm.op("kitPad", id=prefix + "." + pad)
+            source.properties = {"midi": midi.name, "pad": pad}
+            setattr(self, pad, KitPad(midi.vm, source))
 
 class Transport:
     """Block-rate transport values supplied by the AudioVM host."""
@@ -168,6 +200,7 @@ class VM:
     def __init__(self, polyphony=1):
         self.program = []
         self.typeCounts = {}
+        self.kitCount = 0
         self.polyphony = polyphony
         self.midiObj = Midi(self)
         self.midiObjects = {"midi": self.midiObj}
@@ -436,6 +469,8 @@ class VM:
                 s += ', "input": ' + i
             if hasattr(p, "range"):
                 s += ', "range": ' + json.dumps(p.range)
+            for key, value in p.properties.items():
+                s += ', ' + json.dumps(key) + ': ' + json.dumps(value)
             s += '},\n'
         if self.program:
             s = s[:-2] + "\n\t]\n}\n"
