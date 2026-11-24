@@ -9,7 +9,7 @@ vm = audioVM.VM()
 frequency = vm.control("frequency", 220)
 level = vm.control("level", 0.12)
 
-oscillator = vm.op("oscSaw", {"note": frequency})
+oscillator = vm.op("oscAnalog", {"note": frequency})
 amplifier = oscillator * level
 vm.op("audioOut", amplifier)
 `;

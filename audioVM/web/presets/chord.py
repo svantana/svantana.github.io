@@ -3,7 +3,7 @@ import audioVM
 vm = audioVM.VM()
 midi = vm.midi()
 
-pCutoff = vm.control("cutoff", 0.1)
+pCutoff = vm.control("cutoff", 0.4)
 pRez = vm.control("resonance", 0.7)
 
 oscSum = vm.op("buffer")

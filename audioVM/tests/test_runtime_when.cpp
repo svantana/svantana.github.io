@@ -255,13 +255,13 @@ int main() {
     // forwarded through one processor's MIDI output into another processor.
     const char* directSynth = R"({"version":1,"program":[
         {"type":"midiBuffer","id":"generator"},
-        {"type":"oscSaw","id":"osc","input":{"note":"generator.note"}},
+        {"type":"oscAnalog","id":"osc","input":{"note":"generator.note"}},
         {"type":"envADSR","id":"env","input":{"gate":"generator.gate","a":0.001,"d":0.1,"s":0.5,"r":0.1}},
         {"type":"mul","id":"amp","input":["osc","env"]},
         {"type":"audioOut","id":"out","input":"amp"}
     ]})";
     const char* receivingSynth = R"({"version":1,"program":[
-        {"type":"oscSaw","id":"osc","input":{"note":"midi.note"}},
+        {"type":"oscAnalog","id":"osc","input":{"note":"midi.note"}},
         {"type":"envADSR","id":"env","input":{"gate":"midi.gate","a":0.001,"d":0.1,"s":0.5,"r":0.1}},
         {"type":"mul","id":"amp","input":["osc","env"]},
         {"type":"audioOut","id":"out","input":"amp"}

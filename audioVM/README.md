@@ -6,7 +6,7 @@ AudioVM is a small DSP graph runtime. Write patches in Python; run them natively
 import audioVM
 
 vm = audioVM.VM()
-osc = vm.op("oscSaw", {"note": 60})
+osc = vm.op("oscAnalog", {"note": 60})
 vm.op("audioOut", osc * 0.1)
 ```
 

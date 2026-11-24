@@ -75,30 +75,30 @@ class OperatorCallTests(unittest.TestCase):
 
     def test_call_sets_mapping_input_and_returns_operator(self):
         vm = VM()
-        osc = vm.op("oscSaw", {"note": 60})
+        osc = vm.op("oscAnalog", {"note": 60})
 
         filtered = vm.op("filterLP", {"frequency": 1e3, "resonance": 0.5})(osc)
 
         self.assertEqual(filtered.input, {
             "frequency": 1e3,
             "resonance": 0.5,
-            "input": "oscSaw1",
+            "input": "oscAnalog1",
         })
-        self.assertIn('"input": {"frequency": 1000.0, "resonance": 0.5, "input": "oscSaw1"}', vm.get_json())
+        self.assertIn('"input": {"frequency": 1000.0, "resonance": 0.5, "input": "oscAnalog1"}', vm.get_json())
 
     def test_call_sets_positional_input_on_an_unconfigured_operator(self):
         vm = VM()
-        phase = vm.op("oscSaw", {"frequency": 1})
+        phase = vm.op("oscAnalog", {"frequency": 1})
 
         lfo = vm.op("unitSin")(phase)
 
-        self.assertEqual(lfo.input, "oscSaw1")
-        self.assertEqual([op.type for op in vm.program], ["oscSaw", "unitSin"])
-        self.assertIn('"type": "unitSin", "id": "unitSin1", "input": "oscSaw1"', vm.get_json())
+        self.assertEqual(lfo.input, "oscAnalog1")
+        self.assertEqual([op.type for op in vm.program], ["oscAnalog", "unitSin"])
+        self.assertIn('"type": "unitSin", "id": "unitSin1", "input": "oscAnalog1"', vm.get_json())
 
     def test_call_rejects_a_second_positional_input(self):
         vm = VM()
-        node = vm.op("unitSin")(vm.op("oscSaw", {"frequency": 1}))
+        node = vm.op("unitSin")(vm.op("oscAnalog", {"frequency": 1}))
 
         with self.assertRaisesRegex(TypeError, "already has an input"):
             node("anotherOsc")
@@ -112,13 +112,13 @@ class OperatorCallTests(unittest.TestCase):
 
     def test_call_places_a_computed_input_before_its_consumer(self):
         vm = VM()
-        osc1 = vm.op("oscSaw", {"note": 60})
-        osc2 = vm.op("oscSaw", {"note": 67})
+        osc1 = vm.op("oscAnalog", {"note": 60})
+        osc2 = vm.op("oscAnalog", {"note": 67})
 
         filtered = vm.op("filterLP", {"frequency": 1e3})(osc1 + osc2)
 
         self.assertEqual([op.type for op in vm.program], [
-            "oscSaw", "oscSaw", "add", "filterLP",
+            "oscAnalog", "oscAnalog", "add", "filterLP",
         ])
         self.assertEqual(filtered.input["input"], "add1")
 
@@ -134,11 +134,11 @@ class OperatorCallTests(unittest.TestCase):
 
     def test_delay_accepts_mapping_inputs_like_other_operators(self):
         vm = VM()
-        source = vm.op("oscSaw", {"note": 60})
+        source = vm.op("oscAnalog", {"note": 60})
         delayed = vm.delay({"input": source, "time": 0.01, "max": 0.1})
 
         self.assertEqual(delayed.input, {
-            "input": "oscSaw1",
+            "input": "oscAnalog1",
             "time": 0.01,
             "max": 0.1,
         })
@@ -152,9 +152,9 @@ class OperatorCallTests(unittest.TestCase):
         vm = VM()
         midi = vm.midi()
         with vm.if_(midi.gate):
-            vm.op("oscSaw", {"note": midi.note})
+            vm.op("oscAnalog", {"note": midi.note})
 
-        self.assertEqual([op.type for op in vm.program], ["ifStart", "oscSaw", "ifEnd"])
+        self.assertEqual([op.type for op in vm.program], ["ifStart", "oscAnalog", "ifEnd"])
         self.assertEqual(vm.program[0].input, {"condition": "midi.gate", "timeOut": 0})
         self.assertIn('"type": "ifStart"', vm.get_json())
         self.assertIn('"type": "ifEnd"', vm.get_json())
@@ -162,7 +162,7 @@ class OperatorCallTests(unittest.TestCase):
     def test_transport_exposes_implicit_sources(self):
         vm = VM()
         transport = vm.transport()
-        vm.op("oscSaw", {"note": transport.bpm + transport.beatPos})
+        vm.op("oscAnalog", {"note": transport.bpm + transport.beatPos})
 
         self.assertEqual(transport.play.name, "transport.play")
         self.assertEqual(transport.loopBeats.name, "transport.loopBeats")
@@ -172,7 +172,7 @@ class OperatorCallTests(unittest.TestCase):
     def test_named_midi_buffer_is_a_program_source(self):
         vm = VM()
         arp = vm.midi("arp")
-        vm.op("oscSaw", {"note": arp.note})
+        vm.op("oscAnalog", {"note": arp.note})
 
         self.assertEqual(vm.program[0].type, "midiBuffer")
         self.assertEqual(vm.program[0].name, "arp")
