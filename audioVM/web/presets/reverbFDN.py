@@ -36,4 +36,4 @@ for n in range(numDelays):
     delays[n].write(feedback)
 
 wet = tap_sum * pWet
-vm.op("audioOut", wet + dry * (1 - pWet * pWet))
+vm.op("audioOut", wet + dry * (1 - pWet * pWet), id="wet")

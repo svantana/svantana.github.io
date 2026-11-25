@@ -29,4 +29,4 @@ filter = vm.op("filterLP", {"frequency": filterHz*2, "resonance": 0})(filter)
 gain = envA * (0.6 - 0.4 * pRez)
 out = filter * gain
 sat = vm.op("saturation", {"pre-gain": pDrive, "post-gain": .1 + 1 / pDrive})(out)
-vm.op("audioOut", sat)
+vm.op("audioOut", sat, id="audio")

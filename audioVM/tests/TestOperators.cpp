@@ -162,15 +162,28 @@ int addOperatorGraph(AudioVM::Processor& processor, const OperatorDefinition& de
 double testOperator(const OperatorDefinition& definition, std::mt19937& random) {
     AudioVM::Processor processor;
     processor.setup(kSampleRate, 1, 1, kBlockSize);
-    const int outputId = addOperatorGraph(processor, definition, random);
-    if (outputId >= 0) {
-        const int outputRate = definition.outputRates.empty()
-            ? AudioVM::Port::Full : definition.outputRates.front();
-        const int sink = outputRate == AudioVM::Port::Full
-            ? outputId : processor.addOperator("toAudio", {outputId});
-        processor.addOperator("audioOut", {sink});
+    int outputId;
+    if (definition.name == "kitPad") {
+        // Kit pads require named MIDI metadata, which the low-level
+        // addOperator API cannot supply. Exercise the normal JSON path.
+        processor.loadFromJSON(R"({"version":1,"program":[
+            {"type":"kitPad","id":"kit.kick","midi":"midi","pad":"kick"},
+            {"type":"toAudio","id":"signal","input":"kit.kick.onset"},
+            {"type":"audioOut","id":"out","input":"signal"}
+        ]})");
+        processor.midiEvent(static_cast<char>(0x90), 48, 100);
+        outputId = 0;
+    } else {
+        outputId = addOperatorGraph(processor, definition, random);
+        if (outputId >= 0) {
+            const int outputRate = definition.outputRates.empty()
+                ? AudioVM::Port::Full : definition.outputRates.front();
+            const int sink = outputRate == AudioVM::Port::Full
+                ? outputId : processor.addOperator("toAudio", {outputId});
+            processor.addOperator("audioOut", {sink});
+        }
+        processor.compileProgram();
     }
-    processor.compileProgram();
     float input[kBlockSize];
     float output[kBlockSize]{};
     float* inputPointers[] = {input};

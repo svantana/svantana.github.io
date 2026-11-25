@@ -7,6 +7,7 @@ import json
 import math
 import os
 import warnings
+import copy
 
 class Operator:
     def __init__(self, vm, nodeType, name=None, input=None):
@@ -190,6 +191,37 @@ class Transport:
         self.play = Operator(vm, "const", "transport.play")
         self.loopBeats = Operator(vm, "const", "transport.loopBeats")
 
+class PatchInstance(Operator):
+    """Included patch whose default signal is its first audio output."""
+    def __init__(self, vm, outputs):
+        self.outputs = outputs
+        if outputs:
+            super().__init__(vm, 'port', next(iter(outputs.values())).name)
+        else:
+            self.vm = vm
+            self.name = None
+            self.type = 'port'
+            self.input = None
+            self.properties = {}
+
+class PendingPatch:
+    """An included patch awaiting its first audio input."""
+    def __init__(self, vm, path, inputs, name, child, port):
+        self.vm, self.path, self.inputs = vm, path, inputs
+        self.name, self.child, self.port = name, child, port
+        self.connected = False
+
+    def __call__(self, signal):
+        if self.connected:
+            raise TypeError('This patch already has an input')
+        instance = self.vm.add(self.path, {**self.inputs, self.port: signal},
+                               self.name, _child=self.child)
+        self.connected = True
+        self.outputs = instance.outputs
+        if not self.outputs:
+            raise ValueError('A callable patch needs an audio output')
+        return next(iter(self.outputs.values()))
+
 class VM:
     _PURE_OPERATOR_TYPES = frozenset((
         "add", "sub", "mul", "div", "pow", "mod", "min", "max",
@@ -207,6 +239,77 @@ class VM:
         self.transportObj = Transport(self)
         self.settings = {}
 
+    def add(self, path, inputs=None, name=None, *, _child=None):
+        """Include a standalone patch, connecting its named audioIn ports.
+
+        Outputs are available by name in the returned object's ``outputs``.
+        Paths are relative to the script containing the call.
+        """
+        inputs = {} if inputs is None else dict(inputs)
+        caller = inspect.currentframe().f_back
+        filename = caller.f_globals.get('__file__', 'patch.py')
+        path = os.path.abspath(os.path.join(os.path.dirname(filename), path))
+        active = getattr(VM, '_active_includes', [])
+        if path in active:
+            raise ValueError('Circular patch inclusion: ' + path)
+        child = _child
+        if child is None:
+            VM._active_includes = active + [path]
+            try:
+                with open(path, encoding='utf-8') as source:
+                    namespace = {'__file__': path, '__name__': '__audiovm_patch__'}
+                    exec(compile(source.read(), path, 'exec'), namespace)
+                child = namespace.get('vm')
+                if not isinstance(child, VM):
+                    raise ValueError(f'{path} must define a VM named vm')
+            finally:
+                VM._active_includes = active
+
+        ports = [op for op in child.program if op.type == 'audioIn']
+        expected = {op.name for op in ports}
+        if ports and set(inputs) == expected - {ports[0].name}:
+            return PendingPatch(self, path, inputs, name, child, ports[0].name)
+        if set(inputs) != expected:
+            raise ValueError(f'{path} audio inputs: expected {sorted(expected)}, got {sorted(inputs)}')
+        prefix = name if name is not None else os.path.splitext(os.path.basename(path))[0]
+        if not isinstance(prefix, str) or not prefix:
+            raise ValueError('Patch name must be a non-empty string')
+        ids = {op.name: prefix + '.' + op.name for op in child.program if op.type not in ('audioIn', 'audioOut')}
+        existing = {op.name for op in self.program}
+        if existing.intersection(ids.values()):
+            raise ValueError(f'Patch name {prefix!r} conflicts with existing nodes')
+        for op in ports:
+            ids[op.name] = self.as_op(inputs[op.name]).name
+
+        def translate(value):
+            if isinstance(value, str):
+                for old in sorted(ids, key=len, reverse=True):
+                    if value == old or value.startswith(old + '.'):
+                        return ids[old] + value[len(old):]
+                return value
+            if isinstance(value, list):
+                return [translate(v) for v in value]
+            if isinstance(value, dict):
+                return {k: translate(v) for k, v in value.items()}
+            return value
+
+        outputs = {}
+        for op in child.program:
+            if op.type == 'audioIn':
+                continue
+            if op.type == 'audioOut':
+                if op.name in outputs:
+                    raise ValueError(f'Duplicate output {op.name!r}')
+                outputs[op.name] = Operator(self, 'port', translate(op.input))
+                continue
+            clone = copy.copy(op)
+            clone.vm = self
+            clone.name = ids[op.name]
+            clone.input = translate(op.input)
+            clone.properties = translate(op.properties)
+            self.program.append(clone)
+        return PatchInstance(self, outputs)
+
     def set(self, key, value=None):
         """Set one or more top-level properties in the generated program JSON."""
         if isinstance(key, dict):
@@ -223,7 +326,8 @@ class VM:
         if nodeType not in self.typeCounts:
             self.typeCounts[nodeType] = 0
         self.typeCounts[nodeType] += 1
-        obj = Operator(self, nodeType, id if id is not None else nodeType + str(self.typeCounts[nodeType]), input)
+        default_id = 'input' if nodeType == 'audioIn' and self.typeCounts[nodeType] == 1 else nodeType + str(self.typeCounts[nodeType])
+        obj = Operator(self, nodeType, id if id is not None else default_id, input)
         obj.source_location = self._source_location()
         self.program += [obj]
         return obj

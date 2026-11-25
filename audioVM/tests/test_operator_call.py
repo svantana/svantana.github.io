@@ -8,6 +8,32 @@ from audioVM import VM
 
 
 class OperatorCallTests(unittest.TestCase):
+    def test_first_audio_input_defaults_to_input(self):
+        vm = VM()
+        self.assertEqual(vm.op('audioIn').name, 'input')
+        self.assertEqual(vm.op('audioIn').name, 'audioIn2')
+
+    def test_included_effect_can_be_called_with_signal(self):
+        vm = VM()
+        source = vm.op('oscAnalog', {'note': 60})
+        path = str(Path(__file__).resolve().parents[1] / 'web/presets/pass-thru.py')
+        effect = vm.add(path)
+        result = effect(source)
+        self.assertEqual(result.name, source.name)
+        self.assertEqual(effect.outputs['audioOut1'].name, source.name)
+        with self.assertRaisesRegex(TypeError, 'already has an input'):
+            effect(source)
+
+    def test_include_defaults_to_filename_and_rejects_duplicate_instance(self):
+        vm = VM()
+        path = str(Path(__file__).resolve().parents[1] / "web/presets/acid bass.py")
+        patch = vm.add(path)
+        self.assertIn("audio", patch.outputs)
+        self.assertEqual((patch * 0.5).input[0], patch.outputs['audio'].name)
+        self.assertTrue(any(op.name == "acid bass.wave" for op in vm.program))
+        with self.assertRaisesRegex(ValueError, "conflicts"):
+            vm.add(path)
+
     def test_extrema_emit_dsp_nodes_for_controls_and_literals(self):
         vm = VM()
         value = vm.control("value", -0.5)

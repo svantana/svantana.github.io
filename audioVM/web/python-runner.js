@@ -38,7 +38,8 @@ import warnings
 namespace = {}
 with warnings.catch_warnings(record=True) as caught_warnings:
     warnings.simplefilter("always", RuntimeWarning)
-    exec(compile(patch_source, "patch.py", "exec"), namespace)
+    namespace["__file__"] = "/presets/patch.py"
+    exec(compile(patch_source, namespace["__file__"], "exec"), namespace)
     vm = namespace.get("vm")
     if vm is None:
         raise RuntimeError("Your patch must assign its VM instance to a variable named vm.")
@@ -60,6 +61,17 @@ json.dumps({
         await this.#loadRuntime();
         const pyodide = await window.loadPyodide({ indexURL: pyodideBase });
         const audioVMSource = await this.#loadAudioVMSource();
+        const manifest = await fetch(new URL('./presets.json', import.meta.url));
+        if (!manifest.ok) throw new Error(`Could not load preset list (${manifest.status}).`);
+        const presets = await manifest.json();
+        pyodide.FS.mkdirTree('/presets');
+        await Promise.all(presets.map(async name => {
+            const response = await fetch(new URL(name, new URL('./presets/', import.meta.url)));
+            if (!response.ok) throw new Error(`Could not load preset ${name} (${response.status}).`);
+            const path = '/presets/' + name;
+            pyodide.FS.mkdirTree(path.slice(0, path.lastIndexOf('/')));
+            pyodide.FS.writeFile(path, await response.text(), { encoding: 'utf8' });
+        }));
         pyodide.globals.set('audiovm_source', audioVMSource);
         await pyodide.runPythonAsync(`
 import sys, types

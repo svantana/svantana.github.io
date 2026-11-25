@@ -100,6 +100,9 @@
     .control .knob { margin:0 auto; }
     .empty { color:var(--muted); margin:8px 0; }
     #controls .empty { grid-column:1 / -1; }
+    .control-group { grid-column:1 / -1; min-width:0; border:1px solid var(--border); border-radius:6px; padding:0 10px 10px; }
+    .control-group h3 { margin:0; padding:8px 4px 0; color:var(--muted); font-size:12px; font-weight:600; }
+    .control-group-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(112px, 1fr)); gap:10px; }
     .control { min-width:0; min-height:118px; display:grid; grid-template-rows:auto 1fr auto; place-items:center; gap:7px; padding:10px; }
     .control label { max-width:100%; font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     output { margin-left:auto; color:var(--accent); font:12px ui-monospace, monospace; }
@@ -695,14 +698,32 @@
         controls.innerHTML = '<p class="empty">This patch has no Control operators.</p>';
         return;
       }
+      const groups = new Map();
       controlNodes.forEach((node, index) => {
+        const separator = node.id.lastIndexOf('.');
+        const prefix = separator > 0 && separator < node.id.length - 1 ? node.id.slice(0, separator) : '';
+        let target = controls;
+        if (prefix) {
+          if (!groups.has(prefix)) {
+            const group = document.createElement('section');
+            group.className = 'control-group';
+            const heading = document.createElement('h3');
+            heading.textContent = prefix;
+            const grid = document.createElement('div');
+            grid.className = 'control-group-grid';
+            group.append(heading, grid);
+            controls.append(group);
+            groups.set(prefix, grid);
+          }
+          target = groups.get(prefix);
+        }
         const value = Number(node.input) || 0;
         const [min, max, step] = sliderOptions(node);
         const wrapper = document.createElement('div');
         wrapper.className = 'control';
         const label = document.createElement('label');
         label.htmlFor = `control-${index}`;
-        label.textContent = node.id;
+        label.textContent = prefix ? node.id.slice(separator + 1) : node.id;
         const output = document.createElement('output');
         const set = next => {
           audioNode.port.postMessage({ type: 'control', index, value: next });
@@ -710,7 +731,8 @@
           output.textContent = output.value;
         };
         const knob = createKnob({ value, min, max, step, label: node.id, onInput: set });
-        wrapper.append(label, knob.element, output); controls.append(wrapper); set(value);
+        knob.element.id = `control-${index}`;
+        wrapper.append(label, knob.element, output); target.append(wrapper); set(value);
       });
     };
     const containsMidiReference = value => {
