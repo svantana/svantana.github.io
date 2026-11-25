@@ -179,6 +179,8 @@
       <div id="audio-input-bar" hidden>
         <label for="audio-input-source">Input</label>
         <select id="audio-input-source" aria-label="Audio input source">
+          <option value="none">None</option>
+          <option value="audio-in">Audio in</option>
           <option value="noise">White noise</option>
           <option value="tone-100">100 Hz tone</option>
           <option value="tone-440">440 Hz tone</option>
@@ -566,6 +568,8 @@
     let audioNode;
     let audioConnected = false;
     let inputSource;
+    let inputStream;
+    let inputRequest = 0;
     let inputGain;
     let inputAnalyser;
     let outputAnalyser;
@@ -1113,27 +1117,46 @@
       return buffer;
     };
     const stopInputSource = () => {
-      if (!inputSource) return;
-      inputSource.onended = null;
-      inputSource.stop();
-      inputSource.disconnect();
+      ++inputRequest;
+      if (inputSource) {
+        inputSource.onended = null;
+        if (!inputStream) inputSource.stop();
+        inputSource.disconnect();
+      }
+      if (inputStream) inputStream.getTracks().forEach(track => track.stop());
+      inputStream = undefined;
       inputSource = undefined;
       audioInputToggle.textContent = 'Start';
     };
     const startInputSource = async () => {
       if (!audioNode || !audioContext) return;
-      await start();
       stopInputSource();
+      const type = audioInputSource.value;
+      if (type === 'none') return;
+      const request = inputRequest;
+      await start();
+      if (request !== inputRequest) return;
+      let stream;
+      if (type === 'audio-in') {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (request !== inputRequest) {
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
+      }
       if (!inputGain) {
         inputGain = audioContext.createGain();
         inputGain.connect(inputAnalyser);
       }
       updateInputVolume();
-      inputSource = audioContext.createBufferSource();
-      inputSource.buffer = makeInputBuffer();
-      inputSource.loop = true;
+      inputStream = stream;
+      inputSource = stream ? audioContext.createMediaStreamSource(stream) : audioContext.createBufferSource();
+      if (!stream) {
+        inputSource.buffer = makeInputBuffer();
+        inputSource.loop = true;
+      }
       inputSource.connect(inputGain);
-      inputSource.start();
+      if (!stream) inputSource.start();
       audioInputToggle.textContent = 'Stop';
     };
     audioInputToggle.addEventListener('click', () => {
@@ -1151,6 +1174,7 @@
     });
     audioInputSource.addEventListener('change', () => {
       if (inputSource) startInputSource().catch(cause => showError(`Could not change input: ${cause.message}`));
+      else stopInputSource();
     });
     updateInputVolume();
     rightPanel.addEventListener('pointerdown', event => {
