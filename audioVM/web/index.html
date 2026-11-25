@@ -217,12 +217,20 @@
       </div>
     </section>
   </main>
+  <script type="importmap">
+    {"imports": {
+      "@codemirror/state": "https://cdn.jsdelivr.net/npm/@codemirror/state@6.5.2/+esm",
+      "@codemirror/view": "https://cdn.jsdelivr.net/npm/@codemirror/view@6.36.4/+esm",
+      "@codemirror/language": "https://cdn.jsdelivr.net/npm/@codemirror/language@6.11.0/+esm"
+    }}
+  </script>
   <script type="module">
     import { EditorState, RangeSetBuilder } from 'https://cdn.jsdelivr.net/npm/@codemirror/state@6.5.2/+esm';
     import { EditorView, Decoration, ViewPlugin, keymap, lineNumbers } from 'https://cdn.jsdelivr.net/npm/@codemirror/view@6.36.4/+esm';
     import { indentUnit, indentOnInput } from 'https://cdn.jsdelivr.net/npm/@codemirror/language@6.11.0/+esm';
     import { defaultKeymap, history as editorHistory, historyKeymap, indentLess, indentMore } from 'https://cdn.jsdelivr.net/npm/@codemirror/commands@6.8.1/+esm';
     import { python as pythonLanguage } from 'https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6.2.1/+esm';
+    import { indentationMarkers } from 'https://cdn.jsdelivr.net/npm/@replit/codemirror-indentation-markers@6.5.3/dist/index.js';
     import { PythonPatchRunner, starterPatch } from './python-runner.js';
     import createAudioVM from './audiovm.js';
 
@@ -413,6 +421,7 @@
           editorHistory(),
           indentOnInput(),
           indentUnit.of('  '),
+          indentationMarkers({ markerType: 'codeOnly', colors: { dark: 'var(--border)', activeDark: 'var(--gutter)' } }),
           EditorState.tabSize.of(2),
           pythonLanguage(),
           EditorView.lineWrapping,
