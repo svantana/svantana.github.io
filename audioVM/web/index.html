@@ -11,8 +11,8 @@
     document.documentElement.dataset.theme = hour >= 7 && hour < 19 ? 'light' : 'dark';
   </script>
   <style>
-    :root { color-scheme:dark; --bg:#111214; --panel:#191b1f; --surface:#15171b; --surface-raised:#282c32; --editor:#14161a; --analysis:#111317; --border:#30343a; --divider:#292d33; --text:#e8eaf0; --muted:#9299a5; --subtle:#bac3cf; --gutter:#69717d; --code:#d7e5dc; --accent:#92e5b1; --accent-text:#102116; --danger:#ff8f8f; --danger-bg:#331d20; --danger-border:#67353a; --knob-bg:#282c32; --syntax-keyword:#c99bff; --syntax-string:#9ee6b4; --syntax-number:#f2c17d; --syntax-comment:#737b87; --syntax-builtin:#82caff; --syntax-function:#ffb7cf; --canvas-grid:rgba(255,255,255,.12); }
-    :root[data-theme="light"] { color-scheme:light; --bg:#f4f6f8; --panel:#ffffff; --surface:#edf1f5; --surface-raised:#ffffff; --editor:#fbfcfd; --analysis:#f8fafc; --border:#cbd4de; --divider:#dbe2e9; --text:#1d2935; --muted:#5f6d7b; --subtle:#435364; --gutter:#788797; --code:#243b32; --accent:#18794e; --accent-text:#fff; --danger:#b42318; --danger-bg:#fff1f0; --danger-border:#f0b5af; --knob-bg:#fff; --syntax-keyword:#6946a8; --syntax-string:#187343; --syntax-number:#a95d08; --syntax-comment:#758291; --syntax-builtin:#176da5; --syntax-function:#ad3f61; --canvas-grid:rgba(36,51,66,.16); }
+    :root { color-scheme:dark; --bg:#111214; --panel:#191b1f; --surface:#15171b; --surface-raised:#282c32; --editor:#14161a; --analysis:#111317; --border:#30343a; --divider:#292d33; --text:#e8eaf0; --muted:#9299a5; --subtle:#bac3cf; --gutter:#69717d; --code:#d7e5dc; --accent:#92e5b1; --accent-text:#102116; --danger:#ff8f8f; --danger-bg:#331d20; --danger-border:#67353a; --syntax-keyword:#c99bff; --syntax-string:#9ee6b4; --syntax-number:#f2c17d; --syntax-comment:#737b87; --syntax-builtin:#82caff; --syntax-function:#ffb7cf; --canvas-grid:rgba(255,255,255,.12); }
+    :root[data-theme="light"] { color-scheme:light; --bg:#f4f6f8; --panel:#ffffff; --surface:#edf1f5; --surface-raised:#ffffff; --editor:#fbfcfd; --analysis:#f8fafc; --border:#cbd4de; --divider:#dbe2e9; --text:#1d2935; --muted:#5f6d7b; --subtle:#435364; --gutter:#788797; --code:#243b32; --accent:#18794e; --accent-text:#fff; --danger:#b42318; --danger-bg:#fff1f0; --danger-border:#f0b5af; --syntax-keyword:#6946a8; --syntax-string:#187343; --syntax-number:#a95d08; --syntax-comment:#758291; --syntax-builtin:#176da5; --syntax-function:#ad3f61; --canvas-grid:rgba(36,51,66,.16); }
     * { box-sizing:border-box; }
     body { margin:0; height:100vh; overflow:hidden; background:var(--bg); color:var(--text); font:14px/1.4 ui-sans-serif, system-ui, sans-serif; }
     #status { min-width:0; margin-left:auto; overflow:hidden; color:var(--muted); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
@@ -94,19 +94,19 @@
     #transport-bar .transport-stepper-buttons button:first-child { border-radius:0 5px 0 0; }
     #transport-bar .transport-stepper-buttons button + button { border-top:0; border-radius:0 0 5px 0; }
     #transport-toggle.running { background:var(--accent); color:var(--accent-text); border-color:var(--accent); }
-    .knob { --knob-angle:-135deg; position:relative; flex:none; width:38px; height:38px; border:2px solid var(--border); border-radius:50%; background:var(--knob-bg); cursor:ns-resize; touch-action:none; }
-    .knob::after { position:absolute; top:5px; left:calc(50% - 1px); width:2px; height:13px; border-radius:1px; background:var(--accent); content:""; transform:rotate(var(--knob-angle)); transform-origin:1px 14px; }
-    .knob:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-    .control .knob { margin:0 auto; }
+    .numbox { --value-fill:0%; position:relative; isolation:isolate; display:grid; grid-template-rows:auto auto; align-content:center; gap:3px; min-width:0; min-height:48px; padding:8px 9px; overflow:hidden; border:1px solid var(--border); border-radius:5px; background:var(--surface-raised); cursor:ns-resize; touch-action:none; }
+    .numbox::before { position:absolute; z-index:-1; inset:0 auto 0 0; width:var(--value-fill); background:var(--accent); opacity:.22; content:""; transition:width 80ms linear; }
+    .numbox-name, .numbox-value { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .numbox-name { color:var(--muted); font-size:11px; font-weight:600; }
+    .numbox-value { color:var(--text); font:13px ui-monospace, monospace; }
+    .numbox:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
     .empty { color:var(--muted); margin:8px 0; }
     #controls .empty { grid-column:1 / -1; }
     .control-group { grid-column:1 / -1; min-width:0; border:1px solid var(--border); border-radius:6px; padding:0 10px 10px; }
     .control-group h3 { margin:0; padding:8px 4px 0; color:var(--muted); font-size:12px; font-weight:600; }
     .control-group-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(112px, 1fr)); gap:10px; }
-    .control { min-width:0; min-height:118px; display:grid; grid-template-rows:auto 1fr auto; place-items:center; gap:7px; padding:10px; }
-    .control label { max-width:100%; font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    output { margin-left:auto; color:var(--accent); font:12px ui-monospace, monospace; }
-    .control output { margin:0; }
+    .control { min-width:0; padding:10px; }
+    .control .numbox { width:100%; box-sizing:border-box; }
     input[type=range] { width:100%; accent-color:var(--accent); }
     #error, #warning { display:none; margin:0; padding:9px 14px; font:12px/1.4 ui-monospace, monospace; white-space:pre-wrap; }
     #error { background:var(--danger-bg); color:var(--danger); border-top:1px solid var(--danger-border); }
@@ -192,8 +192,7 @@
           <option value="noise-burst">Noise burst</option>
           <option value="tones">Tones</option>
         </select>
-        <label>Volume</label>
-        <div id="audio-input-volume" class="knob" role="slider" tabindex="0" aria-label="Input volume"></div>
+        <div id="audio-input-volume" class="numbox" role="slider" tabindex="0" aria-label="Input volume"></div>
         <button id="audio-input-toggle" type="button" disabled>Start</button>
       </div>
       <div id="controls"><p class="empty">Load a patch to generate controls.</p></div>
@@ -650,37 +649,45 @@
         range.every(Number.isFinite) && range[0] < range[1] ? range : [0, 1];
       return [min, max, (max - min) / 1000];
     };
-    const createKnob = ({ element, value, min, max, step, label, onInput }) => {
-      const knob = element ?? document.createElement('div');
-      knob.className = 'knob';
-      knob.tabIndex = 0;
-      knob.setAttribute('role', 'slider');
-      knob.setAttribute('aria-label', label);
-      knob.setAttribute('aria-valuemin', min);
-      knob.setAttribute('aria-valuemax', max);
+    const createNumbox = ({ element, value, min, max, step, label, onInput }) => {
+      const numbox = element ?? document.createElement('div');
+      numbox.className = 'numbox';
+      numbox.tabIndex = 0;
+      numbox.setAttribute('role', 'slider');
+      numbox.setAttribute('aria-label', label);
+      numbox.setAttribute('aria-valuemin', min);
+      numbox.setAttribute('aria-valuemax', max);
+      const name = document.createElement('span');
+      name.className = 'numbox-name';
+      name.textContent = label;
+      const display = document.createElement('span');
+      display.className = 'numbox-value';
+      numbox.replaceChildren(name, display);
       let currentValue;
       const setValue = (nextValue, notify = true) => {
         const snapped = Math.round((Math.max(min, Math.min(max, nextValue)) - min) / step) * step + min;
         currentValue = Math.max(min, Math.min(max, snapped));
         const progress = (currentValue - min) / (max - min);
-        knob.style.setProperty('--knob-angle', `${-135 + progress * 270}deg`);
-        knob.setAttribute('aria-valuenow', currentValue);
-        knob.setAttribute('aria-valuetext', currentValue.toFixed(Math.max(0, String(step).split('.')[1]?.length || 0)));
+        const text = currentValue.toFixed(Math.max(0, Math.min(3, String(step).split('.')[1]?.length || 0)));
+        numbox.style.setProperty('--value-fill', `${progress * 100}%`);
+        numbox.setAttribute('aria-valuenow', currentValue);
+        numbox.setAttribute('aria-valuetext', text);
+        display.textContent = text;
         if (notify) onInput(currentValue);
       };
       let dragStartY, dragStartValue;
-      knob.addEventListener('pointerdown', event => {
+      numbox.addEventListener('pointerdown', event => {
         event.preventDefault();
         dragStartY = event.clientY;
         dragStartValue = currentValue;
-        knob.setPointerCapture(event.pointerId);
+        numbox.setPointerCapture(event.pointerId);
       });
-      knob.addEventListener('pointermove', event => {
-        if (!knob.hasPointerCapture(event.pointerId)) return;
+      numbox.addEventListener('pointermove', event => {
+        if (!numbox.hasPointerCapture(event.pointerId)) return;
         setValue(dragStartValue + (dragStartY - event.clientY) * (max - min) / 160);
       });
-      knob.addEventListener('pointerup', event => knob.releasePointerCapture(event.pointerId));
-      knob.addEventListener('keydown', event => {
+      numbox.addEventListener('pointerup', event => numbox.releasePointerCapture(event.pointerId));
+      numbox.addEventListener('keydown', event => {
         const increment = event.shiftKey ? step * 10 : step;
         if (event.key === 'ArrowUp' || event.key === 'ArrowRight') { event.preventDefault(); setValue(currentValue + increment); }
         if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') { event.preventDefault(); setValue(currentValue - increment); }
@@ -688,7 +695,7 @@
         if (event.key === 'End') { event.preventDefault(); setValue(max); }
       });
       setValue(value, false);
-      return { element: knob, setValue };
+      return { element: numbox, setValue };
     };
     const renderControls = graph => {
       const controlNodes = graph.program.filter(node => node.type === 'control');
@@ -721,18 +728,13 @@
         const [min, max, step] = sliderOptions(node);
         const wrapper = document.createElement('div');
         wrapper.className = 'control';
-        const label = document.createElement('label');
-        label.htmlFor = `control-${index}`;
-        label.textContent = prefix ? node.id.slice(separator + 1) : node.id;
-        const output = document.createElement('output');
+        const label = prefix ? node.id.slice(separator + 1) : node.id;
         const set = next => {
           audioNode.port.postMessage({ type: 'control', index, value: next });
-          output.value = next.toFixed(Math.max(0, Math.min(3, String(step).split('.')[1]?.length || 0)));
-          output.textContent = output.value;
         };
-        const knob = createKnob({ value, min, max, step, label: node.id, onInput: set });
-        knob.element.id = `control-${index}`;
-        wrapper.append(label, knob.element, output); target.append(wrapper); set(value);
+        const numbox = createNumbox({ value, min, max, step, label, onInput: set });
+        numbox.element.id = `control-${index}`;
+        wrapper.append(numbox.element); target.append(wrapper); set(value);
       });
     };
     const containsMidiReference = value => {
@@ -1185,7 +1187,7 @@
       if (inputSource) stopInputSource();
       else startInputSource().catch(cause => showError(`Could not start input: ${cause.message}`));
     });
-    createKnob({
+    createNumbox({
       element: audioInputVolume,
       value: inputVolume,
       min: 0,
