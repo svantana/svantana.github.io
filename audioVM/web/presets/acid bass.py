@@ -21,10 +21,10 @@ prevGate.write(midi.gate)
 glideNote = vm.op("smoother", {"time": pGlide * notOnset})(midi.note)
 osc = vm.op("oscAnalog", {"note": glideNote, "color":pColor, "pulse amount": pPulse, "pulse width": 0.45})
 
-filterHz = (0.2 + 0.8 * pCutoff + pEnv * (envF - 0.3)) ** 4 * 5e3
+filterHz = (0.2 + 0.8 * pCutoff + pEnv * (envF - 0.3)) ** 4 * 12e3
 
 filter = vm.op("filterLP", {"frequency": filterHz, "resonance": pRez * 0.9})(osc)
-filter = vm.op("filterLP", {"frequency": filterHz*2, "resonance": 0})(filter)
+filter = vm.op("filterLP", {"frequency": filterHz*3, "resonance": 0})(filter)
 
 gain = envA * (0.6 - 0.4 * pRez)
 out = filter * gain

@@ -163,7 +163,17 @@ double testOperator(const OperatorDefinition& definition, std::mt19937& random) 
     AudioVM::Processor processor;
     processor.setup(kSampleRate, 1, 1, kBlockSize);
     int outputId;
-    if (definition.name == "kitPad") {
+    if (definition.name == "midiOut") {
+        // MIDI outputs route events to a named buffer rather than exposing a
+        // signal port. Observe the destination gate through an audio sink.
+        processor.loadFromJSON(R"({"version":1,"program":[
+            {"type":"midiBuffer","id":"destination"},
+            {"type":"midiOut","id":"sender","target":"destination","input":{"gate":1,"note":60,"velocity":100}},
+            {"type":"toAudio","id":"signal","input":"destination.gate"},
+            {"type":"audioOut","id":"out","input":"signal"}
+        ]})");
+        outputId = 0;
+    } else if (definition.name == "kitPad") {
         // Kit pads require named MIDI metadata, which the low-level
         // addOperator API cannot supply. Exercise the normal JSON path.
         processor.loadFromJSON(R"({"version":1,"program":[
