@@ -3,11 +3,11 @@ import audioVM
 vm = audioVM.VM()
 midi = vm.midi()
 
-pWave = vm.control("wave", 0.5)
+pPulse = vm.control("pulse", 0, range=[-1,1])
 pColor = vm.control("color", 0.5)
 pCutoff = vm.control("cutoff", 0.5)
 pRez = vm.control("resonance", 0.5)
-pEnv = vm.control("filter envelope", 0.3, range=[-1,1])
+pEnv = vm.control("filter envelope", 0.5, range=[-1,1])
 pEnvT = vm.control("decay", 0.5, range=[0.01, 4])
 pGlide = vm.control("glide", 0.1)
 pDrive = vm.control("drive", 0.1, range=[0.1, 10])
@@ -19,7 +19,7 @@ prevGate = vm.value(0) # use previous gate to determine glide
 notOnset = midi.gate <= prevGate
 prevGate.write(midi.gate)
 glideNote = vm.op("smoother", {"time": pGlide * notOnset})(midi.note)
-osc = vm.op("oscAnalog", {"note": glideNote, "color":pColor, "pulse amount": pWave*2-1, "pulse width": 0.45})
+osc = vm.op("oscAnalog", {"note": glideNote, "color":pColor, "pulse amount": pPulse, "pulse width": 0.45})
 
 filterHz = (0.2 + 0.8 * pCutoff + pEnv * (envF - 0.3)) ** 4 * 5e3
 

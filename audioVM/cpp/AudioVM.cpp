@@ -40,6 +40,7 @@ Processor::Processor()
     registerType(kIdAudioOut, make<AudioOut>(), "Sends a signal to the host audio output.");
     registerType("midiIn", make<MidiBuffer>(), "Provides the latest MIDI gate, note, velocity, and event triggers.");
     registerType("midiBuffer", make<MidiBuffer>(), "Buffers MIDI events for routing and inspection.");
+    registerType("midiOut", make<MidiOut>(), "Emits note events into a named MIDI buffer from gate, note, and velocity signals.");
     registerType("kitPad", make<KitPad>(), "Provides a named drum pad's onset and velocity from the runtime drum map.");
     registerType("transportIn", make<TransportIn>(), "Provides transport tempo, beat position, play state, and loop length.");
     registerType("polyStart", make<PolyStart>(), "Begins a polyphonic voice-processing region.");
@@ -146,6 +147,7 @@ void Processor::clearProgram() {
     mPolyPrograms.clear();
     mIfEndByStart.clear();
     mPolyRangeByStart.clear();
+    mMidiTargetByOperator.clear();
     mVoiceAge = 0;
 }
 int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
@@ -327,6 +329,21 @@ bool Processor::compileProgram() {
             throw std::runtime_error("kit '" + entry.mKitMidiId + "' has more than 12 pads");
         }
         mProgram.mKitPadBindings.push_back({midiBufferId, index, noteClass});
+    }
+    mMidiTargetByOperator.assign(mProgram.list.size(), -1);
+    for (int index = 0; index < static_cast<int>(mProgram.list.size()); ++index) {
+        Entry& entry = mProgram.list[index];
+        if (dynamic_cast<const MidiOut*>(entry.op.get()) == nullptr) continue;
+        for (const int candidate : mProgram.mMidiBufferIds) {
+            if (mProgram.list[candidate].mId == entry.mMidiTargetId) {
+                entry.mMidiTargetIndex = candidate;
+                break;
+            }
+        }
+        if (entry.mMidiTargetIndex < 0) {
+            throw std::runtime_error("midiOut '" + entry.mId + "' refers to unknown MIDI buffer '" + entry.mMidiTargetId + "'");
+        }
+        mMidiTargetByOperator[index] = entry.mMidiTargetIndex;
     }
     // Populate persistent source storage before operator initialization.
     // This lets init() consume an input's initial value without knowing what
@@ -707,6 +724,7 @@ void Processor::loadFromJSON(std::string jsonString) {
     Program previousProgram = std::move(mProgram);
     Compiler previousCompiler = std::move(mCompiler);
     std::vector<PolyRange> previousPolyPrograms = std::move(mPolyPrograms);
+    auto previousMidiTargets = std::move(mMidiTargetByOperator);
     std::vector<int> previousIfEndByStart = std::move(mIfEndByStart);
     const unsigned long long previousVoiceAge = mVoiceAge;
     const int previousBlockSize = mBlockSize;
@@ -897,6 +915,14 @@ void Processor::loadFromJSON(std::string jsonString) {
                 entry.mKitMidiId = midiIt->second.get<std::string>();
                 entry.mKitPadName = padIt->second.get<std::string>();
             }
+            if (type == "midiOut") {
+                const auto targetIt = object.find("target");
+                if (targetIt == object.end() || !targetIt->second.is<std::string>() ||
+                    targetIt->second.get<std::string>().empty()) {
+                    throw std::runtime_error(context + "midiOut requires a non-empty string property 'target'");
+                }
+                entry.mMidiTargetId = targetIt->second.get<std::string>();
+            }
             mCompiler.mIdToIndex.emplace(id, opId);
             if (dynamic_cast<MidiBuffer*>(entry.op.get()) != nullptr) {
                 mCompiler.mIdToIndex.emplace(id + ".gate", opId + MidiBuffer::Gate);
@@ -915,6 +941,7 @@ void Processor::loadFromJSON(std::string jsonString) {
         mProgram = std::move(previousProgram);
         mCompiler = std::move(previousCompiler);
         mPolyPrograms = std::move(previousPolyPrograms);
+        mMidiTargetByOperator = std::move(previousMidiTargets);
         mIfEndByStart = std::move(previousIfEndByStart);
         mVoiceAge = previousVoiceAge;
         mBlockSize = previousBlockSize;
@@ -1586,6 +1613,12 @@ void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
                 continue;
             }
             E.op->process(E.mInputs.data(), E.mOutputs.data(), blockSize);
+            const int midiTarget = mMidiTargetByOperator[n];
+            if (midiTarget >= 0) {
+                auto* midiOut = static_cast<MidiOut*>(E.op.get());
+                MidiEvent event;
+                while (midiOut->read(event)) applyMidiEvent(midiTarget, event);
+            }
         }
         for (int o = 0; o < (int)mProgram.mAudioOutIds.size(); o++) {
             int id = mProgram.mAudioOutIds[o];
@@ -1598,8 +1631,8 @@ void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
         // MIDI inputs are control-rate, so an event trigger is observable for
         // this processing block only.  Clear them after all global and
         // polyphonic operators have consumed the values.
-        if (mProgram.mMidiInId >= 0) {
-            auto& midiOutputs = mProgram.list[mProgram.mMidiInId].mOutputs;
+        for (const int midiBufferId : mProgram.mMidiBufferIds) {
+            auto& midiOutputs = mProgram.list[midiBufferId].mOutputs;
             midiOutputs[MidiIn::Onset].set(0.f);
             midiOutputs[MidiIn::Offset].set(0.f);
         }

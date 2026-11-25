@@ -193,8 +193,9 @@ class Transport:
 
 class PatchInstance(Operator):
     """Included patch whose default signal is its first audio output."""
-    def __init__(self, vm, outputs):
+    def __init__(self, vm, outputs, midi_outputs=None):
         self.outputs = outputs
+        self.midi_outputs = {} if midi_outputs is None else midi_outputs
         if outputs:
             super().__init__(vm, 'port', next(iter(outputs.values())).name)
         else:
@@ -206,16 +207,17 @@ class PatchInstance(Operator):
 
 class PendingPatch:
     """An included patch awaiting its first audio input."""
-    def __init__(self, vm, path, inputs, name, child, port):
+    def __init__(self, vm, path, inputs, name, child, port, midi):
         self.vm, self.path, self.inputs = vm, path, inputs
         self.name, self.child, self.port = name, child, port
+        self.midi = midi
         self.connected = False
 
     def __call__(self, signal):
         if self.connected:
             raise TypeError('This patch already has an input')
         instance = self.vm.add(self.path, {**self.inputs, self.port: signal},
-                               self.name, _child=self.child)
+                               self.name, midi=self.midi, _child=self.child)
         self.connected = True
         self.outputs = instance.outputs
         if not self.outputs:
@@ -239,13 +241,18 @@ class VM:
         self.transportObj = Transport(self)
         self.settings = {}
 
-    def add(self, path, inputs=None, name=None, *, _child=None):
-        """Include a standalone patch, connecting its named audioIn ports.
+    def add(self, path, inputs=None, name=None, *, midi=None, _child=None):
+        """Include a standalone patch, connecting its named audio and MIDI ports.
 
         Outputs are available by name in the returned object's ``outputs``.
         Paths are relative to the script containing the call.
         """
         inputs = {} if inputs is None else dict(inputs)
+        midi = {} if midi is None else dict(midi)
+        if any(not isinstance(port, str) or not port for port in midi):
+            raise TypeError('MIDI port names must be non-empty strings')
+        if any(not isinstance(source, Midi) or source.vm is not self for source in midi.values()):
+            raise TypeError('MIDI inputs must be Midi objects from this VM')
         caller = inspect.currentframe().f_back
         filename = caller.f_globals.get('__file__', 'patch.py')
         path = os.path.abspath(os.path.join(os.path.dirname(filename), path))
@@ -266,9 +273,19 @@ class VM:
                 VM._active_includes = active
 
         ports = [op for op in child.program if op.type == 'audioIn']
+        midi_ports = [op for op in child.program if op.type == 'midiBuffer']
+        midi_output_names = {op.properties.get('target') for op in child.program if op.type == 'midiOut'}
+        midi_input_names = {'midi'} | {op.name for op in midi_ports if op.name not in midi_output_names}
+        unknown_midi = set(midi) - midi_input_names
+        if unknown_midi:
+            raise ValueError(f'{path} MIDI ports: unknown {sorted(unknown_midi)}')
+        # Unconnected input ports read the parent graph's global MIDI source.
+        # Generated streams remain distinct and are exposed as outputs.
+        for port in midi_input_names:
+            midi.setdefault(port, self.midiObj)
         expected = {op.name for op in ports}
         if ports and set(inputs) == expected - {ports[0].name}:
-            return PendingPatch(self, path, inputs, name, child, ports[0].name)
+            return PendingPatch(self, path, inputs, name, child, ports[0].name, midi)
         if set(inputs) != expected:
             raise ValueError(f'{path} audio inputs: expected {sorted(expected)}, got {sorted(inputs)}')
         prefix = name if name is not None else os.path.splitext(os.path.basename(path))[0]
@@ -280,6 +297,8 @@ class VM:
             raise ValueError(f'Patch name {prefix!r} conflicts with existing nodes')
         for op in ports:
             ids[op.name] = self.as_op(inputs[op.name]).name
+        for port, source in midi.items():
+            ids[port] = source.name
 
         def translate(value):
             if isinstance(value, str):
@@ -294,8 +313,11 @@ class VM:
             return value
 
         outputs = {}
+        midi_outputs = {}
         for op in child.program:
             if op.type == 'audioIn':
+                continue
+            if op.type == 'midiBuffer' and op.name in midi:
                 continue
             if op.type == 'audioOut':
                 if op.name in outputs:
@@ -308,7 +330,10 @@ class VM:
             clone.input = translate(op.input)
             clone.properties = translate(op.properties)
             self.program.append(clone)
-        return PatchInstance(self, outputs)
+        for port in midi_ports:
+            if port.name in midi_output_names:
+                midi_outputs[port.name] = Midi(self, ids[port.name])
+        return PatchInstance(self, outputs, midi_outputs)
 
     def set(self, key, value=None):
         """Set one or more top-level properties in the generated program JSON."""
@@ -487,6 +512,23 @@ class VM:
         midi = Midi(self, name)
         self.midiObjects[name] = midi
         return midi
+
+    def midi_out(self, target, gate, note, velocity=100):
+        """Send gate/note/velocity signals as events to a named MIDI stream.
+
+        A rising gate sends note-on and a falling gate sends note-off. The
+        target may be a named :meth:`midi` stream or an output from
+        :meth:`add`, enabling an arpeggiator patch to drive a synth patch.
+        """
+        if not isinstance(target, Midi) or target.vm is not self:
+            raise TypeError('midi_out target must be a Midi object from this VM')
+        output = self.op('midiOut', {
+            'gate': gate,
+            'note': note,
+            'velocity': velocity,
+        })
+        output.properties = {'target': target.name}
+        return output
 
     def transport(self):
         """Return the engine-global, block-rate transport source."""

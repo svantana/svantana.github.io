@@ -38,6 +38,32 @@ private:
 };
 using MidiIn = MidiBuffer;
 
+// Converts control signals to MIDI events. The processor forwards events as
+// soon as this operator runs, allowing a later synth to react in this block.
+struct MidiOut : public BlockRateOp {
+    enum In { Gate, Note, Velocity, NumInputs };
+    int getNumPorts(Port::Dir dir) override { return dir == Port::In ? NumInputs : 0; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        static const cStr inputs[] = {"gate", "note", "velocity"};
+        return dir == Port::In ? inputs[index] : "";
+    }
+    void process(Buffer* in, Buffer*, int) override {
+        const bool gate = in[Gate].value() != 0.f;
+        const int note = std::clamp(static_cast<int>(std::lround(in[Note].value())), 0, 127);
+        const int velocity = std::clamp(static_cast<int>(std::lround(in[Velocity].value())), 0, 127);
+        if (gate && !mGate) mEvents.push({0x90, static_cast<unsigned char>(note), static_cast<unsigned char>(velocity)});
+        if (!gate && mGate) mEvents.push({0x80, static_cast<unsigned char>(mNote), 0});
+        mGate = gate;
+        mNote = note;
+    }
+    bool read(MidiEvent& event) { return mEvents.pop(event); }
+    void reset() override { mGate = false; mNote = 0; mEvents.clear(); }
+private:
+    bool mGate = false;
+    int mNote = 0;
+    MidiEventFifo mEvents;
+};
+
 // A named drum pad. The processor routes MIDI events to pads according to
 // its runtime drum-map policy; patches only name the sounds they use.
 class KitPad : public BlockRateOp {

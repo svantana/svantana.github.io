@@ -204,6 +204,20 @@ class OperatorCallTests(unittest.TestCase):
         self.assertEqual(vm.program[0].name, "arp")
         self.assertIn('"arp.note"', vm.get_json())
 
+    def test_composed_midi_defaults_to_global_and_can_override_implicit_input(self):
+        vm = VM()
+        presets = Path(__file__).resolve().parents[1] / 'web/presets'
+        arp = vm.add(str(presets / 'midi/arpeggiator.py'), name='arp')
+        vm.add(str(presets / 'acid bass.py'), name='bass',
+               midi={'midi': arp.midi_outputs['output']})
+        program = json.loads(vm.get_json())['program']
+        text = json.dumps(program)
+        self.assertIn('midi.gate', text)
+        self.assertIn('arp.output.gate', text)
+        self.assertNotIn('arp.input.gate', text)
+        bass_env = next(op for op in program if op['id'] == 'bass.envADSR1')
+        self.assertEqual(bass_env['input']['gate'], 'arp.output.gate')
+
     def test_value_reads_implicitly_in_expressions_and_writes_in_order(self):
         vm = VM()
         previous_gate = vm.value(0, id="prevMidiGate")

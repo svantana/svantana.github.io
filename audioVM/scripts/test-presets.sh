@@ -44,7 +44,7 @@ printf 'Sample rate: %s Hz\n' "$sample_rate"
 presets=()
 while IFS= read -r -d '' preset; do
   presets+=("$preset")
-done < <(find web/presets -type f -name '*.py' -print0 | sort -z)
+done < <(find web/presets -maxdepth 1 -type f -name '*.py' -print0 | sort -z)
 
 if ((${#presets[@]} == 0)); then
   echo "No preset files found in web/presets" >&2

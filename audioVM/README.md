@@ -28,9 +28,28 @@ vm.op("audioOut", reverb)
 
 Included nodes and controls are prefixed by the instance name; omit `name`
 to use the filename without its extension. Give repeated instances distinct
-names. Every audio input must be connected. MIDI and transport
+names. Every audio input must be connected. The default MIDI and transport
 sources remain shared with the parent graph. Top-level settings and polyphony
 belong to the parent patch.
+
+## Composing MIDI generators and synths
+
+Named MIDI streams are patch ports. A generator creates `vm.midi("output")`
+and sends events to it with `vm.midi_out(output, gate, note, velocity)`. A
+synth reads the default stream with `vm.midi()` or a named stream with
+`vm.midi("input")`. Included MIDI inputs default to the global MIDI stream;
+map an input through `midi` to override it. Generated streams are returned in
+`instance.midi_outputs` and can feed another patch:
+
+```python
+arp = vm.add("midi/arpeggiator.py", name="arp")
+synth = vm.add("acid bass.py", name="synth",
+               midi={"midi": arp.midi_outputs["output"]})
+vm.op("audioOut", synth)
+```
+
+MIDI is delivered in graph order, so put the generator before its receiving
+synth. See `web/presets/midi composition.py`.
 
 The first unnamed `audioIn` is called `input`. An included effect can also
 receive its first input through the call interface, which returns its first

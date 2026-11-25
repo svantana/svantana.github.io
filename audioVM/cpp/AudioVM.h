@@ -79,6 +79,8 @@ private:
         std::string mId;
         std::string mType;
         std::string mKitMidiId, mKitPadName;
+        std::string mMidiTargetId;
+        int mMidiTargetIndex = -1;
         int mIndex;
         bool mIsIfStart = false;
     };
@@ -130,6 +132,8 @@ private:
     // Maps a program index to its polyphonic range, or -1.  Only start
     // indices are populated, making the hot loop an O(1) lookup.
     std::vector<int> mPolyRangeByStart;
+    // Destination buffer index for MIDI output operators, or -1 otherwise.
+    std::vector<int> mMidiTargetByOperator;
     unsigned long long mVoiceAge = 0;
 
     void resetVoice(Voice& voice);

@@ -65,7 +65,8 @@ json.dumps({
         if (!manifest.ok) throw new Error(`Could not load preset list (${manifest.status}).`);
         const presets = await manifest.json();
         pyodide.FS.mkdirTree('/presets');
-        await Promise.all(presets.map(async name => {
+        const dependencies = ['midi/arpeggiator.py', 'midi/synth.py'];
+        await Promise.all([...presets, ...dependencies].map(async name => {
             const response = await fetch(new URL(name, new URL('./presets/', import.meta.url)));
             if (!response.ok) throw new Error(`Could not load preset ${name} (${response.status}).`);
             const path = '/presets/' + name;

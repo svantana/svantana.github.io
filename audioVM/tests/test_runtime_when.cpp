@@ -228,6 +228,66 @@ int main() {
         return 1;
     }
 
+    // The MIDI arpeggiator follows the transport when playing, then runs
+    // its beat ramp at the current tempo while the transport is stopped.
+    AudioVM::Processor freeRunningBeat;
+    freeRunningBeat.setup(128.f, 1, 1, 32);
+    freeRunningBeat.loadFromJSON(R"({"version":1,"program":[
+        {"type":"div","id":"rate","input":["transport.bpm",60]},
+        {"type":"mod","id":"hostPhase","input":["transport.beatPos",1]},
+        {"type":"lfoRamp","id":"beat","input":{"rate":"rate","reset":"transport.play","reset phase":"hostPhase"}},
+        {"type":"toAudio","id":"signal","input":"beat"},
+        {"type":"audioOut","id":"out","input":"signal"}
+    ]})");
+    freeRunningBeat.setBPM(60.f);
+    freeRunningBeat.setBeatPos(0.5f);
+    freeRunningBeat.setPlay(true);
+    float beatOutput[32]{};
+    float* beatOutputs[] = {beatOutput};
+    freeRunningBeat.process(nullptr, beatOutputs, 32);
+    if (std::abs(beatOutput[31] - 0.5f) > 1e-5f) {
+        std::cerr << "arpeggiator beat did not follow the playing transport\n";
+        return 1;
+    }
+    freeRunningBeat.setPlay(false);
+    freeRunningBeat.process(nullptr, beatOutputs, 32);
+    if (std::abs(beatOutput[31] - 0.75f) > 1e-5f) {
+        std::cerr << "arpeggiator beat did not continue at the stopped transport tempo\n";
+        return 1;
+    }
+
+    AudioVM::Processor restartBeat;
+    restartBeat.setup(128.f, 1, 1, 32);
+    restartBeat.loadFromJSON(R"({"version":1,"program":[
+        {"type":"value","id":"previousGate","input":0},
+        {"type":"equal","id":"idle","input":["previousGate",0]},
+        {"type":"equal","id":"stopped","input":["transport.play",0]},
+        {"type":"mul","id":"idleOnset","input":["idle","midi.onset"]},
+        {"type":"mul","id":"restart","input":["stopped","idleOnset"]},
+        {"type":"valueWrite","id":"remember","input":["previousGate","midi.gate"]},
+        {"type":"max","id":"reset","input":["transport.play","restart"]},
+        {"type":"mod","id":"hostPhase","input":["transport.beatPos",1]},
+        {"type":"mul","id":"resetPhase","input":["hostPhase","transport.play"]},
+        {"type":"div","id":"rate","input":["transport.bpm",60]},
+        {"type":"lfoRamp","id":"beat","input":{"rate":"rate","reset":"reset","reset phase":"resetPhase"}},
+        {"type":"toAudio","id":"signal","input":"beat"},
+        {"type":"audioOut","id":"out","input":"signal"}
+    ]})");
+    restartBeat.setBPM(60.f);
+    restartBeat.process(nullptr, beatOutputs, 32);
+    restartBeat.midiEvent(static_cast<char>(0x90), 60, 100);
+    restartBeat.process(nullptr, beatOutputs, 32);
+    if (std::abs(beatOutput[31]) > 1e-5f) {
+        std::cerr << "idle note-on did not restart the arpeggiator\n";
+        return 1;
+    }
+    restartBeat.midiEvent(static_cast<char>(0x90), 64, 100);
+    restartBeat.process(nullptr, beatOutputs, 32);
+    if (std::abs(beatOutput[31] - 0.25f) > 1e-5f) {
+        std::cerr << "additional note-on restarted an active arpeggiator\n";
+        return 1;
+    }
+
     AudioVM::Processor midiBufferProcessor;
     midiBufferProcessor.setup(44100.f, 1, 1, 16);
     midiBufferProcessor.loadFromJSON(R"({"version":1,"program":[
@@ -313,6 +373,32 @@ int main() {
     }
     if (!directIsAudible) {
         std::cerr << "direct MIDI synth produced silence\n";
+        return 1;
+    }
+
+    // A graph-generated MIDI note must reach a named MIDI input before the
+    // downstream synth runs. This is the in-process equivalent of wiring an
+    // arpeggiator's MIDI output into a separate synth module.
+    AudioVM::Processor generatedMidiProcessor;
+    generatedMidiProcessor.setup(44100.f, 1, 1, 16);
+    generatedMidiProcessor.loadFromJSON(R"({"version":1,"program":[
+        {"type":"control","id":"gate","input":0},
+        {"type":"control","id":"note","input":67},
+        {"type":"midiBuffer","id":"synthMidi"},
+        {"type":"midiOut","id":"arp","input":{"gate":"gate","note":"note","velocity":100},"target":"synthMidi"},
+        {"type":"oscAnalog","id":"osc","input":{"note":"synthMidi.note"}},
+        {"type":"envADSR","id":"env","input":{"gate":"synthMidi.gate","a":0.001,"d":0.1,"s":0.5,"r":0.1}},
+        {"type":"mul","id":"amp","input":["osc","env"]},
+        {"type":"audioOut","id":"out","input":"amp"}
+    ]})");
+    generatedMidiProcessor.setControlValue(0, 1.f);
+    float generatedMidiOutput[16]{};
+    float* generatedMidiOutputs[] = {generatedMidiOutput};
+    generatedMidiProcessor.process(nullptr, generatedMidiOutputs, 16);
+    bool generatedMidiIsAudible = false;
+    for (const float sample : generatedMidiOutput) generatedMidiIsAudible = generatedMidiIsAudible || std::abs(sample) > 1e-6f;
+    if (!generatedMidiIsAudible) {
+        std::cerr << "generated MIDI did not reach downstream synth\n";
         return 1;
     }
 
