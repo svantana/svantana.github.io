@@ -58,6 +58,7 @@ Processor::Processor()
     registerType("interp", make<InterpOp>(), "Linearly interpolates an array at floating-point indices, extrapolating at both ends.");
     registerType("buffer", make<BufferOperator>(), "Creates a writable full-rate buffer for feedback and in-place operations.");
     registerType("delay", make<Delay>(), "Reads a delayed full-rate signal, optionally writing an incoming signal to the delay line.");
+    registerType("allpass", make<Allpass>(), "Applies a filtered, modulated allpass delay to a full-rate signal.");
     registerType("delayWrite", make<DelayWrite>(), "Writes a full-rate signal to a delay line opened by delay.");
     registerType("iadd", make<InplaceBinaryOp<Add>>(), "Adds a value into a writable buffer in place.");
     registerType("isub", make<InplaceBinaryOp<Sub>>(), "Subtracts a value from a writable buffer in place.");

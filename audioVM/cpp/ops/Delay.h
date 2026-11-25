@@ -33,7 +33,7 @@ public:
     // block convenience functions
     void delayBlock(const float *inBuf, float *outBuf, int N, float lag, FilterDesign filter = FilterDesign());
     void delayBlockIP(float *ioBuf, int N, float lag, FilterDesign filter = FilterDesign());
-    void allpassBlock(float *ioBuf, int N, float lag, FilterDesign filter = FilterDesign(), float apCoef = -.618f);
+    void allpassBlock(const float *inBuf, float *outBuf, int N, float lag, FilterDesign filter = FilterDesign(), float apCoef = -.618f);
     void diffuseBlock(float *io0, float *io1, int N, float lag, FilterDesign filter = FilterDesign(), float mix = 1);
     void diffuseBlock(float **ioBufs, int N, float lag, FilterDesign filter = FilterDesign(), float mix = 1) {
         diffuseBlock(ioBufs[0], ioBufs[1], N, lag, filter, mix);
@@ -172,7 +172,7 @@ void FilterDelay::delayBlockIP(float *ioBuf, int N, float trgLag, FilterDesign f
     delayBlock(ioBuf, ioBuf, N, trgLag, filter);
 }
 
-void FilterDelay::allpassBlock(float *ioBuf, int N, float trgLag, FilterDesign filter, float nextApCoef) {
+void FilterDelay::allpassBlock(const float *inBuf, float *outBuf,  int N, float trgLag, FilterDesign filter, float nextApCoef) {
     const int L = getLength();
     if (L==0 || trgLag > L || trgLag < N+2) {
         DEBUGCHECK(0, "FilterDelay::allpassBlock lag out of range!\n");
@@ -187,16 +187,16 @@ void FilterDelay::allpassBlock(float *ioBuf, int N, float trgLag, FilterDesign f
     if (fabsf(apCoef-nextApCoef) > 1e-5f) {
         float coefStep = (nextApCoef - apCoef) / std::max(N, 1024);
         for (int i = 0; i < N; i++) {
-            float fb = ioBuf[i] + apCoef * readBuf[i];
-            ioBuf[i] = readBuf[i] - apCoef * fb;
+            float fb = inBuf[i] + apCoef * readBuf[i];
+            outBuf[i] = readBuf[i] - apCoef * fb;
             writeBuf[i] = fb;
             apCoef += coefStep;
         }
         mAllpassCoef = apCoef;
     } else { // optimization: slightly faster without stepping allpass coef
         for (int i = 0; i < N; i++) {
-            float fb = ioBuf[i] + apCoef * readBuf[i];
-            ioBuf[i] = readBuf[i] - apCoef * fb;
+            float fb = inBuf[i] + apCoef * readBuf[i];
+            outBuf[i] = readBuf[i] - apCoef * fb;
             writeBuf[i] = fb;
         }
     }
@@ -302,6 +302,69 @@ public:
         } else {
             mState->read(dst, N, std::max(lagSamples, mBlockSize+2), filter);
         }
+    }
+    void reset() override { mState->reset(); }
+
+private:
+    std::shared_ptr<FilterDelay> mState;
+    int mMaxSamples = 0;
+};
+
+// Allpass uses the same filtered, modulated delay-line controls as Delay,
+// but feeds the delayed signal back through an allpass section in place.
+class Allpass : public Operator {
+public:
+    enum In { Input, TimeSeconds, SplitFreq, GainLo, GainHi, DampLo, DampHi, Coefficient, MaxSeconds, NumInputs };
+    enum Out { Output, NumOutputs };
+
+    Allpass() : mState(std::make_shared<FilterDelay>()) {}
+
+    int getNumPorts(Port::Dir dir) override {
+        return dir == Port::In ? NumInputs : NumOutputs;
+    }
+    std::string getPortName(Port::Dir dir, int index) override {
+        static const cStr inputs[] = {"input", "time", "cutoff", "gain", "gain hi", "damp", "damp hi", "coefficient", "max"};
+        static const cStr outputs[] = {"output"};
+        return dir == Port::In ? inputs[index] : outputs[index];
+    }
+    Port::Rate getPortRate(Port::Dir dir, int index) override {
+        if (dir == Port::Out) return Port::Full;
+        return index == Input ? Port::Full : Port::Block;
+    }
+
+    void init(const std::vector<Buffer>& inputs) override {
+        if (inputs.size() <= MaxSeconds || inputs[MaxSeconds].ptr == nullptr) {
+            throw std::runtime_error("allpass requires a max input");
+        }
+        const float maxSeconds = inputs[MaxSeconds].valueOrDefault(0.1f);
+        mMaxSamples = std::max(1, static_cast<int>(std::ceil(maxSeconds * mSamplerate)));
+        if (mMaxSamples < mBlockSize + 3) {
+            throw std::runtime_error("allpass max must be at least one processing block plus three samples");
+        }
+        // Keep the same block-sized safety margin as Delay so the maximum
+        // configured lag remains usable for a full allpass block.
+        mState->setup(mMaxSamples + 2*mBlockSize, false);
+        mState->reset();
+    }
+
+    void process(Buffer* ins, Buffer* outs, int N) override {
+        if (mState->getLength() == 0) {
+            throw std::runtime_error("allpass was not configured");
+        }
+        const float lagT = ins[TimeSeconds].value();
+        const float lagSamples = std::clamp(lagT * mSamplerate,
+                                            mBlockSize + 2.f,
+                                            mMaxSamples - 1.f);
+
+        float gainLo = ins[GainLo].valueOrDefault(1.f) * Delay::fastNegExp(lagT * ins[DampLo].valueOrDefault(0.f));
+        float gainHi = 0.f;
+        if (ins[GainHi].hasData() || ins[DampHi].hasData()) {
+            gainHi = ins[GainHi].valueOrDefault(1.f);
+            gainHi *= Delay::fastNegExp(lagT * ins[DampHi].valueOrDefault(0.f));
+        }
+        FilterDelay::FilterDesign filter(gainLo, gainHi, ins[SplitFreq].valueOrDefault(1e6f) / mSamplerate);
+
+        mState->allpassBlock(ins[Input].data(), outs[Output].data(), N, lagSamples, filter, ins[Coefficient].valueOrDefault(-.618f));
     }
     void reset() override { mState->reset(); }
 
