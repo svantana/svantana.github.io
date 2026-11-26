@@ -349,7 +349,16 @@ public:
 
 // needed for feedback and sums
 struct BufferOperator : public FullRateOp {
-    int getNumPorts(Port::Dir dir) override { return (dir == Port::Out) ? 1 : 0; }
+    int getNumPorts(Port::Dir dir) override { return 1; }
+    int maxNumChannels() const override { return 2; }
+    std::string getPortName(Port::Dir dir, int) override { return dir == Port::In ? "channels" : "output"; }
+    Port::Rate getPortRate(Port::Dir dir, int) override { return dir == Port::In ? Port::Block : Port::Full; }
+    void configureOutputs(const std::vector<Buffer>& inputs, std::vector<Buffer>& outputs) override {
+        const float channels = inputs[0].valueOrDefault(1.f);
+        if (!std::isfinite(channels) || (channels != 1.f && channels != 2.f))
+            throw std::runtime_error("buffer channels must be 1 or 2");
+        outputs[0].numChannels = static_cast<int>(channels);
+    }
     void process(Buffer *i, Buffer *o, int N) override {
         for (int ch = 0; ch < o[0].numChannels; ++ch) {
             float* dst = o[0].data(ch);
@@ -422,6 +431,10 @@ struct UnitSin { static float apply(float value) { return Fast::unitSin(value); 
 class InplaceOp : public BinaryOp {
 public:
     int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? 2 : 0; }
+    void init(const std::vector<Buffer>& inputs) override {
+        if (inputs[1].numChannels != 1 && inputs[1].numChannels != inputs[0].numChannels)
+            throw std::runtime_error("in-place input must be mono or match the target channel count");
+    }
 };
 
 template <class Operation>
@@ -442,6 +455,14 @@ public:
 
 template <class Operation>
 class MathBinary : public BinaryOp {
+public:
+    int maxNumChannels() const override { return 8; }
+    void configureOutputs(const std::vector<Buffer>& inputs, std::vector<Buffer>& outputs) override {
+        const int a = inputs[0].numChannels, b = inputs[1].numChannels;
+        if (a != b && a != 1 && b != 1)
+            throw std::runtime_error("binary inputs must have matching channel counts or be mono");
+        outputs[0].numChannels = std::max(a, b);
+    }
 protected:
     void process(Buffer *i, Buffer *o, int N) override {
         const int channels = std::max(i[0].numChannels, i[1].numChannels);

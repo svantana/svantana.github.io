@@ -380,6 +380,9 @@ bool Processor::compileProgram() {
         if (dynamic_cast<Channel*>(entry.op.get()) && entry.mInputIds.size() > 1 && entry.mInputIds[1] >= 0 &&
             dynamic_cast<ConstOp*>(mProgram.list[entry.mInputIds[1] / OpSpacing].op.get()) == nullptr)
             throw std::runtime_error("channel index must be a constant");
+        if (dynamic_cast<BufferOperator*>(entry.op.get()) && !entry.mInputIds.empty() && entry.mInputIds[0] >= 0 &&
+            dynamic_cast<ConstOp*>(mProgram.list[entry.mInputIds[0] / OpSpacing].op.get()) == nullptr)
+            throw std::runtime_error("buffer channels must be a constant");
         entry.op->init(entry.mInputs);
         entry.op->configureOutputs(entry.mInputs, entry.mOutputs);
         for (const Buffer& output : entry.mOutputs) {

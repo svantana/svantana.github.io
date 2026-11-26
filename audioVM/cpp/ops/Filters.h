@@ -23,28 +23,37 @@ public:
     int getNumPorts(Port::Dir dir) override {
         return (dir == Port::Out) ? NumOutputs : NumInputs;
     }
+    int maxNumChannels() const override { return 2; }
+    void configureOutputs(const std::vector<Buffer>& inputs, std::vector<Buffer>& outputs) override {
+        if (inputs[Input].numChannels > maxNumChannels())
+            throw std::runtime_error("filter supports at most " + std::to_string(maxNumChannels()) + " input channels");
+        outputs[Output].numChannels = inputs[Input].numChannels;
+    }
 
     void process(Buffer *i, Buffer *o, int N) override {
         Coefs T = getCoefs(i), C = mCoefs;
         if (i[Reset].value() > .5f) {
-            mState.reset();
+            reset();
             C = T;
         }
         Coefs cStep = getCoefStep(C, T);
-        State S = mState; // local copy
-        float *x = i[Input][0], *y = o[Output][0];
+        State states[] = {mState, mRightState};
         for (int n = 0; n < N; n++) {
             stepCoefs(C, T, cStep);
-            doSVF(x[n], S, C);
-            y[n] = S.l;
+            for (int ch = 0; ch < o[Output].numChannels; ++ch) {
+                doSVF(i[Input].data(ch)[n], states[ch], C);
+                o[Output].data(ch)[n] = states[ch].l;
+            }
         }
-        mState = S;
+        mState = states[0];
+        mRightState = states[1];
         mCoefs = C;
     }
     void reset() override {
         mState.reset();
+        mRightState.reset();
     }
-    struct State { float l, b; void reset() {l=b=0;} } mState;
+    struct State { float l=0, b=0; void reset() {l=b=0;} } mState, mRightState;
     struct Coefs { float k=1, d=1, g=1; } mCoefs;
     
     static inline float doSVF(float x, State &S, Coefs &C) {
@@ -89,6 +98,7 @@ public:
 
 class FilterBP : public FilterLP {
 public:
+    int maxNumChannels() const override { return 1; }
     std::string getName() { return "FilterBP"; }
     void process(Buffer *i, Buffer *o, int N) override {
         Coefs T = getCoefs(i), C = mCoefs;
@@ -118,6 +128,7 @@ private:
 
 class FilterHP : public FilterLP {
 public:
+    int maxNumChannels() const override { return 1; }
     std::string getName() { return "FilterHP"; }
     void process(Buffer *i, Buffer *o, int N) override {
         Coefs T = getCoefs(i), C = mCoefs;

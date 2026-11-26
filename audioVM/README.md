@@ -102,8 +102,13 @@ Indexing creates a `channel` operator; the equivalent explicit form is
 `vm.op("channel", {"input": pair, "index": 0})`.
 The inputs to `channels` must be consecutive and mono. A channel index must
 be within the input's resolved channel count. These operators provide routing;
-other operators and the browser input do not yet automatically preserve
+`filterLP` preserves one or two input channels with independent filter state.
+Other operators and the browser input do not yet automatically preserve
 multichannel signals.
+
+Writable buffers are mono by default; `vm.op("buffer", {"channels": 2})`
+creates a stereo accumulator. Its channel count is fixed at graph initialization.
+Binary arithmetic broadcasts mono inputs across the other input's channels.
 
 Connecting `oscAnalog`'s `"stereo"` input enables two-channel output, even
 when the connected value is zero. The value can be modulated at block rate:

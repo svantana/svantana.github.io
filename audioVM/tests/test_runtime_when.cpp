@@ -151,6 +151,54 @@ int main() {
         std::cerr << "stereo width control did not modulate the output\n";
         return 1;
     }
+    AudioVM::Processor stereoFilter;
+    stereoFilter.setup(44100.f, 0, 4, 32);
+    stereoFilter.registerType("channelSources", [] { return std::make_unique<ChannelSources>(); }, "test");
+    const int filterSources = stereoFilter.addOperator("channelSources");
+    const int filterPair = stereoFilter.addOperator("channels", {filterSources, filterSources + 1});
+    const int cutoff = stereoFilter.addControl("cutoff", 1000.f);
+    const int filterReset = stereoFilter.addControl("reset", 0.f);
+    const int filteredPair = stereoFilter.addOperator("filterLP", {filterPair, cutoff, -1, filterReset});
+    const int leftIndex = stereoFilter.addConstant(0.f);
+    const int rightIndex = stereoFilter.addConstant(1.f);
+    const int filteredLeft = stereoFilter.addOperator("channel", {filteredPair, leftIndex});
+    const int filteredRight = stereoFilter.addOperator("channel", {filteredPair, rightIndex});
+    const int monoLeft = stereoFilter.addOperator("filterLP", {filterSources, cutoff, -1, filterReset});
+    const int monoRight = stereoFilter.addOperator("filterLP", {filterSources + 1, cutoff, -1, filterReset});
+    const int comparison = stereoFilter.addOperator("channels", {filteredLeft, filteredRight, monoLeft, monoRight});
+    stereoFilter.addOperator("audioOut", {comparison});
+    stereoFilter.compileProgram();
+    float filterOutput[4][32]{};
+    float* filterOutputs[] = {filterOutput[0], filterOutput[1], filterOutput[2], filterOutput[3]};
+    for (int block = 0; block < 12; ++block) {
+        if (block == 4) stereoFilter.setControlValue(0, 3000.f);
+        stereoFilter.setControlValue(1, block == 7 ? 1.f : 0.f);
+        stereoFilter.process(nullptr, filterOutputs, block == 10 ? 17 : 32);
+        for (int n = 0; n < (block == 10 ? 17 : 32); ++n) {
+            if (std::abs(filterOutput[0][n] - filterOutput[2][n]) > 1e-6f ||
+                std::abs(filterOutput[1][n] - filterOutput[3][n]) > 1e-6f) {
+                std::cerr << "stereo filter did not match independent mono filters\n";
+                return 1;
+            }
+        }
+    }
+    AudioVM::Processor stereoBuffer;
+    stereoBuffer.setup(44100.f, 0, 2, 32);
+    stereoBuffer.registerType("channelSources", [] { return std::make_unique<ChannelSources>(); }, "test");
+    const int count = stereoBuffer.addConstant(2.f);
+    const int accumulator = stereoBuffer.addOperator("buffer", {count});
+    const int stereoSources = stereoBuffer.addOperator("channelSources");
+    const int stereoPair = stereoBuffer.addOperator("channels", {stereoSources, stereoSources + 1});
+    const int scale = stereoBuffer.addConstant(2.f);
+    const int scaledPair = stereoBuffer.addOperator("mul", {stereoPair, scale});
+    stereoBuffer.addOperator("iadd", {accumulator, scaledPair});
+    stereoBuffer.addOperator("audioOut", {accumulator});
+    stereoBuffer.compileProgram();
+    for (int block = 0; block < 2; ++block) stereoBuffer.process(nullptr, stereoOut, 32);
+    if (std::abs(stereoLeft[31] - 0.5f) > 1e-6f || std::abs(stereoRight[31] - 1.5f) > 1e-6f) {
+        std::cerr << "stereo arithmetic or buffer accumulation lost a channel\n";
+        return 1;
+    }
     AudioVM::Processor invalidOperatorProcessor;
     invalidOperatorProcessor.setup(44100.f, 1, 1, 16);
     try {
