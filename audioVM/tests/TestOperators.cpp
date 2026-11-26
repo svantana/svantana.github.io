@@ -111,6 +111,12 @@ int addOperatorGraph(AudioVM::Processor& processor, const OperatorDefinition& de
         processor.addOperator("audioOut", {audioInput});
         return audioInput;
     }
+    if (definition.name == "channel") {
+        return processor.addOperator("channel", {audioInput, processor.addConstant(0.f)});
+    }
+    if (definition.name == "oscAnalog") {
+        return processor.addOperator("oscAnalog", {processor.addConstant(440.f)});
+    }
     // These source/state operators are valid to execute in isolation, but
     // their default output is intentionally zero until the host initializes
     // their state or delivers an event.

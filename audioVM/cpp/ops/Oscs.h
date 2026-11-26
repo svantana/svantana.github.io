@@ -245,6 +245,7 @@ public:
         void render_add(Voice &V, float **bufs, int numSamples, int numChannels, float *accBias, float *accBiasStep, bool doOnset);
         
         float* m_params = nullptr;
+        float mStereoPan = 0.f;
         
         // pulse wave by alternating parts
         typedef float PhaseType;
@@ -342,7 +343,9 @@ void Voice::Osc::render_add(Voice &V, float **outBufs, int numSamples, int numCh
     const int numParts = 1 + (fabsf(pulseAmount) > 1e-6f);
     float totFreq = syncAmount * syncFreq + freqFM;
     const float f0scaling = freq_to_amp(totFreq); // roll off as we approach nyquist
-    const float ampTrgs[2] = {P[Amp] * f0scaling, P[Amp] * f0scaling};
+    const float pan = numChannels > 1 ? mStereoPan : 0.f;
+    const float ampTrgs[2] = {P[Amp] * f0scaling * (1.f - pan),
+                              P[Amp] * f0scaling * (1.f + pan)};
     //const uint32_t syncProb = (uint32_t) (P[SyncProb] * ((1ULL<<32ULL)-1));
     
     PhaseType partBounds[NumOscParts+1] = {0.0, pulseWidth};
@@ -558,16 +561,17 @@ void Voice::render(float **outBufs, int numSamples, int numChannels) {
 
 class OscAnalog : public Operator {
 public:
-    enum In { FreqHz, NoteNumber, Color, PulseAmount, PulseWidth, UnisonCount, UnisonCents, Gain, NumInputs };
+    enum In { FreqHz, NoteNumber, Color, PulseAmount, PulseWidth, UnisonCount, UnisonCents, Gain, Stereo, NumInputs };
     enum Out { Output, NumOutputs };
 
     OscAnalog() {}
+    int maxNumChannels() const override { return 2; }
 
     int getNumPorts(Port::Dir dir) override {
         return dir == Port::In ? NumInputs : NumOutputs;
     }
     std::string getPortName(Port::Dir dir, int index) override {
-        static const cStr inputs[] = {"frequency", "note", "color", "pulse amount", "pulse width", "unison count", "unison spread", "gain"};
+        static const cStr inputs[] = {"frequency", "note", "color", "pulse amount", "pulse width", "unison count", "unison spread", "gain", "stereo"};
         static const cStr outputs[] = {"output"};
         return dir == Port::In ? inputs[index] : outputs[index];
     }
@@ -576,7 +580,10 @@ public:
     }
 
     void init(const std::vector<Buffer>& inputs) override {
-        
+        mNumChannels = inputs[Stereo].hasData() ? 2 : 1;
+    }
+    void configureOutputs(const std::vector<Buffer>&, std::vector<Buffer>& outputs) override {
+        outputs[Output].numChannels = mNumChannels;
     }
 
     void process(Buffer* ins, Buffer* outs, int N) override {
@@ -591,12 +598,14 @@ public:
         P[Voice::PulseAmount] = ins[PulseAmount].value();
         P[Voice::PulseWidth] = .01f + .98f * ins[PulseWidth].valueOrDefault(0.5f);
         
-        float unisonCount = std::max(1.f, ins[UnisonCount].value());
+        float unisonCount = std::clamp(ins[UnisonCount].value(), 1.f, static_cast<float>(Voice::MaxNumOscillators));
         float unisonScale = exp2f(ins[UnisonCents].value() / 1200);
         float unisonScales[2] = {1.f/unisonScale, unisonScale};
         float unisonAcc[2] = {1.f, unisonScales[1]};
         float d = P[Voice::Color]*2-1, d2=d*d, colorGain = 1 + d2*d2;
         float uniGain = gain * colorGain / sqrtf(unisonCount);
+        const float stereoWidth = std::isfinite(ins[Stereo].value())
+            ? std::clamp(ins[Stereo].value(), 0.f, 1.f) : 0.f;
         
         mVoice.m_num_oscillators = (int)(.999f + unisonCount);
         
@@ -605,15 +614,17 @@ public:
             float &uScale = unisonAcc[o & 1];
             P[Voice::Osc::Frequency] = freqN * uScale;
             P[Voice::Osc::Amp] = uniGain * std::min(1.f, unisonCount - o);
+            mVoice.getOscState(o)->mStereoPan = unisonCount > 1.f ? ((o & 1) ? stereoWidth : -stereoWidth) : 0.f;
             uScale *= unisonScales[o & 1];
         }
         
-        float *outPtr = outs[Output].data();
-        mVoice.render(&outPtr, N, 1);
+        float *outPtrs[] = {outs[Output].data(0), outs[Output].data(1)};
+        mVoice.render(outPtrs, N, mNumChannels);
     }
     void reset() override { mVoice.resetVoiceSoft(); }
 
 private:
     Blit::Voice mVoice;
+    int mNumChannels = 1;
 };
 

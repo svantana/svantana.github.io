@@ -62,6 +62,14 @@ class Operator:
             raise TypeError("AudioVM Operator only supports rounding to an integer")
         return self.round()
 
+    def __getitem__(self, index):
+        """Select a channel using a constant, zero-based integer index."""
+        if isinstance(index, bool) or not isinstance(index, int):
+            raise TypeError("channel index must be an integer")
+        if index < 0:
+            raise ValueError("channel index must be non-negative")
+        return self.vm.op("channel", {"input": self, "index": index})
+
     def __call__(self, input):
         """Set the signal input of an operator.
 

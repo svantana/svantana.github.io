@@ -86,4 +86,30 @@ Open [`web/test-presets.html`](web/test-presets.html) to compile and exercise
 every preset through the browser's WebAssembly backend. The browser loads its
 Python builder directly from [`python/audioVM.py`](python/audioVM.py).
 
+## Channel routing
+
+`channels` joins one to eight full-rate mono signals in order. `channel`
+selects a single channel using a zero-based constant index, resolved when the
+graph is initialized:
+
+```python
+pair = vm.op("channels", [left, right])
+left_again = pair[0]
+right_again = pair[1]
+```
+
+Indexing creates a `channel` operator; the equivalent explicit form is
+`vm.op("channel", {"input": pair, "index": 0})`.
+The inputs to `channels` must be consecutive and mono. A channel index must
+be within the input's resolved channel count. These operators provide routing;
+other operators and the browser input do not yet automatically preserve
+multichannel signals.
+
+Connecting `oscAnalog`'s `"stereo"` input enables two-channel output, even
+when the connected value is zero. The value can be modulated at block rate:
+0 centers the unison oscillators and 1 spreads them fully across the two
+channels (values outside this range are clamped). A single oscillator, or
+unison oscillators with no frequency spread, can sound centered. Leave the
+input disconnected for mono output.
+
 `build-wasm.sh` requires Emscripten (`em++`).

@@ -27,8 +27,9 @@ namespace AudioVM {
     struct Buffer {
         Buffer(float *aPtr = nullptr, int aNumSamples = 1, int aNumChannels = 1) {
             ptr = aPtr; numSamples = aNumSamples; numChannels = aNumChannels;
+            capacityChannels = aNumChannels;
         }
-        int numSamples = 1, numChannels = 1;
+        int numSamples = 1, numChannels = 1, capacityChannels = 1;
         float *ptr;
         // Input buffers always receive a valid pointer during compilation,
         // including disconnected ports (which point at the shared zero). The
@@ -47,7 +48,7 @@ namespace AudioVM {
             return ptr + numSamples * (channel % numChannels);
         }
         float* operator[](int i) { return data(i); }
-        int size() const { return numSamples * numChannels; }
+        int size() const { return numSamples * capacityChannels; }
     };
     struct Port {
         enum Dir  { In, Out };
@@ -56,6 +57,9 @@ namespace AudioVM {
     struct Operator {
         virtual ~Operator() = default;
         virtual int getNumPorts(Port::Dir dir) = 0;
+        // Upper bound for the storage reserved for each output. The active
+        // channel count is tracked separately by Buffer::numChannels.
+        virtual int maxNumChannels() const { return 1; }
         virtual std::string getPortName(Port::Dir dir, int index) {
             return "";
         }
@@ -73,6 +77,9 @@ namespace AudioVM {
         // their initial values. Operators that need compile-time setup can
         // inspect their inputs here without depending on compiler internals.
         virtual void init(const std::vector<Buffer>& inputs) {}
+        // Called during graph initialization after init(). Output storage is
+        // already reserved up to maxNumChannels(); set its active shape here.
+        virtual void configureOutputs(const std::vector<Buffer>& inputs, std::vector<Buffer>& outputs) {}
         virtual void reset() {}
         virtual void process(Buffer* inBufs, Buffer* outBufs, int numSamples) {}
         float mSamplerate, mBlockSize;

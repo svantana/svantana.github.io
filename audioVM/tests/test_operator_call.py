@@ -8,6 +8,26 @@ from audioVM import VM
 
 
 class OperatorCallTests(unittest.TestCase):
+    def test_operator_index_selects_channel(self):
+        vm = VM()
+        pair = vm.op("channels", [vm.op("audioIn"), vm.op("audioIn")])
+        selected = pair[1]
+        self.assertEqual(selected.type, "channel")
+        self.assertEqual(selected.input, {"input": pair.name, "index": 1})
+        self.assertEqual(json.loads(vm.get_json())["program"][-1], {
+            "type": "channel", "id": selected.name,
+            "input": {"input": pair.name, "index": 1},
+        })
+
+    def test_operator_index_requires_nonnegative_integer(self):
+        vm = VM()
+        signal = vm.op("audioIn")
+        for index in (1.5, True, slice(None), "0"):
+            with self.subTest(index=index), self.assertRaises(TypeError):
+                signal[index]
+        with self.assertRaises(ValueError):
+            signal[-1]
+
     def test_first_audio_input_defaults_to_input(self):
         vm = VM()
         self.assertEqual(vm.op('audioIn').name, 'input')

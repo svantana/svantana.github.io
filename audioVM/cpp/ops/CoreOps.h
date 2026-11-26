@@ -16,6 +16,57 @@ struct AudioIn : public FullRateOp {
 struct AudioOut : public FullRateOp {
     int getNumPorts(Port::Dir dir) override { return (dir == Port::In) ? 1 : 0; }
 };
+
+// Select one channel using a constant, zero-based index.
+struct Channel : public Operator {
+    int mIndex = 0;
+    int getNumPorts(Port::Dir dir) override { return dir == Port::In ? 2 : 1; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        return dir == Port::Out ? "output" : index == 0 ? "input" : "index";
+    }
+    Port::Rate getPortRate(Port::Dir dir, int index) override {
+        return dir == Port::In && index == 1 ? Port::Block : Port::Full;
+    }
+    void init(const std::vector<Buffer>& in) override {
+        if (!in[0].hasData() || in[0].numSamples != mBlockSize)
+            throw std::runtime_error("channel requires a full-rate input");
+        const float index = in[1].valueOrDefault(0.f);
+        if (!std::isfinite(index) || index < 0 || index >= in[0].numChannels || std::floor(index) != index)
+            throw std::runtime_error("channel index must be an integer within the input channel count");
+        mIndex = static_cast<int>(index);
+    }
+    void process(Buffer* in, Buffer* out, int n) override {
+        std::copy_n(in[0].data(mIndex), n, out[0].data());
+    }
+};
+
+// Join up to eight mono signals, in port order.
+struct Channels : public FullRateOp {
+    static constexpr int MaxChannels = 8;
+    int mChannels = 0;
+    int maxNumChannels() const override { return MaxChannels; }
+    int getNumPorts(Port::Dir dir) override { return dir == Port::In ? MaxChannels : 1; }
+    std::string getPortName(Port::Dir dir, int index) override {
+        return dir == Port::Out ? "output" : "channel" + std::to_string(index);
+    }
+    void init(const std::vector<Buffer>& in) override {
+        mChannels = 0;
+        bool gap = false;
+        for (const Buffer& input : in) {
+            if (!input.hasData()) { gap = true; continue; }
+            if (gap || input.numChannels != 1 || input.numSamples != mBlockSize)
+                throw std::runtime_error("channels requires consecutive mono full-rate inputs");
+            ++mChannels;
+        }
+        if (!mChannels) throw std::runtime_error("channels requires at least one input");
+    }
+    void configureOutputs(const std::vector<Buffer>&, std::vector<Buffer>& out) override {
+        out[0].numChannels = mChannels;
+    }
+    void process(Buffer* in, Buffer* out, int n) override {
+        for (int ch = 0; ch < mChannels; ++ch) std::copy_n(in[ch].data(), n, out[0].data(ch));
+    }
+};
 struct MidiBuffer : public BlockRateOp {
     // Onset and Offset are one-processing-block triggers set by note-on and
     // note-off events.  Keep the established output indices intact so manual

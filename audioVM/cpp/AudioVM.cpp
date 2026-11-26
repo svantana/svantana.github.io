@@ -38,6 +38,8 @@ Processor::Processor()
     
     registerType(kIdAudioIn, make<AudioIn>(), "Provides the host audio input signal.");
     registerType(kIdAudioOut, make<AudioOut>(), "Sends a signal to the host audio output.");
+    registerType("channel", make<Channel>(), "Selects one channel from a signal using a constant zero-based index.");
+    registerType("channels", make<Channels>(), "Joins up to eight mono audio signals into a multichannel signal.");
     registerType("midiIn", make<MidiBuffer>(), "Provides the latest MIDI gate, note, velocity, and event triggers.");
     registerType("midiBuffer", make<MidiBuffer>(), "Buffers MIDI events for routing and inspection.");
     registerType("midiOut", make<MidiOut>(), "Emits note events into a named MIDI buffer from gate, note, and velocity signals.");
@@ -154,6 +156,10 @@ void Processor::clearProgram() {
 int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
     OpPtr op = makeOpWithId(operatorId);
     assert(mBlockSize > 0);
+    const int channelCapacity = op->maxNumChannels();
+    if (channelCapacity < 1) {
+        throw std::runtime_error("operator '" + operatorId + "' has an invalid channel capacity");
+    }
 
     // Output buffer sizes are resolved as each operator is added.  This makes
     // Port::Keep concrete before binary inputs are normalized, so an audio
@@ -225,6 +231,7 @@ int Processor::addOperator(std::string operatorId, std::vector<int> inputIds) {
     for (int output = 0; output < numOuts; ++output) {
         const int numSamples = entry.op->getOutputNumSamples(output, mBlockSize, entry.mInputs);
         entry.mOutputs[output] = Buffer(nullptr, numSamples);
+        entry.mOutputs[output].capacityChannels = channelCapacity;
     }
     return entry.mIndex;
 }
@@ -363,7 +370,22 @@ bool Processor::compileProgram() {
         }
     }
     for (Entry& entry : mProgram.list) {
+        for (int input = 0; input < static_cast<int>(entry.mInputs.size()); ++input) {
+            const int sourceId = input < static_cast<int>(entry.mInputIds.size()) ? entry.mInputIds[input] : -1;
+            if (sourceId >= 0) {
+                entry.mInputs[input] = mProgram.list[sourceId / OpSpacing].mOutputs[sourceId % OpSpacing];
+                entry.mInputs[input].connected = true;
+            }
+        }
+        if (dynamic_cast<Channel*>(entry.op.get()) && entry.mInputIds.size() > 1 && entry.mInputIds[1] >= 0 &&
+            dynamic_cast<ConstOp*>(mProgram.list[entry.mInputIds[1] / OpSpacing].op.get()) == nullptr)
+            throw std::runtime_error("channel index must be a constant");
         entry.op->init(entry.mInputs);
+        entry.op->configureOutputs(entry.mInputs, entry.mOutputs);
+        for (const Buffer& output : entry.mOutputs) {
+            if (output.numChannels < 1 || output.numChannels > output.capacityChannels)
+                throw std::runtime_error("operator '" + entry.mType + "' resolved an invalid channel count");
+        }
     }
 
     mPolyPrograms.clear();
@@ -675,6 +697,7 @@ bool Processor::compileProgram() {
             }
             for (Entry& clone : voice.list) {
                 clone.op->init(clone.mInputs);
+                clone.op->configureOutputs(clone.mInputs, clone.mOutputs);
             }
         }
     }

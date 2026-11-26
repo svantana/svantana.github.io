@@ -3,8 +3,154 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <memory>
+
+class CapacityProbe : public AudioVM::FullRateOp {
+public:
+    int maxNumChannels() const override { return 2; }
+    int getNumPorts(AudioVM::Port::Dir dir) override { return dir == AudioVM::Port::Out ? 2 : 0; }
+    void process(AudioVM::Buffer*, AudioVM::Buffer* out, int n) override {
+        std::fill_n(out[0].data(1), n, 9.f);
+        std::fill_n(out[1].data(), n, 3.f);
+        std::copy_n(out[0].data(1), n, out[0].data());
+    }
+};
+
+class ChannelSources : public AudioVM::FullRateOp {
+public:
+    int getNumPorts(AudioVM::Port::Dir dir) override { return dir == AudioVM::Port::Out ? 2 : 0; }
+    void process(AudioVM::Buffer*, AudioVM::Buffer* out, int n) override {
+        std::fill_n(out[0].data(), n, 0.25f);
+        std::fill_n(out[1].data(), n, 0.75f);
+    }
+};
 
 int main() {
+    AudioVM::Processor capacityProcessor;
+    capacityProcessor.setup(44100.f, 0, 1, 16);
+    capacityProcessor.registerType("capacityProbe", [] { return std::make_unique<CapacityProbe>(); }, "test");
+    const int probe = capacityProcessor.addOperator("capacityProbe");
+    capacityProcessor.addOperator("audioOut", {probe});
+    capacityProcessor.compileProgram();
+    float capacityOutput[16]{};
+    float* capacityOutputs[] = {capacityOutput};
+    capacityProcessor.process(nullptr, capacityOutputs, 16);
+    if (!std::all_of(std::begin(capacityOutput), std::end(capacityOutput), [](float v) { return v == 9.f; })) {
+        std::cerr << "operator output channel capacity overlaps the next buffer\n";
+        return 1;
+    }
+    AudioVM::Processor routing;
+    routing.setup(44100.f, 0, 2, 16);
+    routing.registerType("channelSources", [] { return std::make_unique<ChannelSources>(); }, "test");
+    const int sources = routing.addOperator("channelSources");
+    const int joined = routing.addOperator("channels", {sources, sources + 1});
+    const int index = routing.addConstant(1.f);
+    const int right = routing.addOperator("channel", {joined, index});
+    const int swapped = routing.addOperator("channels", {right, sources});
+    routing.addOperator("audioOut", {swapped});
+    routing.compileProgram();
+    float leftOut[16]{}, rightOut[16]{};
+    float* routeOutputs[] = {leftOut, rightOut};
+    routing.process(nullptr, routeOutputs, 16);
+    if (leftOut[0] != 0.75f || rightOut[0] != 0.25f) {
+        std::cerr << "channel split/join did not preserve channel order\n";
+        return 1;
+    }
+    AudioVM::Processor invalidChannel;
+    invalidChannel.setup(44100.f, 0, 1, 16);
+    const int mono = invalidChannel.addOperator("audioIn");
+    const int invalidIndex = invalidChannel.addConstant(1.f);
+    invalidChannel.addOperator("channel", {mono, invalidIndex});
+    try {
+        invalidChannel.compileProgram();
+        std::cerr << "out-of-range channel index was accepted\n";
+        return 1;
+    } catch (const std::runtime_error&) {}
+    AudioVM::Processor invalidJoin;
+    invalidJoin.setup(44100.f, 1, 1, 16);
+    const int joinInput = invalidJoin.addOperator("audioIn");
+    const int joinPair = invalidJoin.addOperator("channels", {joinInput, joinInput});
+    invalidJoin.addOperator("channels", {joinPair});
+    try {
+        invalidJoin.compileProgram();
+        std::cerr << "multichannel input to channels was accepted\n";
+        return 1;
+    } catch (const std::runtime_error&) {}
+    AudioVM::Processor jsonChannels;
+    jsonChannels.setup(44100.f, 1, 1, 16);
+    jsonChannels.loadFromJSON(R"({"version":1,"program":[
+        {"type":"audioIn","id":"in"},
+        {"type":"channels","id":"pair","input":["in","in"]},
+        {"type":"channel","id":"right","input":{"input":"pair","index":1}},
+        {"type":"audioOut","id":"out","input":"right"}
+    ]})");
+    float jsonInput[19], jsonOutput[19]{};
+    std::fill_n(jsonInput, 19, 0.6f);
+    float* jsonInputs[] = {jsonInput};
+    float* jsonOutputs[] = {jsonOutput};
+    jsonChannels.process(jsonInputs, jsonOutputs, 19);
+    if (!std::all_of(std::begin(jsonOutput), std::end(jsonOutput), [](float v) { return v == 0.6f; })) {
+        std::cerr << "JSON channel routing failed on a partial block\n";
+        return 1;
+    }
+    AudioVM::Processor stereoOsc;
+    stereoOsc.setup(44100.f, 0, 2, 32);
+    stereoOsc.loadFromJSON(R"({"version":1,"program":[
+        {"type":"oscAnalog","id":"osc","input":{"frequency":440,"unison count":4,"unison spread":20,"stereo":1}},
+        {"type":"channel","id":"left","input":{"input":"osc","index":0}},
+        {"type":"channel","id":"right","input":{"input":"osc","index":1}},
+        {"type":"channels","id":"pair","input":["left","right"]},
+        {"type":"audioOut","id":"out","input":"pair"}
+    ]})");
+    float stereoLeft[32]{}, stereoRight[32]{};
+    float* stereoOut[] = {stereoLeft, stereoRight};
+    bool differs = false, audible = false;
+    for (int block = 0; block < 20; ++block) {
+        stereoOsc.process(nullptr, stereoOut, 32);
+        for (int n = 0; n < 32; ++n) {
+            differs = differs || std::abs(stereoLeft[n] - stereoRight[n]) > 1e-5f;
+            audible = audible || std::abs(stereoLeft[n]) > 1e-5f;
+        }
+    }
+    if (!differs || !audible) {
+        std::cerr << "stereo analog oscillator did not produce distinct audible channels\n";
+        return 1;
+    }
+    AudioVM::Processor monoOsc;
+    monoOsc.setup(44100.f, 0, 2, 32);
+    monoOsc.loadFromJSON(R"({"version":1,"program":[
+        {"type":"oscAnalog","id":"osc","input":{"frequency":440}},
+        {"type":"audioOut","id":"out","input":"osc"}
+    ]})");
+    monoOsc.process(nullptr, stereoOut, 32);
+    if (!std::equal(std::begin(stereoLeft), std::end(stereoLeft), std::begin(stereoRight))) {
+        std::cerr << "default mono oscillator was not duplicated to both outputs\n";
+        return 1;
+    }
+    AudioVM::Processor dynamicStereo;
+    dynamicStereo.setup(44100.f, 0, 2, 32);
+    dynamicStereo.loadFromJSON(R"({"version":1,"program":[
+        {"type":"control","id":"width","input":0},
+        {"type":"oscAnalog","id":"osc","input":{"frequency":440,"unison count":4,"unison spread":20,"stereo":"width"}},
+        {"type":"channel","id":"right","input":{"input":"osc","index":1}},
+        {"type":"audioOut","id":"out","input":"osc"}
+    ]})");
+    for (int block = 0; block < 8; ++block) dynamicStereo.process(nullptr, stereoOut, 32);
+    if (!std::equal(std::begin(stereoLeft), std::end(stereoLeft), std::begin(stereoRight))) {
+        std::cerr << "zero stereo width did not center the output\n";
+        return 1;
+    }
+    dynamicStereo.setControlValue(0, 1.f);
+    bool modulated = false;
+    for (int block = 0; block < 20; ++block) {
+        dynamicStereo.process(nullptr, stereoOut, 32);
+        for (int n = 0; n < 32; ++n)
+            modulated = modulated || std::abs(stereoLeft[n] - stereoRight[n]) > 1e-5f;
+    }
+    if (!modulated) {
+        std::cerr << "stereo width control did not modulate the output\n";
+        return 1;
+    }
     AudioVM::Processor invalidOperatorProcessor;
     invalidOperatorProcessor.setup(44100.f, 1, 1, 16);
     try {
