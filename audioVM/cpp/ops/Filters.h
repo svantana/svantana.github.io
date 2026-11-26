@@ -23,7 +23,8 @@ public:
     int getNumPorts(Port::Dir dir) override {
         return (dir == Port::Out) ? NumOutputs : NumInputs;
     }
-    int maxNumChannels() const override { return 2; }
+    static const int MaxNumChannels = 2;
+    int maxNumChannels() const override { return MaxNumChannels; }
     void configureOutputs(const std::vector<Buffer>& inputs, std::vector<Buffer>& outputs) override {
         if (inputs[Input].numChannels > maxNumChannels())
             throw std::runtime_error("filter supports at most " + std::to_string(maxNumChannels()) + " input channels");
@@ -37,7 +38,8 @@ public:
             C = T;
         }
         Coefs cStep = getCoefStep(C, T);
-        State states[] = {mState, mRightState};
+        State states[MaxNumChannels];
+        std::copy_n(mStates, MaxNumChannels, states);
         for (int n = 0; n < N; n++) {
             stepCoefs(C, T, cStep);
             for (int ch = 0; ch < o[Output].numChannels; ++ch) {
@@ -45,15 +47,13 @@ public:
                 o[Output].data(ch)[n] = states[ch].l;
             }
         }
-        mState = states[0];
-        mRightState = states[1];
+        std::copy_n(states, MaxNumChannels, mStates);
         mCoefs = C;
     }
     void reset() override {
-        mState.reset();
-        mRightState.reset();
+        for (auto& state : mStates) state.reset();
     }
-    struct State { float l=0, b=0; void reset() {l=b=0;} } mState, mRightState;
+    struct State { float l=0, b=0; void reset() {l=b=0;} } mStates[MaxNumChannels];
     struct Coefs { float k=1, d=1, g=1; } mCoefs;
     
     static inline float doSVF(float x, State &S, Coefs &C) {
@@ -98,27 +98,28 @@ public:
 
 class FilterBP : public FilterLP {
 public:
-    int maxNumChannels() const override { return 1; }
     std::string getName() { return "FilterBP"; }
     void process(Buffer *i, Buffer *o, int N) override {
         Coefs T = getCoefs(i), C = mCoefs;
         float gainTrg = T.g;
         if (i[Reset].value() > .5f) {
-            mState.reset();
+            reset();
             C = T;
             mGain = gainTrg;
         }
         Coefs cStep = getCoefStep(C, T);
-        State S = mState; // local copy
-        float *x = i[Input][0], *y = o[Output][0];
+        State states[MaxNumChannels];
+        std::copy_n(mStates, MaxNumChannels, states);
         float gain = mGain, gainStep = (gainTrg - gain) / mBlockSize;
         for (int n = 0; n < N; n++) {
             stepCoefs(C, T, cStep);
-            doSVF(x[n], S, C);
             gain += gainStep;
-            y[n] = S.b * gain;
+            for (int ch = 0; ch < o[Output].numChannels; ++ch) {
+                doSVF(i[Input].data(ch)[n], states[ch], C);
+                o[Output].data(ch)[n] = states[ch].b * gain;
+            }
         }
-        mState = S;
+        std::copy_n(states, MaxNumChannels, mStates);
         mCoefs = C;
         mGain = gain;
     }
@@ -128,26 +129,27 @@ private:
 
 class FilterHP : public FilterLP {
 public:
-    int maxNumChannels() const override { return 1; }
     std::string getName() { return "FilterHP"; }
     void process(Buffer *i, Buffer *o, int N) override {
         Coefs T = getCoefs(i), C = mCoefs;
         float gainTrg = T.g * T.g;
         if (i[Reset].value() > .5f) {
-            mState.reset();
+            reset();
             C = T;
         }
         Coefs cStep = getCoefStep(C, T);
-        State S = mState; // local copy
-        float *x = i[Input][0], *y = o[Output][0];
+        State states[MaxNumChannels];
+        std::copy_n(mStates, MaxNumChannels, states);
         float gain = mGain, gainStep = (gainTrg - gain) / mBlockSize;
         for (int n = 0; n < N; n++) {
             stepCoefs(C, T, cStep);
-            float hp = doSVF(x[n], S, C);
             gain += gainStep;
-            y[n] = hp * gain;
+            for (int ch = 0; ch < o[Output].numChannels; ++ch) {
+                float hp = doSVF(i[Input].data(ch)[n], states[ch], C);
+                o[Output].data(ch)[n] = hp * gain;
+            }
         }
-        mState = S;
+        std::copy_n(states, MaxNumChannels, mStates);
         mCoefs = C;
         mGain = gain;
     }
@@ -176,14 +178,16 @@ public:
         float d = 1 - i[Resonance].value();
         cDamp = std::min(2 * d, .99f / cK);
         float *x = i[Input][0], *y = o[Output][0];
+        float l = sL, b = sB, env = envL, sat = satL;
         for (int n = 0; n < N; n++) {
-            float hp = x[n] - satL - cDamp * sB;
-            sB += cK * hp;
-            sL += cK * sB;
-            envL += .2f * (fabsf(sL) - envL);
-            satL = sL * (1 + envL) / (1 + envL * (1 + envL));
-            y[n] = satL;
+            float hp = x[n] - sat - cDamp * b;
+            b += cK * hp;
+            l += cK * b;
+            env += .2f * (fabsf(l) - env);
+            sat = l * (1 + env) / (1 + env * (1 + env));
+            y[n] = sat;
         }
+        sL = l; sB = b; envL = env; satL = sat;
     }
     void reset() override {
         sL = sB = envL = satL = 0.f;

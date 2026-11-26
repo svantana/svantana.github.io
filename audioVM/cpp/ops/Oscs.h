@@ -111,16 +111,17 @@ public:
             mPhaseStep = stepTrg;
             mShape = shapeTrg;
         }
-        float phaseStep = mPhaseStep;
+        float phase = mUnitPhase, phaseStep = mPhaseStep;
         float shape = mShape;
         
         for (int n = 0; n < N; n++) {
             phaseStep += stepStep * (stepTrg - phaseStep);
             shape += stepStep * (shapeTrg - shape);
-            mUnitPhase += phaseStep;
-            mUnitPhase -= floorf(mUnitPhase);
-            o->data()[n] = shapeOsc(mUnitPhase, shape);
+            phase += phaseStep;
+            phase -= floorf(phase);
+            o->data()[n] = shapeOsc(phase, shape);
         }
+        mUnitPhase = phase;
         mPhaseStep = phaseStep;
         mShape = shape;
     }
@@ -202,17 +203,20 @@ public:
     Port::Rate getPortRate(Port::Dir dir, int index) override {
         return (dir==Port::Out && index==Output) ? Port::Full : Port::Block;
     }
-    static float randSigned() {
-        static int seed = 0;
+    static float randSigned(unsigned int& seed) {
         seed = 1664525 * seed + 1013904223;
-        return 2.3283064365386963e-10f * (float)seed;
+        return 2.3283064365386963e-10f * static_cast<float>(static_cast<int32_t>(seed));
     }
     void process(Buffer *i, Buffer *o, int N) override {
         float *dst = o[Output].data(); //, scale = i[Gain].value();
+        unsigned int seed = mSeed;
         for (int n = 0; n < N; n++) {
-            dst[n] = randSigned();
+            dst[n] = randSigned(seed);
         }
+        mSeed = seed;
     }
+private:
+    unsigned int mSeed = 0;
 };
 
 namespace Blit {

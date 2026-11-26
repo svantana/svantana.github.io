@@ -117,7 +117,8 @@ Indexing creates a `channel` operator; the equivalent explicit form is
 `vm.op("channel", {"input": pair, "index": 0})`.
 The inputs to `channels` must be consecutive and mono. A channel index must
 be within the input's resolved channel count. These operators provide routing;
-`filterLP` preserves one or two input channels with independent filter state.
+The `filterLP`, `filterBP`, and `filterHP` operators preserve one or two input
+channels with independent filter state.
 Other operators and the browser input do not yet automatically preserve
 multichannel signals.
 
