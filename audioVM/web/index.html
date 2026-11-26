@@ -31,7 +31,7 @@
     #operator-resize { grid-column:2; }
     #editor-panel { grid-column:3; }
     #player-resize { grid-column:4; }
-    #right-panel { grid-column:5; }
+    #right-panel { position:relative; grid-column:5; }
     .resize-handle { position:relative; z-index:2; cursor:col-resize; background:var(--border); touch-action:none; }
     .resize-handle:hover, .resize-handle.resizing { background:var(--accent); }
     .resize-handle::after { position:absolute; top:0; right:-3px; bottom:0; left:-3px; content:""; }
@@ -578,6 +578,9 @@
 
     const python = new PythonPatchRunner();
     let processor = false;
+    let pendingGraph;
+    let activationPromise;
+    const controlValues = new Map();
     const polyCount = document.querySelector('#poly-count');
     let audioContext;
     let audioNode;
@@ -711,6 +714,7 @@
       return { element: numbox, setValue };
     };
     const renderControls = graph => {
+      controlValues.clear();
       const controlNodes = graph.program.filter(node => node.type === 'control');
       controls.replaceChildren();
       count.textContent = `${controlNodes.length} control${controlNodes.length === 1 ? '' : 's'}`;
@@ -743,7 +747,8 @@
         wrapper.className = 'control';
         const label = prefix ? node.id.slice(separator + 1) : node.id;
         const set = next => {
-          audioNode.port.postMessage({ type: 'control', index, value: next });
+          controlValues.set(index, next);
+          if (audioNode && processor) audioNode.port.postMessage({ type: 'control', index, value: next });
         };
         const numbox = createNumbox({ value, min, max, step, label, onInput: set });
         numbox.element.id = `control-${index}`;
@@ -856,7 +861,35 @@
         audioConnected = true;
       }
     };
+    const activatePendingPatch = () => {
+      if (!pendingGraph) return;
+      if (activationPromise) return activationPromise;
+      const graph = pendingGraph;
+      activationPromise = (async () => {
+        status.textContent = 'Starting audio engine…';
+        // Resume immediately in the click handler's call stack. Waiting for the
+        // worklet module or WASM first would lose the browser's user gesture.
+        if (!audioContext) audioContext = new AudioContext();
+        await audioContext.resume();
+        await ensureAudioWorklet();
+        connectOutput();
+        status.textContent = 'Loading patch into audio engine…';
+        processor = false;
+        const wasmResponse = await fetch('./audiovm.wasm');
+        if (!wasmResponse.ok) throw new Error(`Could not load audiovm.wasm (${wasmResponse.status})`);
+        const wasmBinary = await wasmResponse.arrayBuffer();
+        const loaded = await postToWorklet({ type: 'load', json: JSON.stringify(graph), wasmBinary }, [wasmBinary]);
+        processor = true;
+        pendingGraph = undefined;
+        for (const [index, value] of controlValues) audioNode.port.postMessage({ type: 'control', index, value });
+        polyCount.hidden = loaded.voiceCapacity === 0;
+        polyCount.textContent = `POLY 0/${loaded.voiceCapacity}`;
+        postTransport(transport);
+      })().finally(() => { activationPromise = undefined; });
+      return activationPromise;
+    };
     const start = async () => {
+      await activatePendingPatch();
       if (!processor || !audioNode) return;
       connectOutput();
       await audioContext.resume();
@@ -1005,17 +1038,24 @@
     new ResizeObserver(renderPiano).observe(piano);
     const sendNoteOn = (source, midi) => {
       if (activeMidiSources.has(source)) return;
-      if (!processor) return;
+      if (!processor && !pendingGraph) return;
       activeMidiSources.set(source, midi);
-      audioNode.port.postMessage({ type: 'midi', status: 0x90, data1: midi, data2: 100 });
       updatePianoKey(midi);
-      start().catch(cause => showError(`Could not start audio: ${cause.message}`));
+      start().then(() => {
+        const stillHeld = activeMidiSources.get(source) === midi;
+        audioNode.port.postMessage({ type: 'midi', status: 0x90, data1: midi, data2: 100 });
+        // A short first click can end while the worklet is loading. Let that
+        // note sound briefly once initialization finishes.
+        if (!stillHeld) setTimeout(() => {
+          if (processor && ![...activeMidiSources.values()].includes(midi)) audioNode.port.postMessage({ type: 'midi', status: 0x80, data1: midi, data2: 0 });
+        }, 120);
+      }).catch(cause => { activeMidiSources.delete(source); updatePianoKey(midi); showError(`Could not start audio: ${cause.message}`); });
     };
     const sendNoteOff = source => {
       const midi = activeMidiSources.get(source);
       if (midi === undefined) return;
       activeMidiSources.delete(source);
-      if (![...activeMidiSources.values()].includes(midi)) {
+      if (processor && ![...activeMidiSources.values()].includes(midi)) {
         audioNode.port.postMessage({ type: 'midi', status: 0x80, data1: midi, data2: 0 });
       }
       updatePianoKey(midi);
@@ -1169,7 +1209,6 @@
       audioInputToggle.textContent = 'Start';
     };
     const startInputSource = async () => {
-      if (!audioNode || !audioContext) return;
       stopInputSource();
       const type = audioInputSource.value;
       if (type === 'none') return;
@@ -1286,6 +1325,23 @@
       catch (cause) { showError(`Python patch error: ${cause.message}`); status.textContent = 'Python error'; return; }
       showWarnings(compiled.warnings);
       const parsed = JSON.parse(compiled.graph);
+      // The initial preset is loaded automatically, without a user gesture.
+      // Defer AudioContext creation until the user starts audio so the
+      // browser does not reject (and warn about) autoplay.
+      if (!audioContext) {
+        stop();
+        releaseAllNotes();
+        pendingGraph = parsed;
+        processor = false;
+        Object.assign(transport, { bpm: 120, play: false, beatPos: 0, loopBeats: 4 });
+        renderControls(parsed);
+        updatePianoVisibility(parsed);
+        updateTransportVisibility(parsed);
+        updateAudioInputVisibility(parsed);
+        playButton.disabled = false;
+        status.textContent = 'Patch ready';
+        return;
+      }
       try {
         status.textContent = 'Preparing audio worklet…';
         stop();
