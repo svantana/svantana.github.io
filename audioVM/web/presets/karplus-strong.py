@@ -12,7 +12,7 @@ pFriction = vm.control("friction", 0.5)
 
 dampFreq = 20e3 * (1 - pDamp)
 mix = vm.op("buffer")
-with vm.poly(count=8, timeOut=1.0):
+with vm.poly(count=8, timeOut=None) as voice:
   fbGain = .8 + 0.1 * pSustain + 0.1 * midi.gate 
   lag = (2**(69/12)/440) * (2**(-1/12)) ** midi.note
   delay = vm.delay({"time": lag, "gain": fbGain, "cutoff": dampFreq, "max": 0.1})
@@ -27,5 +27,7 @@ with vm.poly(count=8, timeOut=1.0):
     
   delay.write(sum)
   mix += sum
+  ms = vm.op("meanSquare")(sum)
+  voice.kill(ms < 1e-8, timeOut=0.10)
 
 vm.op("audioOut", mix)

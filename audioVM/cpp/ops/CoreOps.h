@@ -156,6 +156,35 @@ struct PolyEnd : public BlockRateOp {
     int getNumPorts(Port::Dir dir) override { return 0; }
 };
 
+struct VoiceKill : public BlockRateOp {
+    int getNumPorts(Port::Dir dir) override { return dir == Port::In ? 2 : 0; }
+    std::string getPortName(Port::Dir, int index) override {
+        return index == 0 ? "condition" : "timeOut";
+    }
+    void process(Buffer* in, Buffer*, int n) override {
+        if (in[0].value() == 0.f) { mElapsed = 0.0; mKill = false; return; }
+        mElapsed += static_cast<double>(n) / mSamplerate;
+        // Allow for the rounding of a float duration at an exact sample boundary.
+        mKill = mElapsed + 1e-9 >= std::max(0.f, in[1].value());
+    }
+    void reset() override { mElapsed = 0.0; mKill = false; }
+    bool kill() const { return mKill; }
+    double mElapsed = 0.0;
+    bool mKill = false;
+};
+
+struct MeanSquare : public Operator {
+    int getNumPorts(Port::Dir) override { return 1; }
+    std::string getPortName(Port::Dir dir, int) override { return dir == Port::In ? "input" : "output"; }
+    Port::Rate getPortRate(Port::Dir dir, int) override { return dir == Port::In ? Port::Full : Port::Block; }
+    void process(Buffer* in, Buffer* out, int n) override {
+        double sum = 0.0;
+        for (int ch = 0; ch < in[0].numChannels; ++ch)
+            for (int i = 0; i < n; ++i) { const float x = in[0].data(ch)[i]; sum += x * x; }
+        out[0].value() = n > 0 ? static_cast<float>(sum / (n * in[0].numChannels)) : 0.f;
+    }
+};
+
 // Structural operators that delimit a conditionally processed range.  The
 // processor consumes these markers directly; they have no signal outputs.
 struct IfStart : public BlockRateOp {

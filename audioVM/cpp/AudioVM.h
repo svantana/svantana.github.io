@@ -40,6 +40,9 @@ public:
     void setPlay(bool doPlay);
     void setBeatPos(float beatPos);
     float getBeatPos() const;
+    // Totals across all polyphonic regions in the loaded patch.
+    int getActiveVoiceCount() const;
+    int getVoiceCapacity() const;
     void setLoop(float numBeats);
     /* Accepts arbitrary buffer sizes */
     void process(float *const* inBufs, float **outBufs, int numSamples);
@@ -82,7 +85,8 @@ private:
         std::string mMidiTargetId;
         int mMidiTargetIndex = -1;
         int mIndex;
-        bool mIsIfStart = false;
+        enum class Kind { Ordinary, IfStart, VoiceKill };
+        Kind mKind = Kind::Ordinary;
     };
     struct Program {
         void clear();

@@ -94,6 +94,14 @@ EMSCRIPTEN_KEEPALIVE float audiovm_get_beat_pos(AudioVM::Processor* processor) {
     return processor->getBeatPos();
 }
 
+EMSCRIPTEN_KEEPALIVE int audiovm_get_active_voice_count(AudioVM::Processor* processor) {
+    return processor->getActiveVoiceCount();
+}
+
+EMSCRIPTEN_KEEPALIVE int audiovm_get_voice_capacity(AudioVM::Processor* processor) {
+    return processor->getVoiceCapacity();
+}
+
 EMSCRIPTEN_KEEPALIVE void audiovm_set_loop(AudioVM::Processor* processor, float numBeats) {
     processor->setLoop(numBeats);
 }

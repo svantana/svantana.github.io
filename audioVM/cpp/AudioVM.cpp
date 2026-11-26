@@ -47,6 +47,8 @@ Processor::Processor()
     registerType("transportIn", make<TransportIn>(), "Provides transport tempo, beat position, play state, and loop length.");
     registerType("polyStart", make<PolyStart>(), "Begins a polyphonic voice-processing region.");
     registerType("polyEnd", make<PolyEnd>(), "Ends a polyphonic voice-processing region.");
+    registerType("voiceKill", make<VoiceKill>(), "Retires a voice after a condition remains true for a duration.");
+    registerType("meanSquare", make<MeanSquare>(), "Calculates the mean squared signal level for each block.");
     registerType("ifStart", make<IfStart>(), "Begins a conditionally processed region with an optional release timeout.");
     registerType("ifEnd", make<IfEnd>(), "Ends a conditionally processed region.");
     registerType("control", make<Control>(), "Exposes a block-rate value as a user-adjustable control.");
@@ -136,6 +138,19 @@ void Processor::setBeatPos(float beatPos) {
 
 float Processor::getBeatPos() const {
     return mTransport.beatPos;
+}
+
+int Processor::getActiveVoiceCount() const {
+    int count = 0;
+    for (const PolyRange& range : mPolyPrograms)
+        for (const Voice& voice : range.voices) count += voice.active;
+    return count;
+}
+
+int Processor::getVoiceCapacity() const {
+    int count = 0;
+    for (const PolyRange& range : mPolyPrograms) count += static_cast<int>(range.voices.size());
+    return count;
 }
 
 void Processor::setLoop(float numBeats) {
@@ -444,6 +459,8 @@ bool Processor::compileProgram() {
                 }
             }
             openRange = static_cast<int>(mPolyPrograms.size()) - 1;
+        } else if (dynamic_cast<const VoiceKill*>(entry.op.get()) != nullptr && openRange < 0) {
+            throw std::runtime_error("voiceKill must be inside a polyphonic range");
         } else if (dynamic_cast<const PolyEnd*>(entry.op.get()) != nullptr) {
             if (openRange < 0) {
                 throw std::runtime_error("polyEnd has no matching polyStart");
@@ -509,7 +526,9 @@ bool Processor::compileProgram() {
         throw std::runtime_error("ifStart has no matching ifEnd");
     }
     for (int index = 0; index < static_cast<int>(mProgram.list.size()); ++index) {
-        mProgram.list[index].mIsIfStart = mIfEndByStart[index] >= 0;
+        Entry& entry = mProgram.list[index];
+        entry.mKind = mIfEndByStart[index] >= 0 ? Entry::Kind::IfStart
+            : entry.mType == "voiceKill" ? Entry::Kind::VoiceKill : Entry::Kind::Ordinary;
     }
 
     // Bind write endpoints to the state owned by their read endpoint.  A
@@ -606,7 +625,7 @@ bool Processor::compileProgram() {
                 clone.mIndex = source.mIndex;
                 clone.mId = source.mId;
                 clone.mType = source.mType;
-                clone.mIsIfStart = source.mIsIfStart;
+                clone.mKind = source.mKind;
                 clone.mInputIds = source.mInputIds;
                 clone.op = makeOpWithId(source.mType);
                 clone.op->mSamplerate = mSamplerate;
@@ -1401,10 +1420,11 @@ void Processor::resetVoice(Voice& voice) {
 void Processor::processPolyRange(PolyRange& range, int numSamples) {
     for (Voice& voice : range.voices) {
         if (!voice.active) continue;
+        bool killVoice = false;
         for (int offset = 0; offset < static_cast<int>(voice.list.size()); ++offset) {
             Entry& entry = voice.list[offset];
             const int programIndex = entry.mIndex / OpSpacing;
-            if (entry.mIsIfStart) {
+            if (entry.mKind == Entry::Kind::IfStart) {
                 auto* ifStart = static_cast<IfStart*>(entry.op.get());
                 ifStart->process(entry.mInputs.data(), entry.mOutputs.data(), numSamples);
                 if (ifStart->active()) continue;
@@ -1422,7 +1442,9 @@ void Processor::processPolyRange(PolyRange& range, int numSamples) {
                 continue;
             }
             entry.op->process(entry.mInputs.data(), entry.mOutputs.data(), numSamples);
+            if (entry.mKind == Entry::Kind::VoiceKill) killVoice |= static_cast<VoiceKill*>(entry.op.get())->kill();
         }
+        if (killVoice) voice.active = false;
         if (voice.mMidiValues[MidiIn::Gate] == 0.f && voice.releasePhase >= 0.f) {
             const float duration = std::max(1e-9f, range.timeOutSeconds);
             voice.releasePhase = std::min(1.f,
@@ -1623,7 +1645,7 @@ void Processor::process(float *const* inBufs, float **outBufs, int numSamples) {
                 continue;
             }
             Entry &E = mProgram.list[n];
-            if (E.mIsIfStart) {
+            if (E.mKind == Entry::Kind::IfStart) {
                 auto* ifStart = static_cast<IfStart*>(E.op.get());
                 ifStart->process(E.mInputs.data(), E.mOutputs.data(), blockSize);
                 if (ifStart->active()) continue;

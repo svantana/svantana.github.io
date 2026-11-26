@@ -8,6 +8,17 @@ from audioVM import VM
 
 
 class OperatorCallTests(unittest.TestCase):
+    def test_poly_voice_kill_and_optional_timeout(self):
+        vm = VM()
+        with vm.poly(8, timeOut=None) as voice:
+            voice.kill(vm.midi().gate == 0, timeOut=0.1)
+        program = json.loads(vm.get_json())["program"]
+        start = next(op for op in program if op["type"] == "polyStart")
+        self.assertNotIn("timeOut", start["input"])
+        self.assertTrue(any(op["type"] == "voiceKill" for op in program))
+        with self.assertRaises(RuntimeError):
+            voice.kill(1)
+
     def test_operator_index_selects_channel(self):
         vm = VM()
         pair = vm.op("channels", [vm.op("audioIn"), vm.op("audioIn")])

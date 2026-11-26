@@ -26,6 +26,42 @@ public:
 };
 
 int main() {
+    AudioVM::Processor killProcessor;
+    killProcessor.setup(1000.f, 1, 1, 10);
+    killProcessor.loadFromJSON(R"({"version":1,"blocksize":10,"program":[
+        {"type":"audioIn","id":"in"},
+        {"type":"buffer","id":"mix"},
+        {"type":"polyStart","id":"poly","input":{"count":1}},
+        {"type":"meanSquare","id":"ms","input":"in"},
+        {"type":"less","id":"quiet","input":["ms",0.01]},
+        {"type":"equal","id":"released","input":["midi.gate",0]},
+        {"type":"mul","id":"killCondition","input":["quiet","released"]},
+        {"type":"voiceKill","id":"kill","input":{"condition":"killCondition","timeOut":0.025}},
+        {"type":"toAudio","id":"signal","input":1},
+        {"type":"iadd","id":"add","input":["mix","signal"]},
+        {"type":"polyEnd","id":"end"},
+        {"type":"audioOut","id":"out","input":"mix"}
+    ]})");
+    if (killProcessor.getVoiceCapacity() != 1 || killProcessor.getActiveVoiceCount() != 0) return 1;
+    float killIn[10]{}, killOut[10]{};
+    float* killInputs[] = {killIn}; float* killOutputs[] = {killOut};
+    auto runKill = [&](int n) { killProcessor.process(killInputs, killOutputs, n); return killOut[n-1]; };
+    killProcessor.midiEvent(static_cast<char>(0x90), 60, 100);
+    for (int i = 0; i < 5; ++i) if (runKill(10) < 0.9f) { std::cerr << "held quiet voice was killed\n"; return 1; }
+    if (killProcessor.getActiveVoiceCount() != 1) return 1;
+    killProcessor.midiEvent(static_cast<char>(0x80), 60, 0);
+    if (runKill(10) < 0.9f) return 1;
+    std::fill_n(killIn, 10, 0.2f);
+    if (runKill(10) < 0.9f) return 1;
+    std::fill_n(killIn, 10, 0.f);
+    if (runKill(10) < 0.9f || runKill(10) < 0.9f || runKill(5) < 0.9f || runKill(10) != 0.f) {
+        std::cerr << "voice kill timer or final block failed\n"; return 1;
+    }
+    if (killProcessor.getActiveVoiceCount() != 0) return 1;
+    killProcessor.midiEvent(static_cast<char>(0x90), 61, 100);
+    if (runKill(10) < 0.9f) { std::cerr << "voice kill did not reset on reuse\n"; return 1; }
+    if (killProcessor.getActiveVoiceCount() != 1) return 1;
+
     AudioVM::Processor capacityProcessor;
     capacityProcessor.setup(44100.f, 0, 1, 16);
     capacityProcessor.registerType("capacityProbe", [] { return std::make_unique<CapacityProbe>(); }, "test");
@@ -734,6 +770,10 @@ int main() {
     float arrayOutput[16]{};
     float* arrayOutputs[] = {arrayOutput};
     arrayProcessor.process(nullptr, arrayOutputs, 16);
+    if (arrayProcessor.getVoiceCapacity() != 12 || arrayProcessor.getActiveVoiceCount() != 2) {
+        std::cerr << "polyphonic voice counts did not reflect simultaneous notes\n";
+        return 1;
+    }
     if (std::abs(arrayOutput[15] - 2.f) > 1e-6f) {
         std::cerr << "polyphonic array event fan-in lost simultaneous onsets\n";
         return 1;

@@ -181,6 +181,18 @@ class KitPad:
         self.onset = Operator(vm, "const", source.name + ".onset")
         self.velocity = Operator(vm, "const", source.name + ".velocity")
 
+class PolyVoice:
+    """Handle for retiring the current voice of a polyphonic region."""
+    def __init__(self, vm):
+        self.vm = vm
+        self.active = True
+
+    def kill(self, condition, timeOut=0):
+        """Retire the voice after condition stays true for timeOut seconds."""
+        if not self.active:
+            raise RuntimeError("voice.kill must be called inside its poly region")
+        return self.vm.op("voiceKill", {"condition": condition, "timeOut": timeOut})
+
 class Kit:
     def __init__(self, midi, pads):
         self.midi = midi
@@ -544,10 +556,15 @@ class VM:
 
     @contextmanager
     def poly(self, count, timeOut=0):
-        self.op("polyStart", {"count": count, "timeOut": timeOut})
+        inputs = {"count": count}
+        if timeOut is not None:
+            inputs["timeOut"] = timeOut
+        self.op("polyStart", inputs)
+        voice = PolyVoice(self)
         try:
-            yield
+            yield voice
         finally:
+            voice.active = False
             self.op("polyEnd")
 
     @contextmanager

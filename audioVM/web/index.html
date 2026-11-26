@@ -72,6 +72,8 @@
     #audio-format { padding-left:5px; border-left:1px solid var(--border); }
     #controls { flex:1; min-height:0; display:grid; grid-template-columns:repeat(auto-fit, minmax(112px, 1fr)); align-content:start; gap:10px; padding:12px 14px 28px; overflow:auto; }
     #analysis-panel { flex:none; height:164px; display:flex; border-top:1px solid var(--border); background:var(--analysis); }
+    #poly-count { flex:none; padding:4px 10px; border-top:1px solid var(--border); background:var(--analysis); color:var(--muted); font:11px ui-monospace, monospace; }
+    #poly-count[hidden] { display:none; }
     #analysis-canvas { flex:1; min-width:0; height:100%; }
     #analysis-toggles { display:flex; flex:0 0 92px; flex-direction:column; justify-content:center; gap:7px; padding:9px; border-left:1px solid var(--border); color:var(--muted); font-size:11px; }
     #analysis-toggles label { display:flex; align-items:center; gap:5px; cursor:pointer; }
@@ -198,6 +200,7 @@
       <div id="controls"><p class="empty">Load a patch to generate controls.</p></div>
       <pre id="warning" role="status"></pre>
       <pre id="error" role="alert"></pre>
+      <div id="poly-count" hidden>POLY 0/0</div>
       <div id="analysis-panel">
         <canvas id="analysis-canvas" aria-label="Audio oscilloscope and spectrum display"></canvas>
         <div id="analysis-toggles" aria-label="Analysis display options">
@@ -231,7 +234,7 @@
     import { defaultKeymap, history as editorHistory, historyKeymap, indentLess, indentMore } from 'https://cdn.jsdelivr.net/npm/@codemirror/commands@6.8.1/+esm';
     import { python as pythonLanguage } from 'https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6.2.1/+esm';
     import { indentationMarkers } from 'https://cdn.jsdelivr.net/npm/@replit/codemirror-indentation-markers@6.5.3/dist/index.js';
-    import { PythonPatchRunner, starterPatch } from './python-runner.js';
+    import { PythonPatchRunner } from './python-runner.js';
     import createAudioVM from './audiovm.js';
 
     const editorHost = document.querySelector('#program');
@@ -415,7 +418,7 @@
     };
     editorView = new EditorView({
       state: EditorState.create({
-        doc: starterPatch,
+        doc: '',
         extensions: [
           lineNumbers(),
           editorHistory(),
@@ -575,6 +578,7 @@
 
     const python = new PythonPatchRunner();
     let processor = false;
+    const polyCount = document.querySelector('#poly-count');
     let audioContext;
     let audioNode;
     let audioConnected = false;
@@ -596,7 +600,7 @@
     let baseOctave = 4;
     let webMidiAccess;
     const transport = { bpm: 120, play: false, beatPos: 0, loopBeats: 4 };
-    const requestedPreset = new URLSearchParams(window.location.search).get('preset');
+    const requestedPreset = new URLSearchParams(window.location.search).get('preset') || 'polysynth.py';
 
     const showError = message => { error.textContent = message; error.style.display = 'block'; };
     const clearError = () => { error.textContent = ''; error.style.display = 'none'; };
@@ -821,6 +825,9 @@
           return;
         }
         if (message.type === 'stats') {
+          if (processor && !polyCount.hidden && message.voiceCapacity > 0) {
+            polyCount.textContent = `POLY ${message.activeVoices}/${message.voiceCapacity}`;
+          }
           const cpu = Math.min(100, Math.max(0, message.cpu));
           cpuLoad.textContent = `${cpu.toFixed(cpu < 10 ? 1 : 0)}%`;
           audioFormat.textContent = `${(message.sampleRate / 1000).toFixed(1)} kHz · ${(1000 * message.blockSize / message.sampleRate).toFixed(1)} ms`;
@@ -1289,12 +1296,15 @@
         await audioContext.resume();
         status.textContent = 'Sending patch to audio worklet…';
         processor = false;
+        polyCount.hidden = true;
         const wasmResponse = await fetch('./audiovm.wasm');
         if (!wasmResponse.ok) throw new Error(`Could not load audiovm.wasm (${wasmResponse.status})`);
         const wasmBinary = await wasmResponse.arrayBuffer();
-        await postToWorklet({ type: 'load', json: JSON.stringify(parsed), wasmBinary }, [wasmBinary]);
+        const loaded = await postToWorklet({ type: 'load', json: JSON.stringify(parsed), wasmBinary }, [wasmBinary]);
         stop();
         processor = true;
+        polyCount.hidden = loaded.voiceCapacity === 0;
+        polyCount.textContent = `POLY 0/${loaded.voiceCapacity}`;
         Object.assign(transport, { bpm: 120, play: false, beatPos: 0, loopBeats: 4 });
         postTransport(transport);
         renderControls(parsed);

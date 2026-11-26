@@ -99,7 +99,8 @@ class AudioVMProcessor extends AudioWorkletProcessor {
         this.inputPointer = this.wasm._malloc(this.blockSize * 4);
         this.outputPointer = this.wasm._malloc(this.blockSize * this.outputChannels * 4);
         this.heap = new Float32Array(this.wasm.HEAPU8.buffer);
-        this.port.postMessage({ type: 'loaded', requestId: message.requestId, sampleRate, blockSize: this.blockSize });
+        this.port.postMessage({ type: 'loaded', requestId: message.requestId, sampleRate, blockSize: this.blockSize,
+          voiceCapacity: this.wasm._audiovm_get_voice_capacity(this.processor) });
       } else if (message.type === 'control' && this.processor) {
         this.wasm._audiovm_set_control_value(this.processor, message.index, message.value);
       } else if (message.type === 'midi' && this.processor) {
@@ -146,6 +147,8 @@ class AudioVMProcessor extends AudioWorkletProcessor {
         this.port.postMessage({
           type: 'stats', cpu: Math.max(0, this.smoothedCpuLoad), sampleRate, blockSize: frames,
           beatPos: this.wasm._audiovm_get_beat_pos(this.processor),
+          activeVoices: this.wasm._audiovm_get_active_voice_count(this.processor),
+          voiceCapacity: this.wasm._audiovm_get_voice_capacity(this.processor),
         });
       this.lastStatsTime = currentTime;
     }

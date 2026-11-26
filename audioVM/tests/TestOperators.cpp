@@ -94,6 +94,14 @@ int addOperatorGraph(AudioVM::Processor& processor, const OperatorDefinition& de
         processor.addOperator(definition.name);
         return -1;
     }
+    if (definition.name == "voiceKill") {
+        const int voiceCount = processor.addConstant(1.f);
+        const int condition = controlInput(), duration = controlInput();
+        processor.addOperator("polyStart", {voiceCount});
+        processor.addOperator(definition.name, {condition, duration});
+        processor.addOperator("polyEnd");
+        return -1;
+    }
     if (definition.name == "ifStart") {
         processor.addOperator(definition.name, {controlInput(), controlInput()});
         processor.addOperator("ifEnd");

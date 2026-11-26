@@ -61,6 +61,21 @@ An included patch used as a signal refers to its first audio output; use
 
 ## C++ operator export
 
+Polyphonic patches can retire individual voices when a block-rate condition
+stays true for a duration. `meanSquare` measures the mean squared amplitude
+across the current block and all input channels:
+
+```python
+with vm.poly(count=8, timeOut=None) as voice:
+    # ... produce and mix a voice-local signal ...
+    ms = vm.op("meanSquare")(signal)
+    voice.kill((ms < 1e-8) * (midi.gate == 0), timeOut=0.10)
+```
+
+The kill timer resets whenever the condition is false. Retirement takes effect
+after the current block. `timeOut=None` disables the separate polyphonic
+note-off timeout; when specified, either timeout can retire the voice.
+
 `Processor::getGeneratedOperatorCode("MyPatch")` exports a loaded program as
 a single `AudioVM::Operator` subclass. The generated `process()` has one
 operator boundary and lowers supported arithmetic nodes to direct `float`

@@ -1,19 +1,6 @@
 const pyodideBase = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
 const audioVMUrl = new URL('../python/audioVM.py', import.meta.url);
 
-export const starterPatch = String.raw`import audioVM
-
-vm = audioVM.VM()
-
-# Controls become the sliders on the right.
-frequency = vm.control("frequency", 220)
-level = vm.control("level", 0.12)
-
-oscillator = vm.op("oscAnalog", {"note": frequency})
-amplifier = oscillator * level
-vm.op("audioOut", amplifier)
-`;
-
 export class PythonPatchRunner {
     #pyodide;
     #preparation;

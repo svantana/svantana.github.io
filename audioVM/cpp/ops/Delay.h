@@ -102,7 +102,7 @@ void FilterDelay::read(float *outBuf, int numSamples, float lagTarget, FilterDes
     
     float s1 = R.s1, ai = R.ai, b0 = R.b0, b1 = R.b1, step = 1.f/numSamples;
     const float fIn = 2 * filter.frequency;
-    const float fMix = std::max(0.f, 1 - 10 * fabsf(filter.ampHi - filter.ampLo) / (filter.ampHi - filter.ampLo));
+    const float fMix = std::min(1.f, 10 * fabsf(filter.ampHi - filter.ampLo) / (filter.ampHi + filter.ampLo));
     const float f = std::clamp(1.f + fMix * (fIn - 1), 1e-5f, 1.f);
     const float pMax = -0.602f;
     Reader T;
