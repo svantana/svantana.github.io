@@ -4,8 +4,8 @@ vm = audioVM.VM()
 midi = vm.midi()
 
 pUnison = vm.control("unison", 8, range=[1,8])
-pWidth = vm.control("width", 0.2)
-pColor = vm.control("color", 0.5)
+pWidth = vm.control("width", 0.15)
+pColor = vm.control("color", 0.8)
 pCut = vm.control("cutoff", 0.5)
 pRez = vm.control("resonance", 0.25) * 0.95
 release = 0.1

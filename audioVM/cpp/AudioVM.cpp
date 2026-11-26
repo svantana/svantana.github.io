@@ -1118,6 +1118,8 @@ std::string Processor::getOpDefinitionsJSON() const {
         picojson::object definition;
         definition["id"] = picojson::value(operatorId);
         definition["description"] = picojson::value(mOpDescriptions.at(operatorId));
+        definition["maxChannels"] = picojson::value(
+            static_cast<double>(op->maxNumChannels()));
 
         const auto makePorts = [&](Port::Dir direction) {
             picojson::array ports;

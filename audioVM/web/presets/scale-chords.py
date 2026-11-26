@@ -3,6 +3,7 @@ import audioVM
 vm = audioVM.VM()
 midi = vm.midi()
 
+# all input notes map to a four-part chord in a diatonic scale
 def snapToDiatonic(note, scale): # 5 is cMaj/Amin
   return (vm.op("round", note * (7/12)) * 12 + scale) // 7
 

@@ -25,6 +25,7 @@ struct OperatorDefinition {
     std::string name;
     std::vector<int> inputRates;
     std::vector<int> outputRates;
+    int maxChannels;
 };
 
 struct Result {
@@ -32,7 +33,7 @@ struct Result {
     size_t inputs;
     size_t outputs;
     std::string maxRate;
-    double realtimeFactor;
+    std::vector<double> realtimeFactors;
 };
 
 std::vector<OperatorDefinition> readDefinitions(AudioVM::Processor& processor) {
@@ -46,7 +47,9 @@ std::vector<OperatorDefinition> readDefinitions(AudioVM::Processor& processor) {
     definitions.reserve(operators.size());
     for (const picojson::value& value : operators) {
         const picojson::object& object = value.get<picojson::object>();
-        OperatorDefinition definition{object.at("id").get<std::string>(), {}, {}};
+        OperatorDefinition definition{
+            object.at("id").get<std::string>(), {}, {},
+            static_cast<int>(object.at("maxChannels").get<double>())};
         for (const picojson::value& input : object.at("inputs").get<picojson::array>()) {
             definition.inputRates.push_back(static_cast<int>(input.get<picojson::object>()
                 .at("rate").get<double>()));
@@ -67,7 +70,7 @@ int addDelay(AudioVM::Processor& processor, int fullRateInput) {
 }
 
 int addOperatorGraph(AudioVM::Processor& processor, const OperatorDefinition& definition,
-                     std::mt19937& random) {
+                     std::mt19937& random, int numChannels) {
     std::uniform_real_distribution<float> positive(0.1f, 0.9f);
 
     // Each input is fed a different non-zero random source. Full-rate ports
@@ -122,17 +125,26 @@ int addOperatorGraph(AudioVM::Processor& processor, const OperatorDefinition& de
     if (definition.name == "channel") {
         return processor.addOperator("channel", {audioInput, processor.addConstant(0.f)});
     }
+    if (definition.name == "channels") {
+        return processor.addOperator("channels", std::vector<int>(numChannels, audioInput));
+    }
     if (definition.name == "oscAnalog") {
-        return processor.addOperator("oscAnalog", {processor.addConstant(440.f)});
+        std::vector<int> inputs(9, -1);
+        inputs[0] = processor.addConstant(440.f);
+        if (numChannels == 2) inputs[8] = processor.addConstant(1.f);
+        return processor.addOperator("oscAnalog", std::move(inputs));
     }
     // These source/state operators are valid to execute in isolation, but
     // their default output is intentionally zero until the host initializes
     // their state or delivers an event.
     if (definition.name == "midiIn" || definition.name == "midiBuffer" ||
-        definition.name == "buffer" || definition.name == "arrayState" ||
+        definition.name == "arrayState" ||
         definition.name == "arrayWrite" || definition.name == "valueWrite") {
         processor.addOperator(definition.name);
         return -1;
+    }
+    if (definition.name == "buffer") {
+        return processor.addOperator("buffer", {processor.addConstant(static_cast<float>(numChannels))});
     }
 
     std::vector<int> inputs;
@@ -173,9 +185,12 @@ int addOperatorGraph(AudioVM::Processor& processor, const OperatorDefinition& de
     return processor.addOperator(definition.name, std::move(inputs));
 }
 
-double testOperator(const OperatorDefinition& definition, std::mt19937& random) {
+double testOperator(const OperatorDefinition& definition, std::mt19937& random, int numChannels) {
     AudioVM::Processor processor;
-    processor.setup(kSampleRate, 1, 1, kBlockSize);
+    // channels joins independent mono sources, so its host input remains
+    // mono while its output expands to the channel count under test.
+    const int inputChannels = definition.name == "channels" ? 1 : numChannels;
+    processor.setup(kSampleRate, inputChannels, numChannels, kBlockSize);
     int outputId;
     if (definition.name == "midiOut") {
         // MIDI outputs route events to a named buffer rather than exposing a
@@ -198,7 +213,7 @@ double testOperator(const OperatorDefinition& definition, std::mt19937& random) 
         processor.midiEvent(static_cast<char>(0x90), 48, 100);
         outputId = 0;
     } else {
-        outputId = addOperatorGraph(processor, definition, random);
+        outputId = addOperatorGraph(processor, definition, random, numChannels);
         if (outputId >= 0) {
             const int outputRate = definition.outputRates.empty()
                 ? AudioVM::Port::Full : definition.outputRates.front();
@@ -208,30 +223,36 @@ double testOperator(const OperatorDefinition& definition, std::mt19937& random) 
         }
         processor.compileProgram();
     }
-    float input[kBlockSize];
-    float output[kBlockSize]{};
-    float* inputPointers[] = {input};
-    float* outputPointers[] = {output};
+    std::vector<std::vector<float>> input(inputChannels, std::vector<float>(kBlockSize));
+    std::vector<std::vector<float>> output(numChannels, std::vector<float>(kBlockSize));
+    std::vector<float*> inputPointers(inputChannels), outputPointers(numChannels);
+    for (int channel = 0; channel < inputChannels; ++channel)
+        inputPointers[channel] = input[channel].data();
+    for (int channel = 0; channel < numChannels; ++channel)
+        outputPointers[channel] = output[channel].data();
     std::uniform_real_distribution<float> signal(0.1f, 2.f);
     // Operators with no observable output (including structural markers) are
     // still exercised above; a non-zero assertion only applies when a graph
     // can expose a signal through audioOut.
-    bool hasSignal = outputId < 0;
+    bool hasSignal = outputId < 0 || definition.name == "buffer";
     for (int block = 0; block < kValidationBlocks; ++block) {
-        for (float& sample : input) sample = signal(random);
-        processor.process(inputPointers, outputPointers, kBlockSize);
-        for (const float sample : output) {
-            if (!std::isfinite(sample)) {
-                throw std::runtime_error(definition.name + " produced a non-finite output");
+        for (auto& channel : input)
+            for (float& sample : channel) sample = signal(random);
+        processor.process(inputPointers.data(), outputPointers.data(), kBlockSize);
+        for (const auto& channel : output) {
+            for (const float sample : channel) {
+                if (!std::isfinite(sample)) {
+                    throw std::runtime_error(definition.name + " produced a non-finite output");
+                }
+                hasSignal = hasSignal || std::abs(sample) > 1e-6f;
             }
-            hasSignal = hasSignal || std::abs(sample) > 1e-6f;
         }
     }
     if (!hasSignal) throw std::runtime_error(definition.name + " produced only zero output");
 
     const auto start = std::chrono::steady_clock::now();
     for (int block = 0; block < kTimingBlocks; ++block) {
-        processor.process(inputPointers, outputPointers, kBlockSize);
+        processor.process(inputPointers.data(), outputPointers.data(), kBlockSize);
     }
     const auto elapsed = std::chrono::steady_clock::now() - start;
     const double renderedSeconds = static_cast<double>(kTimingBlocks * kBlockSize) / kSampleRate;
@@ -250,7 +271,10 @@ int main(int argc, char** argv) {
         std::vector<Result> results;
         results.reserve(definitions.size());
         for (const OperatorDefinition& definition : definitions) {
-            const double realtimeFactor = testOperator(definition, random);
+            std::vector<double> realtimeFactors;
+            realtimeFactors.reserve(definition.maxChannels);
+            for (int channels = 1; channels <= definition.maxChannels; ++channels)
+                realtimeFactors.push_back(testOperator(definition, random, channels));
             const bool hasPorts = !definition.inputRates.empty() || !definition.outputRates.empty();
             const auto isFullRate = [](const std::vector<int>& rates) {
                 return std::any_of(rates.begin(), rates.end(), [](const int rate) {
@@ -263,15 +287,18 @@ int main(int argc, char** argv) {
                 : (isFullRate(definition.inputRates) || isFullRate(definition.outputRates))
                     ? "full" : "block";
             results.push_back({definition.name, definition.inputRates.size(), definition.outputRates.size(),
-                               maxRate, realtimeFactor});
+                               maxRate, std::move(realtimeFactors)});
         }
         std::sort(results.begin(), results.end(), [](const Result& a, const Result& b) {
-            return a.realtimeFactor > b.realtimeFactor;
+            return a.realtimeFactors.front() > b.realtimeFactors.front();
         });
         for (const Result& result : results) {
             std::cout << result.name << '\t' << result.inputs << '\t' << result.outputs << '\t'
-                      << result.maxRate << '\t' << std::fixed << std::setprecision(0)
-                      << (1'000'000.0 * result.realtimeFactor) << '\n';
+                      << result.maxRate;
+            for (const double realtimeFactor : result.realtimeFactors)
+                std::cout << '\t' << std::fixed << std::setprecision(0)
+                          << (1'000'000.0 * realtimeFactor);
+            std::cout << '\n';
         }
     } catch (const std::exception& error) {
         std::cerr << "operator test failed: " << error.what() << '\n';
