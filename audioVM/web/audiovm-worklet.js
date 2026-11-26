@@ -131,8 +131,13 @@ class AudioVMProcessor extends AudioWorkletProcessor {
     if (heap.buffer !== this.wasm.HEAPU8.buffer) {
       heap = this.heap = new Float32Array(this.wasm.HEAPU8.buffer);
     }
-    heap.fill(0, this.inputPointer >> 2, (this.inputPointer >> 2) + frames);
-    if (input[0]) heap.set(input[0], this.inputPointer >> 2);
+    const inputOffset = this.inputPointer >> 2;
+    if (input[0] && input[0].length === frames) {
+      heap.set(input[0], inputOffset);
+    } else {
+      heap.fill(0, inputOffset, inputOffset + frames);
+      if (input[0]) heap.set(input[0], inputOffset);
+    }
     this.wasm._audiovm_process(this.processor, this.inputPointer, this.outputPointer, frames, 1, this.outputChannels);
     for (let channel = 0; channel < output.length; ++channel) {
       const offset = (this.outputPointer >> 2) + channel * frames;
