@@ -5,10 +5,7 @@
 #include <stdexcept>
 #include <vector>
 
-#if defined(AUDIOVM_FFT_USE_VDSP)
-#if !defined(__APPLE__)
-#error "AUDIOVM_FFT_USE_VDSP requires Apple's Accelerate framework"
-#endif
+#if defined(__APPLE__) && !defined(NO_VDSP) && __has_include(<Accelerate/Accelerate.h>)
 #include <Accelerate/Accelerate.h>
 #include <memory>
 #include <type_traits>
@@ -20,8 +17,9 @@
 // rfft()/irfft() use bins 0..N/2: N/2+1 interleaved complex values,
 // requiring N+2 floats for N >= 2 (two floats for N == 1).
 // The imaginary DC and Nyquist lanes are zero. fft()/ifft() use 2*N floats.
-#if defined(AUDIOVM_FFT_USE_VDSP)
-// Define AUDIOVM_FFT_USE_VDSP and link Accelerate to select this backend.
+#if defined(__APPLE__) && !defined(NO_VDSP) && __has_include(<Accelerate/Accelerate.h>)
+// Apple builds default to vDSP and must link Accelerate. Define NO_VDSP to
+// select the portable implementation without the framework dependency.
 class FFT {
 public:
     explicit FFT(std::size_t size) : size_(size), real_(size), imag_(size) {
@@ -138,7 +136,7 @@ public:
             work_[2 * i] = real[2 * source];
             work_[2 * i + 1] = real[2 * source + 1];
         }
-        transform(work_.data(), 1.0f, half, true);
+        transform<false>(work_.data(), half, true);
         const float* twiddle = twiddles_.data() + 2 * (half - 1);
         spectrum[0] = work_[0] + work_[1];
         spectrum[1] = 0.0f;
@@ -173,14 +171,14 @@ public:
             work_[2 * k] = 0.5f * (ar + br - wr * di + wi * dr);
             work_[2 * k + 1] = 0.5f * (ai + bi + wr * dr + wi * di);
         }
-        transform(work_.data(), -1.0f, half);
+        transform<true>(work_.data(), half);
         for (std::size_t i = 0; i < size_; ++i) real[i] = work_[i];
     }
 
     // In-place complex transforms for callers that already use the interleaved
     // format.  ifft() leaves zero imaginary lanes for an inverse real spectrum.
-    void fft(float* interleaved) const { transform(interleaved, 1.0f, size_); }
-    void ifft(float* interleaved) const { transform(interleaved, -1.0f, size_); }
+    void fft(float* interleaved) const { transform<false>(interleaved, size_); }
+    void ifft(float* interleaved) const { transform<true>(interleaved, size_); }
 
 private:
     void makeBitReverse() {
@@ -221,7 +219,9 @@ private:
         }
     }
 
-    void transform(float* data, float imaginarySign, std::size_t n, bool reordered = false) const {
+    template<bool Inverse>
+    void transform(float* data, std::size_t n, bool reordered = false) const {
+        constexpr float imaginarySign = Inverse ? -1.0f : 1.0f;
         for (std::size_t i = 0; !reordered && i < n; ++i) {
             const std::size_t j = bitReverse_[i] >> (n != size_);
             if (i < j) {
@@ -257,9 +257,9 @@ private:
         }
         for (std::size_t width = 16; width <= n; width *= 4) {
             const std::size_t quarter = width / 4;
-            if (quarter == 4) radix4<4>(data, imaginarySign, n, quarter);
-            else if (quarter == 16) radix4<16>(data, imaginarySign, n, quarter);
-            else radix4<0>(data, imaginarySign, n, quarter);
+            if (quarter == 4) radix4<4, Inverse>(data, n, quarter);
+            else if (quarter == 16) radix4<16, Inverse>(data, n, quarter);
+            else radix4<0, Inverse>(data, n, quarter);
             completed = width;
             if (width == n) break;
         }
@@ -289,7 +289,7 @@ private:
             if (width == n) break;
         }
 
-        if (imaginarySign < 0.0f) {
+        if constexpr (Inverse) {
             const float scale = 1.0f / static_cast<float>(n);
             for (std::size_t i = 0; i < 2 * n; ++i) data[i] *= scale;
         }
@@ -297,8 +297,9 @@ private:
 
     // Fixed small stages expose disjoint offsets to the optimizer. The same
     // body handles larger stages without generating a kernel for every size.
-    template<std::size_t Quarter>
-    void radix4(float* data, float imaginarySign, std::size_t n, std::size_t quarter) const {
+    template<std::size_t Quarter, bool Inverse>
+    void radix4(float* data, std::size_t n, std::size_t quarter) const {
+        constexpr float imaginarySign = Inverse ? -1.0f : 1.0f;
         if constexpr (Quarter != 0) quarter = Quarter;
         const std::size_t width = 4 * quarter;
         const float* w1 = twiddles_.data() + 2 * (quarter - 1);

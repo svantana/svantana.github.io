@@ -37,8 +37,13 @@ class AudioVMProcessor extends AudioWorkletProcessor {
     this.heap = null;
     this.blockSize = 128;
     this.outputChannels = 2;
-    this.smoothedCpuLoad = 0;
-    this.cpuSmoothingSeconds = 0.2;
+    // Some AudioWorklet implementations do not expose performance. Use the
+    // best available clock and average measurements over multiple callbacks.
+    this.now = typeof globalThis.performance?.now === 'function'
+      ? () => globalThis.performance.now()
+      : () => Date.now();
+    this.cpuBusyMilliseconds = 0;
+    this.cpuAudioMilliseconds = 0;
     this.lastStatsTime = 0;
     this.port.onmessage = event => this.handleMessage(event.data);
     this.port.postMessage({ type: 'status', message: 'Audio worklet ready' });
@@ -125,7 +130,7 @@ class AudioVMProcessor extends AudioWorkletProcessor {
 
     const frames = output[0].length;
     const input = inputs[0] || [];
-    const start = Date.now();
+    const start = this.now();
     let heap = this.heap;
     // A module compiled with memory growth can replace its backing buffer.
     if (heap.buffer !== this.wasm.HEAPU8.buffer) {
@@ -144,17 +149,20 @@ class AudioVMProcessor extends AudioWorkletProcessor {
       output[channel].set(heap.subarray(offset, offset + frames));
     }
 
-    const elapsed = Date.now() - start;
-    const callbackLoad = 100 * elapsed / (frames * 1000 / sampleRate);
-    const smoothing = 1 - Math.exp(-frames / (sampleRate * this.cpuSmoothingSeconds));
-    this.smoothedCpuLoad += smoothing * (callbackLoad - this.smoothedCpuLoad);
+    this.cpuBusyMilliseconds += Math.max(0, this.now() - start);
+    this.cpuAudioMilliseconds += frames * 1000 / sampleRate;
     if (currentTime - this.lastStatsTime >= 0.25) {
-        this.port.postMessage({
-          type: 'stats', cpu: Math.max(0, this.smoothedCpuLoad), sampleRate, blockSize: frames,
-          beatPos: this.wasm._audiovm_get_beat_pos(this.processor),
-          activeVoices: this.wasm._audiovm_get_active_voice_count(this.processor),
-          voiceCapacity: this.wasm._audiovm_get_voice_capacity(this.processor),
-        });
+      const cpu = this.cpuAudioMilliseconds > 0
+        ? 100 * this.cpuBusyMilliseconds / this.cpuAudioMilliseconds
+        : 0;
+      this.port.postMessage({
+        type: 'stats', cpu: Math.max(0, cpu), sampleRate, blockSize: frames,
+        beatPos: this.wasm._audiovm_get_beat_pos(this.processor),
+        activeVoices: this.wasm._audiovm_get_active_voice_count(this.processor),
+        voiceCapacity: this.wasm._audiovm_get_voice_capacity(this.processor),
+      });
+      this.cpuBusyMilliseconds = 0;
+      this.cpuAudioMilliseconds = 0;
       this.lastStatsTime = currentTime;
     }
     return true;

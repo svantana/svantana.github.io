@@ -833,7 +833,10 @@
           if (processor && !polyCount.hidden && message.voiceCapacity > 0) {
             polyCount.textContent = `POLY ${message.activeVoices}/${message.voiceCapacity}`;
           }
-          const cpu = Math.min(100, Math.max(0, message.cpu));
+          // Values over 100% mean the audio processor needs more than one
+          // callback period and is at risk of dropping audio. Do not hide that
+          // important condition by clamping the display at 100%.
+          const cpu = Math.max(0, message.cpu);
           cpuLoad.textContent = `${cpu.toFixed(cpu < 10 ? 1 : 0)}%`;
           audioFormat.textContent = `${(message.sampleRate / 1000).toFixed(1)} kHz · ${(1000 * message.blockSize / message.sampleRate).toFixed(1)} ms`;
           if (Number.isFinite(message.beatPos)) {
