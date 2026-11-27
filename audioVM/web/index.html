@@ -1220,7 +1220,13 @@
       if (request !== inputRequest) return;
       let stream;
       if (type === 'audio-in') {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
+        });
         if (request !== inputRequest) {
           stream.getTracks().forEach(track => track.stop());
           return;
