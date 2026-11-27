@@ -1,5 +1,4 @@
 import audioVM
-
 vm = audioVM.VM()
 midi = vm.midi()
 vm.set("blocksize", 32)
@@ -9,6 +8,9 @@ pDamp     = vm.control("damping", 0.2)
 pPluck = vm.control("pluck", 0.5)
 pPos = vm.control("position", 0.2)
 pFriction = vm.control("friction", 0.5)
+pReflex = vm.control("reflection", -1, range=[-1,1])
+pFreq = vm.control("mid Hz", 600, range=[100,3e3])
+pQ = vm.control("Q", 0.5, range=[0.1, 4])
 
 dampFreq = 20e3 * (1 - pDamp)
 mix = vm.op("buffer")
@@ -16,15 +18,15 @@ with vm.poly(count=8, timeOut=None) as voice:
   fbGain = .8 + 0.1 * pSustain + 0.1 * midi.gate 
   lag = (2**(69/12)/440) * (2**(-1/12)) ** midi.note
   delay = vm.delay({"time": lag, "gain": fbGain, "cutoff": dampFreq, "max": 0.1})
-  
   sum = vm.op("buffer")
-  sum += delay
   with vm.when(midi.onset, timeOut=0.1):
-    envA = vm.op("envExp", {"gate": midi.onset, "decay": 0.01 + 0.1 * pFriction}) / (2 + 4 * pFriction)
+    envA = vm.op("envExp", {"gate": midi.onset, "decay": 0.01 + 0.1 * pFriction}) / (0.5 + pFriction)
     excite = vm.op("oscNoise") * (envA * (1 - pPluck)) + pPluck * envA
+    excite = vm.op("filterBP", {"frequency": pFreq, "Q": pQ, "reset": midi.onset})(excite)
     sum += excite
-    sum -= vm.op("delay", {"time": lag * (.05 + .9 * pPos), "max": 0.1})(excite)
-    
+    sum += pReflex * vm.op("delay", {"time": lag * (.05 + .9 * pPos), "max": 0.1})(excite)
+
+  sum += delay
   delay.write(sum)
   mix += sum
   ms = vm.op("meanSquare")(sum)

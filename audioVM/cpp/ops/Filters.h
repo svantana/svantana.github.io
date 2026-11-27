@@ -6,16 +6,16 @@ using namespace AudioVM;
 
 class FilterLP : public Operator {
 public:
-    enum In  { Input, FreqHz, Resonance, Reset, NumInputs };
+    enum In  { Input, FreqHz, Q, Reset, NumInputs };
     enum Out { Output, NumOutputs };
     std::string getName() { return "FilterLP"; }
     std::string getPortName(Port::Dir dir, int index) override {
-        cStr i[]={"input","frequency","resonance","reset"};
+        cStr i[]={"input","frequency","Q","reset"};
         cStr o[]={"output"};
         return (dir==Port::In) ? i[index] : o[index];
     }
     Port::Rate getPortRate(Port::Dir dir, int index) override {
-        // The signal input and output are sample-rate; frequency, resonance,
+        // The signal input and output are sample-rate; frequency, Q,
         // and reset are control-rate parameters.
         return (dir == Port::Out || (dir == Port::In && index == Input))
             ? Port::Full : Port::Block;
@@ -69,7 +69,9 @@ public:
     static inline float fastQuarterSin(float x) {
         return x * (3.141592653589793f + x * (-0.5663706143591725f + x * -3.4336293856408275f));
     }
-    static inline Coefs getCoefs(float f, float r) {
+    static inline Coefs getCoefs(float f, float q) {
+        // At low frequencies the gain at the specified frequency tends to 1 / r^2.
+        float r = 1.f / std::sqrt(std::max(0.0001f, q));
         float s = fastQuarterSin(std::min(0.5f, f)), s2 = s*s, r2=r*r;
         float u = (1+r2)*s2 / (1+r2*s2);
         Coefs C;
@@ -84,8 +86,7 @@ public:
     }
     Coefs getCoefs(Buffer *i) {
         float f = i[FreqHz].value() / mSamplerate;
-        float rInv = std::max(0.f, 1 - i[Resonance].value());
-        return getCoefs(f, rInv * (3*rInv + 1));
+        return getCoefs(f, i[Q].value());
     }
     Coefs getCoefStep(Coefs &C, Coefs &T) const {
         float s = 1.f / mBlockSize;
@@ -98,10 +99,21 @@ public:
 
 class FilterBP : public FilterLP {
 public:
+    enum { Compensate = FilterLP::NumInputs, NumInputs = Compensate + 1 };
     std::string getName() { return "FilterBP"; }
+    int getNumPorts(Port::Dir dir) override {
+        return dir == Port::Out ? NumOutputs : NumInputs;
+    }
+    std::string getPortName(Port::Dir dir, int index) override {
+        if (dir == Port::In && index == Compensate) return "compensate";
+        return FilterLP::getPortName(dir, index);
+    }
     void process(Buffer *i, Buffer *o, int N) override {
         Coefs T = getCoefs(i), C = mCoefs;
         float gainTrg = T.g;
+        if (i[Compensate].valueOrDefault(1.f) > 0.f && i[Q].value() < 1.f) {
+            gainTrg /= std::max(0.0001f, i[Q].value());
+        }
         if (i[Reset].value() > .5f) {
             reset();
             C = T;
@@ -115,8 +127,8 @@ public:
             stepCoefs(C, T, cStep);
             gain += gainStep;
             for (int ch = 0; ch < o[Output].numChannels; ++ch) {
-                doSVF(i[Input].data(ch)[n], states[ch], C);
-                o[Output].data(ch)[n] = states[ch].b * gain;
+                doSVF(i[Input].data(ch)[n] * gain, states[ch], C);
+                o[Output].data(ch)[n] = states[ch].b;
             }
         }
         std::copy_n(states, MaxNumChannels, mStates);
@@ -145,8 +157,8 @@ public:
             stepCoefs(C, T, cStep);
             gain += gainStep;
             for (int ch = 0; ch < o[Output].numChannels; ++ch) {
-                float hp = doSVF(i[Input].data(ch)[n], states[ch], C);
-                o[Output].data(ch)[n] = hp * gain;
+                float hp = doSVF(i[Input].data(ch)[n] * gain, states[ch], C);
+                o[Output].data(ch)[n] = hp;
             }
         }
         std::copy_n(states, MaxNumChannels, mStates);

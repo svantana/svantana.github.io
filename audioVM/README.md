@@ -119,6 +119,15 @@ The inputs to `channels` must be consecutive and mono. A channel index must
 be within the input's resolved channel count. These operators provide routing;
 The `filterLP`, `filterBP`, and `filterHP` operators preserve one or two input
 channels with independent filter state.
+For these filters, `Q` sets approximately the linear gain at the
+specified frequency when it is low relative to the sample rate: 1 means
+unity gain, 0.5 approximately -6 dB, and 2 approximately +6 dB. Values at
+or below 0 are treated as 0.0001; the approximation becomes less accurate
+at higher frequencies.
+For `filterBP`, set `compensate` above zero to divide the input by `Q`
+when `Q` is below 1, giving approximately unity gain at the specified
+frequency at low frequencies. At `Q` of 1 or above, or
+when `compensate` is zero or negative, the normal response is used.
 Other operators and the browser input do not yet automatically preserve
 multichannel signals.
 

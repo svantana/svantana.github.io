@@ -37,9 +37,15 @@ printf 'Sample rate: %s Hz\n' "$sample_rate"
   "$project_dir/tests/test_codegen.cpp" \
   -o "$temp_dir/test-codegen"
 
+"${CXX:-c++}" \
+  -std=c++17 -O3 -ffast-math \
+  "$project_dir/tests/test_filter_gain.cpp" \
+  -o "$temp_dir/test-filter-gain"
+
 "$temp_dir/test-runtime-when"
 "$temp_dir/test-op-definitions"
 "$temp_dir/test-codegen"
+"$temp_dir/test-filter-gain"
 
 presets=()
 while IFS= read -r -d '' preset; do

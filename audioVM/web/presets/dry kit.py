@@ -26,7 +26,7 @@ with vm.when(envA > 1e-3):
   mod = vm.op("oscSin", {"frequency": 145 * fScale, "reset": onset})
   osc = vm.op("oscFM", {"frequency": 173 * fScale, "reset": onset})(mod * (envA * .2))
   noi = vm.op("oscNoise");
-  noiF = vm.op("filterBP", {"frequency": 4e3, "resonance": 0.5})(noi)
+  noiF = vm.op("filterBP", {"frequency": 4e3, "Q": 2})(noi)
   envN = vm.op("envADSR", {"gate": envA>0.5, "a": 0.016, "d": 0.18, "s":0, "r": 0.18})
   mix += vm.op("vca", {"gain": envA * envA * 0.7, "reset": onset})(osc)
   mix += vm.op("vca", {"gain": envN * envN, "reset": onset})(noiF)

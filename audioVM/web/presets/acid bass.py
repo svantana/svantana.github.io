@@ -23,8 +23,8 @@ osc = vm.op("oscAnalog", {"note": glideNote, "color":pColor, "pulse amount": pPu
 
 filterHz = (0.2 + 0.8 * pCutoff + pEnv * (envF - 0.3)) ** 4 * 12e3
 
-filter = vm.op("filterLP", {"frequency": filterHz, "resonance": pRez * 0.9})(osc)
-filter = vm.op("filterLP", {"frequency": filterHz*3, "resonance": 0})(filter)
+filter = vm.op("filterLP", {"frequency": filterHz, "Q": 0.3 + pRez * 5})(osc)
+filter = vm.op("filterLP", {"frequency": filterHz*3, "Q": 0.5})(filter)
 
 gain = envA * (0.6 - 0.4 * pRez)
 out = filter * gain

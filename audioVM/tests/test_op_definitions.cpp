@@ -29,7 +29,9 @@ bool checkFilterDefinition(const picojson::object& definition, const std::string
         return true;
     };
 
-    return checkPorts("inputs", {{"input", 1}, {"frequency", 0}, {"resonance", 0}, {"reset", 0}}) &&
+    std::map<std::string, int> inputs = {{"input", 1}, {"frequency", 0}, {"Q", 0}, {"reset", 0}};
+    if (id == "filterBP") inputs.emplace("compensate", 0);
+    return checkPorts("inputs", inputs) &&
            checkPorts("outputs", {{"output", 1}});
 }
 

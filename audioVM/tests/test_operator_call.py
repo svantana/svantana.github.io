@@ -134,14 +134,14 @@ class OperatorCallTests(unittest.TestCase):
         vm = VM()
         osc = vm.op("oscAnalog", {"note": 60})
 
-        filtered = vm.op("filterLP", {"frequency": 1e3, "resonance": 0.5})(osc)
+        filtered = vm.op("filterLP", {"frequency": 1e3, "Q": 0.5})(osc)
 
         self.assertEqual(filtered.input, {
             "frequency": 1e3,
-            "resonance": 0.5,
+            "Q": 0.5,
             "input": "oscAnalog1",
         })
-        self.assertIn('"input": {"frequency": 1000.0, "resonance": 0.5, "input": "oscAnalog1"}', vm.get_json())
+        self.assertIn('"input": {"frequency": 1000.0, "Q": 0.5, "input": "oscAnalog1"}', vm.get_json())
 
     def test_call_sets_positional_input_on_an_unconfigured_operator(self):
         vm = VM()
